@@ -1,0 +1,1 @@
+ALTER TABLE public.partner_suggestions ALTER COLUMN partner_id DROP NOT NULL;

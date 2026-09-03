@@ -1,0 +1,2 @@
+ALTER TABLE public.capital_raise_engagements ADD COLUMN IF NOT EXISTS removed_at timestamptz;
+CREATE INDEX IF NOT EXISTS capital_raise_engagements_removed_at_idx ON public.capital_raise_engagements (removed_at);

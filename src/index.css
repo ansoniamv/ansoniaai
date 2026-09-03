@@ -1,0 +1,290 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  ANSONIA — Institutional design system
+  Brand palette (per Ansonia Brand Identity Guidelines):
+  - Brand Dark Blue  #002752  → hsl(212 100% 16%)   (primary, sidebar chrome, foreground on light blue)
+  - Brand Light Blue #6aa3d8  → hsl(209 59% 63%)    (accent; pair with dark-blue text for AA contrast)
+
+  Neutral / semantic tokens (unchanged):
+  - Ink (text)      #1A1F2B  → hsl(217 24% 14%)
+  - Slate (label)   #5B6472  → hsl(217 11% 40%)
+  - Canvas bg       #F7F8FA  → hsl(220 20% 97%)
+  - Card surface    #FFFFFF  → hsl(0 0% 100%)
+  - Hairline border #E4E7EC  → hsl(214 14% 91%)
+  - Gridline        #EAECF0  → hsl(220 14% 93%)
+  - Strong fg/bg    #2E7D5B / #E6F4EC → hsl(151 47% 33%) / hsl(141 47% 93%)
+  - Medium fg/bg    #B7791F / #FBF1E0 → hsl(35 71% 42%)  / hsl(38 77% 93%)
+  - Maybe  fg/bg    #5B6472 / #F2F4F7 → hsl(217 11% 40%) / hsl(220 16% 96%)
+  - Skip   fg       #98A2B3            → hsl(216 13% 65%)
+*/
+
+@layer base {
+  :root {
+    --background: 220 20% 97%;
+    --foreground: 217 24% 14%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 217 24% 14%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 217 24% 14%;
+
+    --primary: 212 100% 16%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 16% 96%;
+    --secondary-foreground: 217 24% 14%;
+
+    --muted: 220 16% 96%;
+    --muted-foreground: 217 11% 40%;
+
+    --accent: 209 59% 63%;
+    --accent-foreground: 212 100% 16%;
+
+    --destructive: 0 65% 45%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 14% 91%;
+    --input: 214 14% 91%;
+    --ring: 212 100% 16%;
+    --hairline: 214 14% 91%;
+    --gridline: 220 14% 93%;
+
+    --radius: 0.5rem;
+
+    /* Semantic tier tokens — used everywhere fit_tier is shown */
+    --tier-strong-fg: 151 47% 33%;
+    --tier-strong-bg: 141 47% 93%;
+    --tier-medium-fg: 35 71% 42%;
+    --tier-medium-bg: 38 77% 93%;
+    --tier-maybe-fg: 217 11% 40%;
+    --tier-maybe-bg: 220 16% 96%;
+    --tier-skip-fg: 216 13% 65%;
+    --tier-skip-bg: 220 16% 96%;
+
+    /* Sidebar — deep brand navy chrome */
+    --sidebar-background: 212 100% 12%;
+    --sidebar-foreground: 209 30% 88%;
+    --sidebar-primary: 209 59% 63%;
+    --sidebar-primary-foreground: 212 100% 16%;
+    --sidebar-accent: 212 80% 20%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 212 70% 22%;
+    --sidebar-ring: 209 59% 63%;
+
+    /* Chart palette — brand blues; chart-4/5 stay green/amber for tier semantics */
+    --chart-1: 212 100% 16%;
+    --chart-2: 210 70% 40%;
+    --chart-3: 209 59% 63%;
+    --chart-4: 151 47% 33%;
+    --chart-5: 35 71% 42%;
+
+    /* Shadows — barely-there */
+    --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.06);
+    --shadow-card-hover: 0 4px 12px rgba(16, 24, 40, 0.08);
+  }
+
+  .dark {
+    --background: 212 40% 8%;
+    --foreground: 220 20% 96%;
+    --card: 212 38% 11%;
+    --card-foreground: 220 20% 96%;
+    --popover: 212 38% 11%;
+    --popover-foreground: 220 20% 96%;
+    --primary: 209 59% 63%;
+    --primary-foreground: 212 100% 16%;
+    --secondary: 212 30% 18%;
+    --secondary-foreground: 220 20% 96%;
+    --muted: 212 30% 18%;
+    --muted-foreground: 217 11% 65%;
+    --accent: 209 59% 63%;
+    --accent-foreground: 212 100% 16%;
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 212 28% 22%;
+    --input: 212 28% 22%;
+    --ring: 209 59% 63%;
+    --hairline: 212 28% 22%;
+    --gridline: 212 28% 22%;
+
+    --sidebar-background: 212 100% 10%;
+    --sidebar-foreground: 209 30% 88%;
+    --sidebar-primary: 209 59% 63%;
+    --sidebar-primary-foreground: 212 100% 16%;
+    --sidebar-accent: 212 70% 18%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 212 60% 20%;
+    --sidebar-ring: 209 59% 63%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* Tabular numerals on every number-ish surface */
+  table,
+  td,
+  th,
+  .tabular-nums,
+  [class*="text-kpi"],
+  .font-display,
+  .font-serif-display {
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: "Inter Tight", "Inter", system-ui, sans-serif;
+    letter-spacing: -0.015em;
+    color: hsl(var(--foreground));
+  }
+
+  /* Refined institutional scrollbars */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+}
+
+@layer components {
+  /* Institutional KPI numeric — Source Serif for gravitas */
+  .font-serif-display {
+    font-family: "Source Serif 4", "Source Serif Pro", "Georgia", serif;
+    font-feature-settings: "lnum", "tnum";
+    letter-spacing: -0.01em;
+  }
+
+  /* Small-caps tier chip */
+  .chip-tier {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium uppercase tracking-wider border;
+    letter-spacing: 0.06em;
+  }
+
+  /* Surface — the canonical card look */
+  .surface-card {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--hairline));
+    border-radius: 0.5rem;
+    box-shadow: var(--shadow-card);
+  }
+  .surface-card:hover {
+    box-shadow: var(--shadow-card-hover);
+  }
+}
+
+.ProseMirror:focus { outline: none; }
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: hsl(var(--muted-foreground));
+}
+
+/* Page search highlights */
+mark.__page-search-hit {
+  background-color: hsl(var(--primary) / 0.25);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+mark.__page-search-hit.__page-search-hit-active {
+  background-color: hsl(var(--primary) / 0.6);
+  color: hsl(var(--primary-foreground));
+  outline: 2px solid hsl(var(--primary));
+}
+
+
+/* Client-facing tearsheet — print-first. Scoped so nothing else changes. */
+.tearsheet table.pipeline {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  table-layout: fixed;
+}
+.tearsheet table.pipeline thead th {
+  text-align: left;
+  padding: 10px 8px 7px;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #5b6472;
+  border-bottom: 1px solid #002752;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: none;
+  vertical-align: bottom;
+}
+.tearsheet table.pipeline td {
+  padding: 8px;
+  border-bottom: 1px solid #eff1f4;
+  vertical-align: top;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: none;
+}
+.tearsheet .num,
+.tearsheet th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  white-space: nowrap;
+}
+.tearsheet .prop {
+  font-weight: 600;
+  color: #1a1f2b;
+  line-height: 1.3;
+}
+.tearsheet .prop small {
+  display: block;
+  margin-top: 2px;
+  font-weight: 400;
+  font-size: 8.5px;
+  color: #5b6472;
+  line-height: 1.35;
+}
+.tearsheet .why {
+  color: #5b6472;
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+.tearsheet .why b {
+  color: #1a1f2b;
+  font-weight: 600;
+}
+.tearsheet table.pipeline .chip {
+  display: inline-block;
+  max-width: 100%;
+  white-space: normal;
+}
+
+@media print {
+  .no-print { display: none !important; }
+  @page { size: letter portrait; margin: 0.5in; }
+  html, body { background: #fff; }
+  .tearsheet { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .tearsheet thead { display: table-header-group; }
+  .tearsheet tr, .tearsheet .band-group { break-inside: avoid; }
+  .tearsheet .page-break { break-before: page; }
+}

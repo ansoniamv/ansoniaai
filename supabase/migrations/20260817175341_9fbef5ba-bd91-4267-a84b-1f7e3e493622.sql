@@ -1,0 +1,1 @@
+UPDATE public.deals SET pipeline_stage = 'Lost/Pass' WHERE pipeline_stage = 'Lost';

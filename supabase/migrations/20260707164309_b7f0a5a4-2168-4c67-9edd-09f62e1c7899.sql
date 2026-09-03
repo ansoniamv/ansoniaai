@@ -1,0 +1,2 @@
+ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS team_member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_notes_team_member_id ON public.notes(team_member_id);

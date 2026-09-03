@@ -1,0 +1,1 @@
+ALTER TABLE public.inbox_deals ADD COLUMN IF NOT EXISTS address text;

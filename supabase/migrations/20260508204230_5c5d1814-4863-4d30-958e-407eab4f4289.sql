@@ -1,0 +1,1 @@
+ALTER TABLE public.deal_enrichment ADD COLUMN IF NOT EXISTS schools jsonb;

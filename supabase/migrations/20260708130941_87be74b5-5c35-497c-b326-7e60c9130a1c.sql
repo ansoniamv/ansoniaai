@@ -1,0 +1,2 @@
+ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS content_format text NOT NULL DEFAULT 'plain';
+ALTER TABLE public.notes ADD CONSTRAINT notes_content_format_check CHECK (content_format IN ('plain','html'));

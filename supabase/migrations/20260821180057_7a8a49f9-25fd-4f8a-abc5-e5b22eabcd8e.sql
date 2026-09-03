@@ -1,0 +1,11 @@
+CREATE INDEX IF NOT EXISTS idx_deals_created_at ON public.deals (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_deals_status ON public.deals (status);
+CREATE INDEX IF NOT EXISTS idx_deal_emails_deal_received ON public.deal_emails (deal_id, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_inbox_deals_updated_at ON public.inbox_deals (updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_inbox_deals_gate_checked_at ON public.inbox_deals (gate_checked_at DESC) WHERE gate_checked_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_outlook_messages_synced_at ON public.outlook_messages (synced_at DESC);
+CREATE INDEX IF NOT EXISTS idx_deal_emails_created_at ON public.deal_emails (created_at DESC);
+ANALYZE public.deals;
+ANALYZE public.inbox_deals;
+ANALYZE public.deal_emails;
+ANALYZE public.outlook_messages;

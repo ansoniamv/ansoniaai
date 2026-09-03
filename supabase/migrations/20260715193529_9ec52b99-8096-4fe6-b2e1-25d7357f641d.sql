@@ -1,0 +1,1 @@
+ALTER VIEW public.ai_usage_daily SET (security_invoker = true);

@@ -1,0 +1,1 @@
+ALTER TABLE public.outlook_messages ADD COLUMN IF NOT EXISTS mailbox text NOT NULL DEFAULT 'acquisitions'; CREATE INDEX IF NOT EXISTS idx_outlook_messages_mailbox ON public.outlook_messages(mailbox);
