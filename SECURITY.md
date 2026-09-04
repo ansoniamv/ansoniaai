@@ -1,5 +1,9 @@
 # Security posture and deployment checklist
 
+> Repo `ansoniamv/ansoniaai` is **public**. History was scanned before publishing:
+> no `.env`, archive or provider key in any commit; the only credential present
+> is the Supabase anon JWT, which is public by design.
+
 Two things happened here: the September 2026 audit fixes (commits `bece34c`,
 `2dcd035`, `46c7e99`, `53c4086`), and the migration of the whole app off
 Supabase project `fmodmsxhujqzkibjnggo` onto `bkkphsiikibgzeakleqn`.
@@ -39,7 +43,7 @@ notes and email history. This project's tables are empty. Moving that data needs
 a `pg_dump`/restore run from an account that can reach
 `fmodmsxhujqzkibjnggo`, which this token cannot.
 
-## Blocker 1 — nobody can log in yet
+## Open item 1 — nobody can log in yet
 
 `auth.users` is empty, the app has no signup UI, and `admin-invite-user`
 requires an existing admin. So there is a bootstrap gap.
@@ -68,39 +72,42 @@ it is open, anyone can `POST /auth/v1/signup` and get a valid `authenticated`
 JWT; the data layer holds because a `pending` profile fails every policy, but
 there is no reason to leave it open once you are in.
 
-## Blocker 2 — Vercel is refusing every deployment
+## Vercel — resolved, and live
 
-This is not a build problem and not a config problem. Seven production deploys
-sit at `readyState: BLOCKED` with no build events and a `[0ms]` build. The API
-gives the reason:
+Root cause: the CLI was authenticated as the wrong Vercel account.
+`mvasylechko-3546` / `vasylechko@principesclub.com` owns a team called
+`maxym-vasylechkos-projects`, and every deploy under it was rejected with
+`seatBlock: TEAM_ACCESS_REQUIRED, isVerified: false` — an unverified account.
+That looked like a platform fault but was simply the wrong identity: commits
+are authored `MVasylechko@ansoniaproperties.com` on the GitHub `ansoniamv`
+account, which that Vercel account has no relationship to.
 
-```
-readyStateReason: "The deployment was blocked because the commit author
-                   doesn't have permission to create deployments for this project."
-seatBlock:        { "blockCode": "TEAM_ACCESS_REQUIRED", "isVerified": false }
-```
+The correct account is `ansoniamv` / `mvasylechko@ansoniaproperties.com`, team
+`ansoniamv`. It already had a project `ansoniaai` **linked to
+`ansoniamv/ansoniaai` on branch `main`**, so pushes auto-deploy. It had no
+environment variables, which is why its first build produced a bundle with no
+Supabase config.
 
-`isVerified: false` is the operative part — the account is not verified, so
-Vercel blocks deploys before a builder ever starts. Supporting detail: the team
-is `hobby`/`plus` with `status: active`, but `expiredSubscriptions` contains the
-same `orbSubscriptionId` as the live subscription, and there is exactly one
-scope on the token, so there is no alternative team to deploy into.
+Current state:
 
-The one deployment that ever succeeded is `deal-pipeline-l019rfqhb`, ~18h old,
-which predates all of the security work. **The fixes are on `main` but are not
-live.**
+- Live: **https://ansoniaai.vercel.app** (also `ansoniaai-ansoniamv.vercel.app`)
+- Deployment `READY`, no seat block.
+- `VITE_SUPABASE_URL`, `VITE_SUPABASE_PROJECT_ID` and
+  `VITE_SUPABASE_PUBLISHABLE_KEY` set for production, preview and development.
+- Verified served: all six security headers present, the SPA rewrite resolves
+  deep links (`/deals/test` returns 200), and the shipped bundle references
+  only `bkkphsiikibgzeakleqn`.
+- The old `deal-pipeline-pro` project on the `principesclub` account is
+  abandoned. Its blocked deploys and env vars can be deleted.
 
-Fixing this is a dashboard action only you can take — verify the account email
-and resolve the seat at `https://vercel.com/account`. Once that clears:
+Note on CORS preflight: an `OPTIONS` request returns
+`Access-Control-Allow-Origin: *` because the Supabase functions gateway answers
+preflight itself, before the function runs. The response that actually governs
+whether a browser exposes the body comes from `corsFor()`, and it is correct —
+a POST from `https://ansoniaai.vercel.app` is echoed back with `Vary: Origin`,
+while a POST from another origin gets no allow-origin header at all.
 
-```bash
-vercel --prod
-```
-
-The env vars are already set for all three environments, so no further
-configuration is needed.
-
-## Blocker 3 — third-party API keys are missing
+## Open item 2 — third-party API keys are missing
 
 Supabase secrets are write-only: they cannot be read back, and they lived only
 on the old project. I set what I had; the rest have to be re-entered from the
@@ -131,9 +138,10 @@ Note the CLI rejects the `sbp_v0_` token format (v2.116.0 is current and still
 does), so either use a classic `sbp_` token or set them in the dashboard under
 Edge Functions → Secrets.
 
-`ALLOWED_ORIGINS` is set, so `corsFor()` is enforcing rather than falling back
-to the wildcard. If the production hostname changes after the Vercel block
-clears, update it or the browser will block responses.
+`ALLOWED_ORIGINS` is set to the live hostnames, so `corsFor()` is enforcing.
+`site_url` and the auth redirect allow-list point at
+`https://ansoniaai.vercel.app`. Edge functions read secrets at boot, so after
+changing `ALLOWED_ORIGINS` the functions must be redeployed to observe it.
 
 ## Still worth doing
 
@@ -149,10 +157,10 @@ clears, update it or the browser will block responses.
    `frame-ancestors 'self' https://lovable.dev`, since XFO cannot express an
    allowlist.
 
-2. **Verify headers land** once deploys work:
+2. **Re-verify headers** after any hosting change:
 
    ```bash
-   curl -sSI https://<production domain>/ | grep -iE \
+   curl -sSI https://ansoniaai.vercel.app/ | grep -iE \
      "content-security-policy|x-frame-options|referrer-policy|strict-transport|x-content-type|permissions-policy"
    ```
 
