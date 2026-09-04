@@ -100,8 +100,9 @@ export default function AuthPage() {
           </p>
         </div>
 
-        {/* Form sits on dark background, no card */}
-        <div className="bg-white/[0.03] p-8">
+        {/* Form sits on dark background; hairline accent border defines the panel
+            and echoes the input border treatment. */}
+        <div className="bg-white/[0.03] p-8 border border-[#6aa3d8]/25 rounded-[3px]">
           <h1
             className="text-center text-white text-sm mb-1"
             style={{ letterSpacing: "0.24em", fontWeight: 300 }}
