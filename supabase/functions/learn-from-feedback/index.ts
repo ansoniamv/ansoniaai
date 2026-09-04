@@ -1,6 +1,7 @@
 // Reads recent deal_feedback rows and distills them into a "How Ansonia decides" note
 // stored in learned_strategy. Used as soft context by gate-deals + score-deals.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { completeText } from "../_shared/ai.ts";
 import { logAiUsage } from "../_shared/logUsage.ts";
 
 const corsHeaders = {
@@ -32,7 +33,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not set");
+    
 
     const compact = denials.map((d: any) => ({
       category: d.category,
@@ -48,24 +49,10 @@ Deno.serve(async (req) => {
       `## Geography\n- ...\n## Asset Type & Quality\n- ...\n## Size & Scale\n- ...\n## Pricing & Returns\n- ...\n## Condition / Vintage\n- ...\n## Sponsor / Operator\n- ...\n## Other Patterns\n- ...\n\n` +
       `Rules:\n- Cite specifics when patterns are clear (e.g. "Consistently passing on <50 units", "Avoiding pre-1980 vintage in tertiary markets").\n- Omit sections with no signal.\n- Speak in principles, not anecdotes. No deal names.\n- This will be appended as CONTEXT to future AI screening — keep it dense and actionable.`;
 
-    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Lovable-API-Key": LOVABLE_API_KEY,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    if (!resp.ok) {
-      const t = await resp.text();
-      throw new Error(`Gateway ${resp.status}: ${t}`);
-    }
-    const j = await resp.json();
-    await logAiUsage(supabase, { function_name: "learn-from-feedback", model: "google/gemini-2.5-flash", provider: "lovable-gateway", usage: j?.usage });
-    const content = j?.choices?.[0]?.message?.content?.trim();
+    // Claude Opus 5 primary, gateway fallback — see _shared/ai.ts.
+    const res = await completeText(prompt, { maxTokens: 8000 });
+    await logAiUsage(supabase, { function_name: "learn-from-feedback", model: res.model, provider: res.provider, usage: res.usage });
+    const content = res.text;
     if (!content) throw new Error("Empty model response");
 
     // Single evolving row — replace existing

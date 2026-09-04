@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { completeText } from "../_shared/ai.ts";
 import { logAiUsage } from "../_shared/logUsage.ts";
 
 const corsHeaders = {
@@ -78,31 +79,20 @@ class GatewayError extends Error {
   }
 }
 
+// Routing and retries live in _shared/ai.ts — Claude Opus 5 primary, gateway fallback.
 async function callLLM(prompt: string, ctx?: { supabase: any; partner_id?: string }): Promise<string> {
-  let lastErr: Error | null = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await fetch(GATEWAY_URL, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "content-type": "application/json" },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 3000,
-        messages: [{ role: "user", content: prompt }],
-      }),
+  // Floor the budget: Opus 5 thinking tokens share max_tokens.
+  const res = await completeText(prompt, { maxTokens: 8000 });
+  if (ctx?.supabase) {
+    await logAiUsage(ctx.supabase, {
+      function_name: "enrich-partner-from-notes",
+      model: res.model,
+      provider: res.provider,
+      usage: res.usage,
+      partner_id: ctx.partner_id ?? null,
     });
-    if (res.ok) {
-      const data = await res.json();
-      if (ctx?.supabase) {
-        await logAiUsage(ctx.supabase, { function_name: "enrich-partner-from-notes", model: MODEL, provider: "lovable-gateway", usage: data?.usage, partner_id: ctx.partner_id ?? null });
-      }
-      return (data?.choices?.[0]?.message?.content ?? "").trim();
-    }
-    const t = await res.text();
-    lastErr = new GatewayError(res.status, t);
-    if (res.status !== 429 && res.status < 500) break;
-    await new Promise((r) => setTimeout(r, 800 * Math.pow(2, attempt)));
   }
-  throw lastErr ?? new Error("LLM call failed");
+  return res.text;
 }
 
 

@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { completeText, completeVision } from "../_shared/ai.ts";
 import { logAiUsage } from "../_shared/logUsage.ts";
 import { requireUserOrService } from "../_shared/auth.ts";
 
@@ -45,33 +46,19 @@ async function callLLM(
   model = SUMMARY_MODEL,
   ctx?: { supabase: any; deal_id?: string | null },
 ): Promise<string> {
-  let lastErr: Error | null = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await fetch(GATEWAY_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: maxTokens,
-        messages: [{ role: "user", content: prompt }],
-      }),
+  // Routing and retries live in _shared/ai.ts — Claude Opus 5 primary, gateway fallback.
+  // Floor the budget: Opus 5 thinking tokens share max_tokens.
+  const res = await completeText(prompt, { maxTokens: Math.max(maxTokens, 8000) });
+  if (ctx?.supabase) {
+    await logAiUsage(ctx.supabase, {
+      function_name: "summarize-emails",
+      model: res.model,
+      provider: res.provider,
+      usage: res.usage,
+      deal_id: ctx.deal_id ?? null,
     });
-    if (res.ok) {
-      const data = await res.json();
-      if (ctx?.supabase) {
-        await logAiUsage(ctx.supabase, { function_name: "summarize-emails", model, provider: "lovable-gateway", usage: data?.usage, deal_id: ctx.deal_id ?? null });
-      }
-      return (data?.choices?.[0]?.message?.content ?? "").trim();
-    }
-    const text = await res.text();
-    lastErr = new Error(`Gateway ${res.status}: ${text.slice(0, 300)}`);
-    if (res.status !== 429 && res.status < 500) break;
-    await new Promise((r) => setTimeout(r, 800 * Math.pow(2, attempt)));
   }
-  throw lastErr ?? new Error("LLM call failed");
+  return res.text;
 }
 
 async function callVisionLLM(
@@ -81,31 +68,18 @@ async function callVisionLLM(
   maxTokens = 400,
   ctx?: { supabase: any; deal_id?: string | null },
 ): Promise<string> {
-  const content: Array<Record<string, unknown>> = [{ type: "text", text: prompt }];
-  for (const url of imageUrls) {
-    content.push({ type: "image_url", image_url: { url } });
-  }
-  const res = await fetch(GATEWAY_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: VISION_MODEL,
-      max_tokens: maxTokens,
-      messages: [{ role: "user", content }],
-    }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Vision gateway ${res.status}: ${text.slice(0, 300)}`);
-  }
-  const data = await res.json();
+  // Image handling and routing live in _shared/ai.ts — Claude Opus 5 primary.
+  const res = await completeVision(prompt, imageUrls, { maxTokens: Math.max(maxTokens, 8000) });
   if (ctx?.supabase) {
-    await logAiUsage(ctx.supabase, { function_name: "summarize-emails", model: VISION_MODEL, provider: "lovable-gateway", usage: data?.usage, deal_id: ctx.deal_id ?? null });
+    await logAiUsage(ctx.supabase, {
+      function_name: "summarize-emails",
+      model: res.model,
+      provider: res.provider,
+      usage: res.usage,
+      deal_id: ctx.deal_id ?? null,
+    });
   }
-  return (data?.choices?.[0]?.message?.content ?? "").trim();
+  return res.text;
 }
 
 function stripHtml(s: string | null | undefined): string {

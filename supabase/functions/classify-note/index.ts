@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage } from "../_shared/logUsage.ts";
+import { completeText } from "../_shared/ai.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -8,10 +9,7 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
-
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-2.5-flash-lite";
+// Model routing lives in _shared/ai.ts — Claude Opus 5 primary, gateway fallback.
 
 function stripHtml(html: string): string {
   return html
@@ -31,7 +29,9 @@ async function sha256(str: string): Promise<string> {
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function classify(text: string): Promise<{ classification: "firm" | "deal"; summary: string; usage: any }> {
+async function classify(
+  text: string,
+): Promise<{ classification: "firm" | "deal"; summary: string; usage: any; model: string; provider: string }> {
   const prompt = `You classify a note written by a real-estate PE deal team about a capital partner (an LP/investor firm).
 
 Return ONLY compact JSON, no prose, no code fences:
@@ -45,30 +45,14 @@ Summary is a one-line human recap (no quotes, no leading label).
 NOTE:
 """${text.slice(0, 4000)}"""`;
 
-  const res = await fetch(GATEWAY_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${LOVABLE_API_KEY}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 200,
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`Gateway ${res.status}: ${t.slice(0, 300)}`);
-  }
-  const data = await res.json();
-  const raw = (data?.choices?.[0]?.message?.content ?? "").trim();
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error("No JSON in LLM response: " + raw.slice(0, 200));
+  // Classification is mechanical, so run it at low effort to keep cost down.
+  const res = await completeText(prompt, { maxTokens: 4000, effort: "low" });
+  const jsonMatch = res.text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("No JSON in LLM response: " + res.text.slice(0, 200));
   const parsed = JSON.parse(jsonMatch[0]);
   const classification = parsed.classification === "firm" ? "firm" : "deal";
   const summary = String(parsed.summary ?? "").slice(0, 200);
-  return { classification, summary, usage: data?.usage };
+  return { classification, summary, usage: res.usage, model: res.model, provider: res.provider };
 }
 
 Deno.serve(async (req) => {
@@ -100,8 +84,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { classification, summary, usage } = await classify(text);
-    await logAiUsage(sb, { function_name: "classify-note", model: MODEL, provider: "lovable-gateway", usage });
+    const { classification, summary, usage, model, provider } = await classify(text);
+    await logAiUsage(sb, { function_name: "classify-note", model, provider, usage });
 
     const { error: updErr } = await sb
       .from("notes")

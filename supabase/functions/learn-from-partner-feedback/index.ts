@@ -1,6 +1,7 @@
 // Reads recent capital_partner_feedback rows and distills them into a
 // "How capital partners evaluate our deals" note stored in learned_partner_strategy.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { completeText } from "../_shared/ai.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,7 +32,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not set");
+    
 
     const compact = rows.map((r: any) => ({
       category: r.category,
@@ -48,38 +49,27 @@ Deno.serve(async (req) => {
       `## Check Size & Scale\n- ...\n## Markets & Geography\n- ...\n## Strategy & Risk Appetite\n- ...\n## Pricing & Returns\n- ...\n## Timing & Capital\n- ...\n## Relationship & Fit\n- ...\n## Other Patterns\n- ...\n\n` +
       `Rules:\n- Principles, not anecdotes. NEVER name a specific partner.\n- Cite specifics when patterns are clear (e.g. "Value-add funds pass when going-in cap is below 5.5%", "Core-plus partners avoid tertiary Sunbelt markets").\n- Omit sections with no signal.\n- Dense and actionable — this will be shown as guidance to analysts and to the partner-matching UI.`;
 
-    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Lovable-API-Key": LOVABLE_API_KEY,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    if (!resp.ok) {
-      const t = await resp.text();
-      let friendly = `Gateway ${resp.status}`;
-      try {
-        const parsed = JSON.parse(t);
-        if (parsed?.type === "credit_limit_reached" || resp.status === 402 || /credit/i.test(parsed?.message ?? "")) {
-          friendly = "AI credits exhausted for this workspace. Top up credits to refresh learning.";
-        } else if (resp.status === 429) {
-          friendly = "AI gateway rate limit hit. Try again in a moment.";
-        } else if (parsed?.message) {
-          friendly = parsed.message;
-        }
-      } catch { /* not JSON */ }
-      console.error("learn-from-partner-feedback gateway error", resp.status, t);
+    // Claude Opus 5 primary, gateway fallback — see _shared/ai.ts.
+    let content: string;
+    try {
+      const res = await completeText(prompt, { maxTokens: 8000 });
+      content = res.text;
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      let friendly = "The learning run could not reach a model.";
+      if (/credit/i.test(msg) || /\b402\b/.test(msg)) {
+        friendly = "AI credits exhausted for this workspace. Top up credits to refresh learning.";
+      } else if (/\b429\b/.test(msg)) {
+        friendly = "AI rate limit hit. Try again in a moment.";
+      } else if (/refus/i.test(msg)) {
+        friendly = "The model declined this request.";
+      }
+      console.error("learn-from-partner-feedback model error", msg);
       return new Response(
-        JSON.stringify({ ok: false, error: friendly, status: resp.status }),
+        JSON.stringify({ ok: false, error: friendly }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
-    const j = await resp.json();
-    const content = j?.choices?.[0]?.message?.content?.trim();
     if (!content) throw new Error("Empty model response");
 
     const { data: existing } = await supabase

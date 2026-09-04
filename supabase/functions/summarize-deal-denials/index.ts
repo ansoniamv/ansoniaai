@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { completeText } from "../_shared/ai.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,26 +8,11 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-2.5-flash";
-
+// Model routing lives in _shared/ai.ts — Claude Opus 5 primary, gateway fallback.
 async function callLLM(prompt: string, maxTokens = 800): Promise<string> {
-  const res = await fetch(GATEWAY_URL, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: maxTokens,
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`Gateway ${res.status}: ${t.slice(0, 300)}`);
-  }
-  const data = await res.json();
-  return (data?.choices?.[0]?.message?.content ?? "").trim();
+  // Floor the budget: Opus 5 thinking tokens share max_tokens.
+  const res = await completeText(prompt, { maxTokens: Math.max(maxTokens, 4000) });
+  return res.text;
 }
 
 Deno.serve(async (req) => {

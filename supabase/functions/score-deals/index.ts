@@ -1,6 +1,7 @@
 // Score acquisitions-pipeline deals (inbox_deals) against the live buy_box config.
 // Reads pillars + active signals fresh on every invocation — never use hardcoded weights.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { completeText } from "../_shared/ai.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage } from "../_shared/logUsage.ts";
 
@@ -116,7 +117,7 @@ async function generateRationale(
   examples: Array<{ category: string | null; reason: string | null; deal: any }>,
   ctx?: { supabase: any },
 ): Promise<string | null> {
-  if (!LOVABLE_API_KEY) return null;
+  // Model availability is handled inside _shared/ai.ts.
   const scored = breakdown.filter((p) => p.score != null).sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   if (!scored.length) return null;
   const highest = scored[0];
@@ -147,31 +148,22 @@ async function generateRationale(
   const system = "You are an investment analyst at Ansonia Properties triaging multifamily deals at the TOP of the funnel. This is a FIT signal, not an underwriting verdict. Reason ONLY about market, submarket demand, demographics, asset type, vintage, size, location, and value-add potential. NEVER mention or penalize for missing/absent deal economics, pricing, asking price, purchase price, cap rate, returns, IRR, yield, rent-to-market gap, or underwriting data — those are evaluated later in the pipeline, not here. Write a single concise 2-sentence rationale (<=55 words total) explaining the fit score against the thesis. Reference the strongest and weakest pillar by name. No preamble, no markdown, no bullet points.";
   const user = `ANSONIA INVESTMENT THESIS:\n${thesis || "(no thesis configured)"}${strategyBlock}${examplesBlock}\n\nDEAL + PILLAR SCORES:\n${JSON.stringify(summary, null, 2)}\n\nWrite the 2-sentence rationale now.`;
   try {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const resp = await fetch(GATEWAY_URL, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "content-type": "application/json" },
-        body: JSON.stringify({
-          model: RATIONALE_MODEL,
-          max_tokens: 220,
-          messages: [{ role: "system", content: system }, { role: "user", content: user }],
-        }),
+    // Claude Opus 5 primary, gateway fallback — see _shared/ai.ts. The rationale
+    // is two sentences, but Opus 5 thinking shares max_tokens, so the budget is
+    // well above the old 220-token ceiling; low effort keeps the cost down.
+    const res = await completeText(user, { system, maxTokens: 4000, effort: "low" });
+    if (ctx?.supabase) {
+      await logAiUsage(ctx.supabase, {
+        function_name: "score-deals",
+        model: res.model,
+        provider: res.provider,
+        usage: res.usage,
+        deal_id: deal?.id,
       });
-      if (resp.ok) {
-        const j = await resp.json();
-        if (ctx?.supabase) await logAiUsage(ctx.supabase, { function_name: "score-deals", model: RATIONALE_MODEL, provider: "lovable-gateway", usage: j?.usage, deal_id: deal?.id });
-        const txt = j?.choices?.[0]?.message?.content;
-        return typeof txt === "string" ? txt.trim() : null;
-      }
-      if (resp.status !== 429 && resp.status < 500) {
-        console.error("Gateway error", resp.status, (await resp.text()).slice(0, 200));
-        return null;
-      }
-      await new Promise((r) => setTimeout(r, 500 * Math.pow(2, attempt)));
     }
-    return null;
+    return res.text ? res.text.trim() : null;
   } catch (e) {
-    console.error("Gateway call failed", e);
+    console.error("Rationale model call failed", e);
     return null;
   }
 }

@@ -10,6 +10,7 @@ const corsHeaders = {
 };
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+const ANTHROPIC_MODEL = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-opus-5";
 
 // Ansonia target geography
 const ALLOWED_STATES = new Set([
@@ -181,15 +182,19 @@ async function classifyWithClaude(
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-5",
-        max_tokens: 200,
+        model: ANTHROPIC_MODEL,
+        // Thinking is on by default on Opus 5 and shares this budget. The old
+        // 200-token ceiling would be consumed by thinking before any text.
+        max_tokens: 4000,
         messages: [{ role: "user", content: prompt }],
       }),
     });
     if (!resp.ok) { console.error("claude gate err", resp.status, await resp.text()); return null; }
     const j = await resp.json();
-    if (ctx?.supabase) await logAiUsage(ctx.supabase, { function_name: "gate-deals", model: "claude-sonnet-4-5", provider: "anthropic", usage: j?.usage, deal_id: d.id });
-    const txt = j?.content?.[0]?.text ?? "";
+    if (j?.stop_reason === "refusal") { console.error("claude gate refusal", j?.stop_details?.category); return null; }
+    if (ctx?.supabase) await logAiUsage(ctx.supabase, { function_name: "gate-deals", model: ANTHROPIC_MODEL, provider: "anthropic", usage: j?.usage, deal_id: d.id });
+    // Must filter for text blocks — content[0] can be a thinking block.
+    const txt = (j?.content ?? []).filter((b: any) => b?.type === "text").map((b: any) => b.text).join("\n");
     const m = txt.match(/\{[\s\S]*\}/);
     if (!m) return null;
     return JSON.parse(m[0]);

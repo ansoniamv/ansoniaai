@@ -9,11 +9,11 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-// Anthropic disabled — credits exhausted and it was adding latency on every request.
-// Set USE_ANTHROPIC=1 to re-enable once billing is topped up.
-const USE_ANTHROPIC = Deno.env.get("USE_ANTHROPIC") === "1";
+// Anthropic (Claude Opus 5) is the primary model for all AI calls.
+// Set USE_ANTHROPIC=0 to fall back to the Lovable gateway (e.g. during an outage).
+const USE_ANTHROPIC = Deno.env.get("USE_ANTHROPIC") !== "0";
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
-const ANTHROPIC_MODEL = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-sonnet-4-5";
+const ANTHROPIC_MODEL = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-opus-5";
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 const FALLBACK_MODEL = Deno.env.get("FALLBACK_MODEL") ?? "google/gemini-3-flash-preview";
 
@@ -204,7 +204,9 @@ async function runAnthropic(supabase: any, serviceClient: any, initialMessages: 
       },
       body: JSON.stringify({
         model: ANTHROPIC_MODEL,
-        max_tokens: 4096,
+        // Thinking is on by default on Opus 5 and shares this budget, so keep it
+        // generous — a small ceiling can be consumed entirely by thinking.
+        max_tokens: 16000,
         system: systemPrompt,
         tools,
         messages,
@@ -215,6 +217,9 @@ async function runAnthropic(supabase: any, serviceClient: any, initialMessages: 
       throw new Error(`anthropic ${resp.status}: ${txt.slice(0, 300)}`);
     }
     const data = await resp.json();
+    if (data.stop_reason === "refusal") {
+      throw new Error(`anthropic refusal: ${data?.stop_details?.category ?? "unspecified"}`);
+    }
     const content = data.content ?? [];
     await logAiUsage(serviceClient, { function_name: "chat", model: ANTHROPIC_MODEL, provider: "anthropic", usage: data?.usage });
     messages.push({ role: "assistant", content });

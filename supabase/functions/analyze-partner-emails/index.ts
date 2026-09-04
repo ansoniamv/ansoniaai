@@ -1,6 +1,7 @@
 // Thread-aware Atlas email analyzer. Proposes changes (never applies).
 // Input: { partner_id?: string, since_days?: number }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { completeJSON } from "../_shared/ai.ts";
 import { requireUserOrService } from "../_shared/auth.ts";
 
 const corsHeaders = {
@@ -179,18 +180,8 @@ From: ${m.from_email || ""}
 Body:
 ${text}`;
   try {
-    const res = await fetch(AI_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: AI_MODEL,
-        response_format: { type: "json_object" },
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    if (!res.ok) { console.error("directive AI error", res.status, await res.text()); return null; }
-    const data = await res.json();
-    const parsed = JSON.parse(data.choices?.[0]?.message?.content || "{}");
+    // Claude Opus 5 primary, gateway fallback — see _shared/ai.ts.
+    const { parsed } = await completeJSON<any>(prompt, { maxTokens: 4000 });
     if (!parsed || typeof parsed !== "object") return null;
     if (typeof parsed.confidence === "number" && parsed.confidence < 0.5) return null;
     const intent = String(parsed.intent || "none");
@@ -908,24 +899,12 @@ Notes on noise reduction:
 
         let aiJson: { suggestions?: Suggestion[]; deal_pick?: any } | null = null;
         try {
-          const aiRes = await fetch(AI_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LOVABLE_API_KEY}` },
-            body: JSON.stringify({
-              model: AI_MODEL,
-              response_format: { type: "json_object" },
-              messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: JSON.stringify(userPayload) },
-              ],
-            }),
-          });
-          if (!aiRes.ok) {
-            console.error("AI error", aiRes.status, await aiRes.text());
-            continue;
-          }
-          const aiData = await aiRes.json();
-          aiJson = JSON.parse(aiData.choices?.[0]?.message?.content || "{}");
+          // Claude Opus 5 primary, gateway fallback — see _shared/ai.ts.
+          const { parsed } = await completeJSON<{ suggestions?: Suggestion[]; deal_pick?: any }>(
+            JSON.stringify(userPayload),
+            { system: systemPrompt, maxTokens: 8000 },
+          );
+          aiJson = parsed;
         } catch (e) { console.error("AI parse error", e); continue; }
 
         // Resolve deal via AI pick if needed

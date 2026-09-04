@@ -16,7 +16,9 @@ const corsHeaders = {
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
-const MODEL = Deno.env.get("PROPERTY_RESEARCH_MODEL") ?? "claude-sonnet-4-5";
+// claude-opus-5 also fixes a latent mismatch: the web_search_20260209 tool used
+// below requires Opus 4.6+/Sonnet 4.6+ and is not supported on claude-sonnet-4-5.
+const MODEL = Deno.env.get("PROPERTY_RESEARCH_MODEL") ?? Deno.env.get("ANTHROPIC_MODEL") ?? "claude-opus-5";
 const RESEARCH_TIMEOUT_MS = 25_000;
 
 const DEFAULT_BUYBOX = `Ansonia Capital Management buybox:
@@ -428,9 +430,11 @@ async function anthropicResearch(userText: string, buybox: string, ctx?: { supab
 
     const data = await callAnthropic({
       model: MODEL,
-      max_tokens: 2500,
-      // NOTE: `thinking: { type: "adaptive" }` is not supported on claude-sonnet-4-5.
-      // Omit the field to let the model run normally.
+      // Opus 5 runs adaptive thinking by default and those tokens share this
+      // budget, so it is raised from the old 2500 to leave room for the answer.
+      max_tokens: 16000,
+      // `thinking` is intentionally omitted: Opus 5 runs adaptive thinking when
+      // the field is absent. Do not add budget_tokens — it returns a 400.
       output_config: {
         format: { type: "json_schema", schema: SNAPSHOT_SCHEMA },
       },

@@ -6,6 +6,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { requireUserOrService, corsFor } from "../_shared/auth.ts";
 import { logAiUsage } from "../_shared/logUsage.ts";
+import { completeText } from "../_shared/ai.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -111,35 +112,18 @@ class GatewayError extends Error {
   }
 }
 
+// Routing and retries live in _shared/ai.ts — Claude Opus 5 primary, gateway fallback.
 async function callLLM(prompt: string, ctx: { supabase: any; partner_id: string }): Promise<string> {
-  let lastErr: Error | null = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await fetch(GATEWAY_URL, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "content-type": "application/json" },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 300,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      await logAiUsage(ctx.supabase, {
-        function_name: "summarize-partners",
-        model: MODEL,
-        provider: "lovable-gateway",
-        usage: data?.usage,
-        partner_id: ctx.partner_id,
-      });
-      return (data?.choices?.[0]?.message?.content ?? "").trim();
-    }
-    const t = await res.text();
-    lastErr = new GatewayError(res.status, t);
-    if (res.status !== 429 && res.status < 500) break;
-    await new Promise((r) => setTimeout(r, 800 * Math.pow(2, attempt)));
-  }
-  throw lastErr ?? new Error("LLM call failed");
+  // Floor the budget: Opus 5 thinking tokens share max_tokens.
+  const res = await completeText(prompt, { maxTokens: 4000 });
+  await logAiUsage(ctx.supabase, {
+    function_name: "summarize-partners",
+    model: res.model,
+    provider: res.provider,
+    usage: res.usage,
+    partner_id: ctx.partner_id,
+  });
+  return res.text;
 }
 
 Deno.serve(async (req) => {

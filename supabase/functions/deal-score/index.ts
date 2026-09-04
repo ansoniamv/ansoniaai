@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { completeJSON } from "../_shared/ai.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage } from "../_shared/logUsage.ts";
 
@@ -195,7 +196,7 @@ serve(async (req) => {
     let adjustment = 0;
     let summary = "";
 
-    if (thesis && LOVABLE_API_KEY && confidence !== "insufficient" && confidence !== "low") {
+    if (thesis && confidence !== "insufficient" && confidence !== "low") {
       try {
         const summaryPayload = {
           property: deal.property_name,
@@ -207,49 +208,28 @@ serve(async (req) => {
           base_score: baseScore,
           pillars: pillarBreakdown.map((p) => ({ name: p.name, score: p.score, weight: p.weight })),
         };
-        const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "google/gemini-3-flash-preview",
-            messages: [
-              { role: "system", content: "You are an investment committee analyst evaluating a value-add multifamily deal against an investment thesis. Be concise and specific." },
-              { role: "user", content: `THESIS:\n${thesis}\n\nDEAL DATA:\n${JSON.stringify(summaryPayload, null, 2)}\n\nReturn a 2-3 sentence rationale and an integer adjustment (-10 to +10) reflecting how well the deal aligns with the thesis beyond the numeric pillar score.` },
-            ],
-            tools: [{
-              type: "function",
-              function: {
-                name: "submit_evaluation",
-                description: "Submit thesis-alignment rationale and score adjustment",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    rationale: { type: "string", description: "2-3 sentence narrative justifying the adjustment" },
-                    adjustment: { type: "integer", minimum: -10, maximum: 10, description: "Score nudge based on thesis fit" },
-                  },
-                  required: ["rationale", "adjustment"],
-                  additionalProperties: false,
-                },
-              },
-            }],
-            tool_choice: { type: "function", function: { name: "submit_evaluation" } },
-          }),
-        });
-        if (resp.ok) {
-          const j = await resp.json();
-          await logAiUsage(supabase, { function_name: "deal-score", model: "google/gemini-3-flash-preview", provider: "lovable-gateway", usage: j?.usage, deal_id });
-          const args = j.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
-          if (args) {
-            const parsed = JSON.parse(args);
-            const raw = Math.max(-10, Math.min(10, Number(parsed.adjustment) || 0));
-            // Scale by confidence: high = 1.0, medium = 0.5
-            const scale = confidence === "high" ? 1 : 0.5;
-            adjustment = Math.round(raw * scale);
-            summary = String(parsed.rationale || "");
-          }
-        } else {
-          console.error("LLM error:", resp.status, await resp.text());
-        }
+        // Claude Opus 5 primary, gateway fallback — see _shared/ai.ts.
+        // Asking for a JSON object rather than a forced tool call keeps this
+        // provider-agnostic across the primary and fallback models.
+        const prompt =
+          `THESIS:\n${thesis}\n\nDEAL DATA:\n${JSON.stringify(summaryPayload, null, 2)}\n\n` +
+          `Return ONLY a JSON object, no prose and no code fences:\n` +
+          `{"rationale":"2-3 sentence narrative justifying the adjustment",` +
+          `"adjustment":<integer between -10 and 10 reflecting how well the deal aligns ` +
+          `with the thesis beyond the numeric pillar score>}`;
+        const { parsed, model, provider, usage } = await completeJSON<{ rationale?: string; adjustment?: number }>(
+          prompt,
+          {
+            system: "You are an investment committee analyst evaluating a value-add multifamily deal against an investment thesis. Be concise and specific.",
+            maxTokens: 4000,
+          },
+        );
+        await logAiUsage(supabase, { function_name: "deal-score", model, provider, usage, deal_id });
+        const raw = Math.max(-10, Math.min(10, Number(parsed.adjustment) || 0));
+        // Scale by confidence: high = 1.0, medium = 0.5
+        const scale = confidence === "high" ? 1 : 0.5;
+        adjustment = Math.round(raw * scale);
+        summary = String(parsed.rationale || "");
       } catch (e) {
         console.error("LLM call failed:", e);
       }

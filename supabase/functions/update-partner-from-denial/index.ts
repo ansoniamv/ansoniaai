@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { completeText } from "../_shared/ai.ts";
 import { requireApprovedUser } from "../_shared/auth.ts";
 
 const corsHeaders = {
@@ -19,22 +20,11 @@ function json(body: unknown, status = 200) {
   });
 }
 
+// Model routing lives in _shared/ai.ts — Claude Opus 5 primary, gateway fallback.
 async function callLLM(prompt: string): Promise<string> {
-  const res = await fetch(GATEWAY_URL, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 800,
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`Gateway ${res.status}: ${t.slice(0, 300)}`);
-  }
-  const data = await res.json();
-  return (data?.choices?.[0]?.message?.content ?? "").trim();
+  // Floor the budget: Opus 5 thinking tokens share max_tokens.
+  const res = await completeText(prompt, { maxTokens: 4000 });
+  return res.text;
 }
 
 Deno.serve(async (req) => {
