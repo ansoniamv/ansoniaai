@@ -1,13 +1,15 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logApiRequest } from "../_shared/logUsage.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
+import { errorResponse } from "../_shared/errors.ts";
 
 Deno.serve(async (req) => {
+  const corsHeaders = corsFor(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // Every call is a billed HelloData search.
+  const authz = await requireApprovedUser(req);
+  if (!authz.ok) return authz.response;
 
   try {
     const apiKey = Deno.env.get("HELLODATA_API_KEY");
@@ -31,9 +33,11 @@ Deno.serve(async (req) => {
     } catch { /* never break the caller */ }
     const text = await res.text();
     if (!res.ok) {
-      return new Response(JSON.stringify({ error: text, status: res.status }), {
-        status: res.status,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      // Vendor error bodies echo request URLs, plan identifiers and quota state.
+      return errorResponse(new Error(`hellodata ${res.status}: ${text}`), corsHeaders, {
+        fn: "hellodata-search",
+        status: res.status >= 500 ? 502 : 400,
+        publicMessage: "Property search is unavailable right now.",
       });
     }
     const data = JSON.parse(text);

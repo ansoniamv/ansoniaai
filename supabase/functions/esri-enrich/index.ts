@@ -1,11 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logApiRequest } from "../_shared/logUsage.ts";
 import { getArcGISToken } from "../_shared/arcgisToken.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
 
 const RING_LABELS = ["1mi", "3mi", "5mi"];
 const GEOCODE_CONFIDENCE_THRESHOLD = 85;
@@ -26,12 +22,15 @@ const ESRI_DATA_COLLECTIONS = [
 ];
 
 function arcgisErrorMessage(context: string, error: unknown) {
-  const errorText = JSON.stringify(error);
   const code = typeof error === "object" && error !== null && "code" in error ? (error as { code?: number }).code : undefined;
+  // The raw ArcGIS body, the name of the secret, and its restriction posture are
+  // operator detail: they belong in the log, never in a value that reaches the
+  // client (this string is surfaced to the browser via the catch handler below).
+  console.error(`[esri-enrich] ${context} raw:`, JSON.stringify(error));
   if (code === 498 || code === 499) {
-    return `${context} error: ArcGIS rejected ESRI_API_KEY. The key may be referrer-restricted or lack access to the required services (World Geocoding / GeoEnrichment). Generate an unrestricted server API key in the ArcGIS Developer dashboard. Raw: ${errorText}`;
+    return `${context} error: upstream credential rejected (code ${code}). See function logs.`;
   }
-  return `${context} error: ${errorText}`;
+  return `${context} error: upstream request failed.`;
 }
 
 const DEFAULT_MONTHLY_CAP_USD = 250;
@@ -180,7 +179,12 @@ async function enrich(lat: number, lon: number, token: string) {
 }
 
 Deno.serve(async (req) => {
+  const corsHeaders = corsFor(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // Consumes metered ArcGIS credits and rewrites deal enrichment + coordinates.
+  const authz = await requireApprovedUser(req);
+  if (!authz.ok) return authz.response;
 
   try {
     const { token, source: tokenSource } = await getArcGISToken(

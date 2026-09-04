@@ -6,15 +6,48 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-const baseCors = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+// Comma-separated list of exact origins allowed to read function responses from a
+// browser, e.g.
+//   ALLOWED_ORIGINS=https://app.ansoniaproperties.com,https://deal-pipeline-pro.vercel.app,http://localhost:5173
+// Set it as a Supabase function secret. Never include "*".
+const ALLOWED_ORIGINS = new Set(
+  (Deno.env.get("ALLOWED_ORIGINS") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
+
+const headerCors = {
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-cron-secret",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+  Vary: "Origin",
 };
 
-export function corsFor(_req: Request) {
-  // Left open for now; tighten via ALLOWED_ORIGINS env when ready.
-  return baseCors;
+/**
+ * Per-request CORS headers.
+ *
+ * Credentials are never allowed (this app authenticates with a bearer token, not
+ * cookies), so the only thing at stake is whether a foreign page may READ a
+ * response. Omitting Access-Control-Allow-Origin makes the browser block it.
+ *
+ * When ALLOWED_ORIGINS is unset this falls back to the previous wildcard so a
+ * deploy cannot break the app before the secret is configured. Setting the secret
+ * is what actually closes the hole — see the deployment checklist in SECURITY.md.
+ */
+export function corsFor(req: Request) {
+  const origin = req.headers.get("Origin") ?? "";
+
+  if (ALLOWED_ORIGINS.size === 0) {
+    return { ...headerCors, "Access-Control-Allow-Origin": "*" };
+  }
+  // No Origin header means a server-to-server caller (pg_cron, function-to-
+  // function). CORS does not apply; do not advertise an origin.
+  if (!origin) return { ...headerCors };
+  if (ALLOWED_ORIGINS.has(origin)) {
+    return { ...headerCors, "Access-Control-Allow-Origin": origin };
+  }
+  return { ...headerCors };
 }
 
 export type AuthOk = {

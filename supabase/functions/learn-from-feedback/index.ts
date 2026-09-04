@@ -3,16 +3,19 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { completeText } from "../_shared/ai.ts";
 import { logAiUsage } from "../_shared/logUsage.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
 
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
 Deno.serve(async (req) => {
+  const corsHeaders = corsFor(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // Overwrites learned_strategy, which is injected into every subsequent
+  // gate-deals and score-deals prompt.
+  const authz = await requireApprovedUser(req);
+  if (!authz.ok) return authz.response;
+
   try {
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,

@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 
 type CheckKey =
   | "inbox_has_deals"
@@ -102,7 +102,12 @@ const CHECKS: Record<CheckKey, (min: number) => Promise<CheckResult>> = {
 };
 
 Deno.serve(async (req) => {
+  const corsHeaders = corsFor(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // Flips roadmap_items to "shipped" and inserts roadmap_events.
+  const authz = await requireUserOrService(req);
+  if (authz && !authz.ok) return authz.response;
 
   try {
     const { data: items, error } = await supabase

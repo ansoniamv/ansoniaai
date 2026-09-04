@@ -2,15 +2,20 @@
 //   { to: string[], cc?: string[], subject, html?, text?, partnerId?, dealId?, partnerContactId? }
 // Returns { ok, id, webLink }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
+import { errorResponse } from "../_shared/errors.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 const GATEWAY_URL = "https://connector-gateway.lovable.dev/microsoft_outlook";
 
 Deno.serve(async (req) => {
+  const corsHeaders = corsFor(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // This endpoint composes mail in a real Ansonia mailbox, so it is gated the
+  // same way its sibling outlook-send is.
+  const authz = await requireApprovedUser(req);
+  if (!authz.ok) return authz.response;
+
   try {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     // Atlas mailbox connection. Fall back to the main Outlook key if the Atlas
@@ -37,6 +42,16 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Validate every recipient looks like an email address (mirrors outlook-send).
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const allRecipients = [...(to ?? []), ...(cc ?? [])];
+    if (allRecipients.some((a: unknown) => typeof a !== "string" || !emailRe.test(a) || a.length > 255)) {
+      return new Response(JSON.stringify({ error: "Invalid recipient" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const message = {
       subject,
       body: { contentType: html ? "HTML" : "Text", content: html || text },
@@ -56,14 +71,13 @@ Deno.serve(async (req) => {
     });
 
     if (!res.ok) {
-      const detail = await res.text();
-      return new Response(
-        JSON.stringify({ error: "Draft failed", status: res.status, detail }),
-        {
-          status: 502,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        },
-      );
+      // The raw Graph body names internal endpoints and mailbox identifiers: log
+      // it, hand the caller only a reference.
+      return errorResponse(new Error(`graph ${res.status}: ${await res.text()}`), corsHeaders, {
+        fn: "outlook-draft",
+        status: 502,
+        publicMessage: "Draft failed.",
+      });
     }
     const draft = await res.json();
 

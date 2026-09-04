@@ -3,11 +3,15 @@
 // Sets gate_status in {passed, review, filtered} + gate_reason.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage } from "../_shared/logUsage.ts";
+import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+// Ambiguous deals cost one Opus call each, so the batch is capped server-side.
+// `force` skips the content-hash short-circuit, so with force on the whole batch
+// is billable — the ceiling is what keeps that bounded.
+const DEFAULT_LIMIT = 200;
+const MAX_LIMIT = 500;
+// score-deals enforces its own per-call cap; chunk to match it.
+const SCORE_CHUNK = 200;
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const ANTHROPIC_MODEL = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-opus-5";
@@ -233,7 +237,12 @@ async function contentHash(d: Deal): Promise<string> {
 }
 
 Deno.serve(async (req) => {
+  const corsHeaders = corsFor(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  const authz = await requireUserOrService(req);
+  if (authz && !authz.ok) return authz.response;
+
   try {
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -242,13 +251,19 @@ Deno.serve(async (req) => {
     let body: { deal_ids?: string[]; limit?: number; force?: boolean } = {};
     try { body = await req.json(); } catch { /* ignore */ }
 
+    // `limit` was previously a ceiling the caller chose, so limit:1000000 was
+    // honoured. It may now only reduce the batch.
+    const requested = Number(body.limit) > 0 ? Number(body.limit) : DEFAULT_LIMIT;
+    const batchLimit = Math.min(requested, MAX_LIMIT);
+
     let q = supabase
       .from("inbox_deals")
       .select("id, property_name, location_city, location_state, msa, asset_class, units, email_subject, email_body, email_thread_summary, gate_status, gate_content_hash")
       .order("email_received_at", { ascending: false })
-      .limit(body.limit ?? 500);
-    if (Array.isArray(body.deal_ids) && body.deal_ids.length) q = q.in("id", body.deal_ids);
-    else if (!body.force) q = q.eq("gate_status", "pending");
+      .limit(batchLimit);
+    if (Array.isArray(body.deal_ids) && body.deal_ids.length) {
+      q = q.in("id", body.deal_ids.slice(0, batchLimit));
+    } else if (!body.force) q = q.eq("gate_status", "pending");
 
     const { data: deals, error } = await q;
     if (error) throw error;
@@ -291,9 +306,11 @@ Deno.serve(async (req) => {
       else filtered++;
     }
 
-    // Kick off scoring for deals that survived the gate (passed + review)
-    if (passedIds.length) {
-      supabase.functions.invoke("score-deals", { body: { deal_ids: passedIds } })
+    // Kick off scoring for deals that survived the gate (passed + review).
+    // Chunked to score-deals' own per-call cap so none are silently dropped.
+    for (let i = 0; i < passedIds.length; i += SCORE_CHUNK) {
+      const chunk = passedIds.slice(i, i + SCORE_CHUNK);
+      supabase.functions.invoke("score-deals", { body: { deal_ids: chunk } })
         .catch((e) => console.error("score-deals invoke failed", e));
     }
 

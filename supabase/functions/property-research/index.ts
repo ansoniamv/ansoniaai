@@ -7,11 +7,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage } from "../_shared/logUsage.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -476,7 +472,14 @@ async function anthropicResearch(userText: string, buybox: string, ctx?: { supab
 }
 
 Deno.serve(async (req) => {
+  const corsHeaders = corsFor(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // `address` is free text that becomes the Opus 5 prompt, and web_search is
+  // attached — unauthenticated this endpoint is a billable model proxy.
+  const authz = await requireApprovedUser(req);
+  if (!authz.ok) return authz.response;
+
   let supabase: any = null;
   let requestArgs: { address?: string; property_name?: string; deal_id?: string } = {};
 
@@ -493,6 +496,15 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Provide an address and/or property_name." }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+    // These strings are interpolated into the model prompt. An address and a
+    // property name are short; anything longer is prompt payload, not a lookup.
+    const MAX_TARGET_LEN = 200;
+    if ((address?.length ?? 0) > MAX_TARGET_LEN || (property_name?.length ?? 0) > MAX_TARGET_LEN) {
+      return new Response(
+        JSON.stringify({ error: `address and property_name must each be under ${MAX_TARGET_LEN} characters.` }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     supabase = createClient(SUPABASE_URL, SERVICE_KEY);

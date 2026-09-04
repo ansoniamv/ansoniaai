@@ -83,7 +83,13 @@ async function runTool(supabase: any, name: string, args: any) {
   }
   if (name === "describe_table") {
     const { data: row, error } = await supabase.from(args.table).select("*").limit(1);
-    if (error) return { error: error.message };
+    // Postgres error text names tables, columns and constraints, and for an RLS
+    // denial describes the policy. This value is returned as a tool result, so
+    // the model will paraphrase it into the visible transcript — keep it generic.
+    if (error) {
+      console.error("[chat] describe_table", error);
+      return { error: "could not describe table" };
+    }
     return { columns: row && row[0] ? Object.keys(row[0]) : [] };
   }
   if (name === "query_table") {
@@ -107,7 +113,10 @@ async function runTool(supabase: any, name: string, args: any) {
     }
     if (order_by) q = q.order(order_by, { ascending });
     const { data, error } = await q;
-    if (error) return { error: error.message };
+    if (error) {
+      console.error("[chat] query_table", error);
+      return { error: "query failed" };
+    }
     return { rows: data, count: data?.length ?? 0 };
   }
   return { error: "unknown tool" };
@@ -316,6 +325,20 @@ Deno.serve(async (req) => {
     const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
     // User-scoped client — tool queries execute under the caller's RLS.
     const supabaseUser = auth.userClient;
+
+    // The bookkeeping writes below use the service client, which bypasses RLS, so
+    // thread ownership has to be proven here. Without this an approved user can
+    // post into, and read the title of, another user's thread by passing its id.
+    const { data: ownedThread } = await supabaseUser
+      .from("chat_threads")
+      .select("id")
+      .eq("id", thread_id)
+      .maybeSingle();
+    if (!ownedThread) {
+      return new Response(JSON.stringify({ error: "Thread not found" }), {
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const lastUser = [...incoming].reverse().find((m: any) => m.role === "user");
     if (lastUser) {

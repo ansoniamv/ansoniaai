@@ -1,11 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { mapHelloDataProperty } from "../_shared/hellodataMapping.ts";
 import { logApiRequest } from "../_shared/logUsage.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { corsFor, requireUserOrService } from "../_shared/auth.ts";
+import { errorResponse } from "../_shared/errors.ts";
 
 // Intake-only fields from the shared mapper — captured on the New Deal form
 // and NOT overwritten by the post-create enrichment run.
@@ -15,14 +12,22 @@ const INTAKE_ONLY_KEYS = new Set([
 ]);
 
 Deno.serve(async (req) => {
+  const corsHeaders = corsFor(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  const authz = await requireUserOrService(req);
+  if (authz && !authz.ok) return authz.response;
 
   try {
     const apiKey = Deno.env.get("HELLODATA_API_KEY");
     if (!apiKey) throw new Error("HELLODATA_API_KEY not configured");
 
-    const { deal_id, hellodata_id, force } = await req.json();
+    const { deal_id, hellodata_id, force: forceReq } = await req.json();
     if (!deal_id || !hellodata_id) throw new Error("deal_id and hellodata_id required");
+
+    // `force` skips the 24h cache and bills a fresh HelloData call, so only a
+    // trusted service/cron caller (authz === null) may set it.
+    const force = forceReq === true && authz === null;
 
     const supabaseEarly = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -57,9 +62,10 @@ Deno.serve(async (req) => {
     } catch { /* noop */ }
     const text = await res.text();
     if (!res.ok) {
-      return new Response(JSON.stringify({ error: text, status: res.status }), {
-        status: res.status,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      return errorResponse(new Error(`hellodata ${res.status}: ${text}`), corsHeaders, {
+        fn: "hellodata-enrich",
+        status: res.status >= 500 ? 502 : 400,
+        publicMessage: "Property enrichment is unavailable right now.",
       });
     }
     const p = JSON.parse(text);

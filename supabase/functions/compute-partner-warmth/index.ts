@@ -2,11 +2,7 @@
 // Upserts partner_warmth_signals and proposes warmth_change when the computed
 // level differs from partners.relationship_strength.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 
 const WARMTH_VALUES = ["Existing Partner","Very Warm","Warm","Tepid","Cold"] as const;
 const INTERNAL_DOMAIN = "@ansoniaproperties.com";
@@ -52,7 +48,14 @@ function computeLevel(sig: {
 }
 
 Deno.serve(async (req) => {
+  const corsHeaders = corsFor(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // Invoked from the UI and by scheduled-atlas-run. With no partner_id it walks
+  // every partner, so it must not be anonymous.
+  const authz = await requireUserOrService(req);
+  if (authz && !authz.ok) return authz.response;
+
   try {
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,

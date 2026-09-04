@@ -119,7 +119,12 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const top = Math.min(Number(body.top) || 50, 200);
-    const folder: string = body.folder || "inbox";
+    // `folder` is interpolated into the Graph request path. URL normalization
+    // collapses "..", so an unvalidated value repoints the connector credential
+    // at another mailbox (e.g. "../../users/someone@ansoniaproperties.com").
+    const ALLOWED_FOLDERS = new Set(["inbox", "sentitems", "archive", "drafts"]);
+    const requestedFolder = String(body.folder ?? "").toLowerCase();
+    const folder: string = ALLOWED_FOLDERS.has(requestedFolder) ? requestedFolder : "inbox";
     const requestedMailbox: string | undefined = body.mailbox; // optional filter
 
     const mailboxes: Mailbox[] = [];

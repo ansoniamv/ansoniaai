@@ -5,11 +5,7 @@
 //   - Job growth: BLS SAE total nonfarm YoY, MSA resolved via Census FCC geocoder from lat/lon
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -76,7 +72,12 @@ async function fetchBlsJobGrowth(stateCode: string, cbsa: string): Promise<numbe
 }
 
 serve(async (req) => {
+  const corsHeaders = corsFor(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // Invoked by deal-score, which forwards the service-role key.
+  const authz = await requireUserOrService(req);
+  if (authz && !authz.ok) return authz.response;
 
   try {
     const { deal_id } = await req.json();

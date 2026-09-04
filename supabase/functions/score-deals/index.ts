@@ -4,11 +4,11 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { completeText } from "../_shared/ai.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage } from "../_shared/logUsage.ts";
+import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+// One LLM call is issued per deal, so the batch must be bounded server-side.
+// A caller may only ever REDUCE this, never raise it.
+const MAX_DEALS_PER_CALL = 200;
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -272,7 +272,11 @@ async function scoreOne(
 }
 
 serve(async (req) => {
+  const corsHeaders = corsFor(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  const authz = await requireUserOrService(req);
+  if (authz && !authz.ok) return authz.response;
 
   try {
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
@@ -292,14 +296,17 @@ serve(async (req) => {
     const examples = (fb ?? []).map((f: any) => ({ category: f.category, reason: f.reason_text, deal: f.deal_snapshot }));
 
     let q = supabase.from("inbox_deals").select("*").order("email_received_at", { ascending: false });
-    if (Array.isArray(deal_ids) && deal_ids.length) q = q.in("id", deal_ids);
+    if (Array.isArray(deal_ids) && deal_ids.length) q = q.in("id", deal_ids.slice(0, MAX_DEALS_PER_CALL));
     else if (typeof since_days === "number" && since_days > 0) {
       const cutoff = new Date(Date.now() - since_days * 86400000).toISOString();
       q = q.gte("email_received_at", cutoff);
     }
     // Never score deals that the qualification gate has filtered out.
     q = q.neq("gate_status", "filtered");
-    if (typeof limit === "number" && limit > 0) q = q.limit(limit);
+    // An absent `limit` previously meant "every non-filtered deal", i.e. one LLM
+    // call per pipeline row. The cap is now unconditional.
+    const requested = typeof limit === "number" && limit > 0 ? limit : MAX_DEALS_PER_CALL;
+    q = q.limit(Math.min(requested, MAX_DEALS_PER_CALL));
 
     const { data: deals, error } = await q;
     if (error) throw error;

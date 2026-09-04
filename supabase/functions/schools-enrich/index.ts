@@ -1,9 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
 
 // NCES ArcGIS Online services (free, public, no token required)
 const DISTRICTS_URL =
@@ -278,7 +274,13 @@ async function scrapeNicheGrade(searchTerm: string, kind: "school" | "district")
 
 
 Deno.serve(async (req) => {
+  const corsHeaders = corsFor(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // Cache misses cost a billed Firecrawl search + scrape.
+  const authz = await requireApprovedUser(req);
+  if (!authz.ok) return authz.response;
+
   try {
     const { deal_id, force } = await req.json();
     if (!deal_id) throw new Error("deal_id required");

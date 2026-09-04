@@ -1,9 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 
 const GATEWAY_URL = "https://connector-gateway.lovable.dev/microsoft_outlook";
 
@@ -88,16 +84,42 @@ async function findMatchingDeal(
   const tokens = normGuess.split(" ").filter((t) => t.length >= 4).slice(0, 4);
 
   // Pull candidate deals: those with similar tokens in property_name OR same broker.
-  const { data } = await supabase
-    .from("inbox_deals")
-    .select("id, property_name, broker_contact_email")
-    .or(
-      [
-        ...tokens.map((t) => `property_name.ilike.%${t}%`),
-        senderEmail ? `broker_contact_email.eq.${senderEmail}` : "",
-      ].filter(Boolean).join(","),
-    )
-    .limit(40);
+  //
+  // senderEmail originates in SMTP-delivered content (a parsed forwarded-message
+  // header, or Graph's emailAddress.address) and is only lowercased. Interpolated
+  // into .or() a comma rewrites the filter logic — e.g. an address surfaced as
+  // "a@b.com,property_name.not.is.null" matches every row. Assert the shape, and
+  // run the broker match as a separate .eq() query, which PostgREST encodes.
+  const EMAIL_RE = /^[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,255}\.[a-z]{2,}$/;
+  const safeSender = EMAIL_RE.test(senderEmail ?? "") ? senderEmail : null;
+  // tokens come from norm(), which strips to [a-z0-9 ] — assert rather than trust.
+  const safeTokens = tokens.filter((t) => /^[a-z0-9]+$/.test(t));
+
+  const rows: Array<Record<string, unknown>> = [];
+  if (safeTokens.length) {
+    const { data: byName } = await supabase
+      .from("inbox_deals")
+      .select("id, property_name, broker_contact_email")
+      .or(safeTokens.map((t) => `property_name.ilike.%${t}%`).join(","))
+      .limit(40);
+    rows.push(...(byName ?? []));
+  }
+  if (safeSender) {
+    const { data: byBroker } = await supabase
+      .from("inbox_deals")
+      .select("id, property_name, broker_contact_email")
+      .eq("broker_contact_email", safeSender)
+      .limit(40);
+    rows.push(...(byBroker ?? []));
+  }
+  // De-duplicate: a deal can match on both name and broker.
+  const seen = new Set<string>();
+  const data = rows.filter((r) => {
+    const id = String(r.id);
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 
   let best: { id: string; score: number } | null = null;
   for (const row of data ?? []) {
@@ -147,7 +169,13 @@ function extractOriginalSender(body: string | null): { email: string; name: stri
 }
 
 Deno.serve(async (req) => {
+  const corsHeaders = corsFor(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // Drives Graph reads of the acquisitions mailbox and chains a 200-email LLM
+  // batch. Invoked from the UI and by daily-digest with the service-role key.
+  const authz = await requireUserOrService(req);
+  if (authz && !authz.ok) return authz.response;
 
   try {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");

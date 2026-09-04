@@ -1,11 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { mapHelloDataProperty } from "../_shared/hellodataMapping.ts";
 import { logApiRequest } from "../_shared/logUsage.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
+import { errorResponse } from "../_shared/errors.ts";
 
 async function fetchWithRetry(url: string, apiKey: string): Promise<Response> {
   const maxAttempts = 2; // one retry
@@ -32,7 +29,12 @@ async function fetchWithRetry(url: string, apiKey: string): Promise<Response> {
 }
 
 Deno.serve(async (req) => {
+  const corsHeaders = corsFor(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // Each call is up to two billed HelloData lookups.
+  const authz = await requireApprovedUser(req);
+  if (!authz.ok) return authz.response;
 
   try {
     const apiKey = Deno.env.get("HELLODATA_API_KEY");
@@ -48,9 +50,10 @@ Deno.serve(async (req) => {
     } catch { /* noop */ }
     const text = await res.text();
     if (!res.ok) {
-      return new Response(JSON.stringify({ error: text, status: res.status }), {
-        status: res.status,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      return errorResponse(new Error(`hellodata ${res.status}: ${text}`), corsHeaders, {
+        fn: "hellodata-detail",
+        status: res.status >= 500 ? 502 : 400,
+        publicMessage: "Property lookup is unavailable right now.",
       });
     }
     const p = JSON.parse(text);

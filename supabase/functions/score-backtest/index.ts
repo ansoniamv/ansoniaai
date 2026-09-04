@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
 
 type Row = {
   id: string;
@@ -60,7 +60,13 @@ function plainEnglish(rho: number | null, n: number): string {
 }
 
 Deno.serve(async (req) => {
+  const corsHeaders = corsFor(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // Returns every graded deal's name, AI score and analyst grade — the firm's
+  // internal pipeline intelligence.
+  const authz = await requireApprovedUser(req);
+  if (!authz.ok) return authz.response;
 
   try {
     const supabase = createClient(
