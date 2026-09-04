@@ -289,29 +289,46 @@ If you do copy the rows, load `auth.users` first or `owner` dangles.
 | `pg_cron` jobs | ✅ Already recreated | `daily-digest` 04:00 UTC, `scheduled-atlas-run` every 30 min, credentials read from Vault |
 | Vault secrets | ✅ Already recreated | `cron_shared_secret`, `anon_key` |
 | Auth settings | ✅ Already set | `site_url`, redirect allow-list, `password_min_length` 8 |
-| **Realtime publication** | ⚠️ Pre-existing gap | see below |
+| **Realtime publication** | ✅ Fixed | migration `20260904190000`, applied |
 
-### Realtime publication — worth fixing while you are in here
+### Realtime publication — fixed
 
-Publication membership is schema state, not row data, so it does not come across
-in a data-only dump. On the target, `supabase_realtime` currently contains:
+Publication membership is schema state, not row data, so it does not travel in a
+data-only dump. The target's `supabase_realtime` held only
+`capital_raise_entries`, `inbox_deals` and `roadmap_items`, while the frontend
+subscribes to four tables — so `connectors`
+(`src/hooks/useConnectorEnabled.ts:30-40`) and `roadmap_events`
+(`src/hooks/useRoadmap.ts:84-88`) were publishing nothing and their live updates
+silently never fired.
 
-```
-public.capital_raise_entries, public.inbox_deals, public.roadmap_items
-```
+Migration `20260904190000_add_missing_realtime_publication_tables.sql` adds both
+and is applied. Current state:
 
-But the frontend subscribes to `connectors`, `inbox_deals`, `roadmap_events` and
-`roadmap_items`. So **`connectors` and `roadmap_events` are missing** — live
-updates for those will never fire. This came from the migrations, so the source
-project likely has the same gap; compare and reconcile:
+| Table | In publication | Replica identity |
+| --- | --- | --- |
+| `capital_raise_entries` | yes | default |
+| `connectors` | **added** | **FULL** |
+| `inbox_deals` | yes | FULL |
+| `roadmap_events` | **added** | default |
+| `roadmap_items` | yes | default |
+
+`connectors` got `REPLICA IDENTITY FULL` because it is subscribed with a
+server-side filter (`key=eq.<key>`) and the handler reads
+`payload.new.enabled`; FULL puts every column in the payload so the filter
+resolves on UPDATE and DELETE, not just INSERT. It holds 2 rows, so the WAL cost
+is nil. `roadmap_events` was left at default deliberately — its handler ignores
+the payload and only invalidates a query, and it is an append-heavy audit table
+where FULL would add volume for nothing.
+
+This gap was pre-existing and came from the migrations, so the **source project
+almost certainly has it too**. Worth confirming there, since it means anyone
+watching the roadmap or connector toggles on the old deployment has been
+getting stale UI:
 
 ```sql
--- run on BOTH, diff the output
+-- run against the source
 SELECT schemaname, tablename FROM pg_publication_tables
 WHERE pubname = 'supabase_realtime' ORDER BY 2;
-
--- to add the missing two on the target
-ALTER PUBLICATION supabase_realtime ADD TABLE public.connectors, public.roadmap_events;
 ```
 
 ---
