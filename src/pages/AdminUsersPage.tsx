@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Loader2, UserPlus, Check, X, Shield, ShieldOff, Mail } from "lucide-react";
 import { toast } from "sonner";
+import { userMessage } from "@/lib/errors";
 
 type Status = "pending" | "approved" | "rejected";
 interface Row {
@@ -39,7 +40,7 @@ export default function AdminUsersPage() {
       supabase.from("user_roles").select("user_id,role"),
     ]);
     if (pErr) {
-      toast.error(pErr.message);
+      toast.error(userMessage(pErr, "Could not load users."));
       setLoading(false);
       return;
     }
@@ -65,7 +66,7 @@ export default function AdminUsersPage() {
     });
     setInviting(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(userMessage(error, "Could not send the invite."));
       return;
     }
     toast.success(`Invite sent to ${parsed.data.email}`);
@@ -79,7 +80,7 @@ export default function AdminUsersPage() {
       .from("profiles")
       .update({ status, approved_at: status === "approved" ? new Date().toISOString() : null })
       .eq("id", id);
-    if (error) return toast.error(error.message);
+    if (error) return toast.error(userMessage(error, `Could not mark the user ${status}.`));
     toast.success(`User ${status}`);
     load();
   };
@@ -88,17 +89,17 @@ export default function AdminUsersPage() {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/reset-password`,
     });
-    if (error) return toast.error(error.message);
+    if (error) return toast.error(userMessage(error, "Could not resend the invite link."));
     toast.success(`Invite link resent to ${email}`);
   };
 
   const toggleAdmin = async (id: string, makeAdmin: boolean) => {
     if (makeAdmin) {
       const { error } = await supabase.from("user_roles").insert({ user_id: id, role: "admin" });
-      if (error) return toast.error(error.message);
+      if (error) return toast.error(userMessage(error, "Could not grant admin."));
     } else {
       const { error } = await supabase.from("user_roles").delete().eq("user_id", id).eq("role", "admin");
-      if (error) return toast.error(error.message);
+      if (error) return toast.error(userMessage(error, "Could not revoke admin."));
     }
     toast.success(makeAdmin ? "Admin granted" : "Admin revoked");
     load();

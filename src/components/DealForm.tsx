@@ -138,8 +138,16 @@ export function DealForm({ defaultValues, onSubmit, isLoading, submitLabel = "Cr
         // hellodata-search reads `q` from the URL query string, which
         // supabase.functions.invoke can't send cleanly — so we call it via fetch.
         const { data: sessionData } = await supabase.auth.getSession();
-        const token =
-          sessionData.session?.access_token ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        const token = sessionData.session?.access_token;
+        // Previously this fell back to the publishable key, which is public and
+        // ships in this bundle — that fallback is what made every unguarded
+        // edge function reachable by anyone who loaded the app. A signed-in
+        // session is now required; without one there is nothing to search as.
+        if (!token) {
+          setResults([]);
+          setShowResults(false);
+          return;
+        }
         const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/hellodata-search?q=${encodeURIComponent(q)}`;
         const res = await fetch(url, {
           headers: {

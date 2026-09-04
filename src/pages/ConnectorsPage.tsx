@@ -5,6 +5,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { userMessage } from "@/lib/errors";
 
 interface Connector {
   id: string;
@@ -24,7 +25,7 @@ export default function ConnectorsPage() {
       .from("connectors")
       .select("*")
       .order("name", { ascending: true });
-    if (error) toast.error(error.message);
+    if (error) toast.error(userMessage(error, "Could not load connectors."));
     else setRows((data ?? []) as Connector[]);
     setLoading(false);
   };
@@ -41,7 +42,7 @@ export default function ConnectorsPage() {
       .eq("id", c.id);
     setPending(null);
     if (error) {
-      toast.error(error.message);
+      toast.error(userMessage(error, `Could not ${next ? "enable" : "disable"} ${c.name}.`));
       return;
     }
     setRows((prev) => prev.map((r) => (r.id === c.id ? { ...r, enabled: next } : r)));

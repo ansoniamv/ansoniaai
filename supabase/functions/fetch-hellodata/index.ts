@@ -228,14 +228,18 @@ Deno.serve(async (req) => {
       deal_id: dealId, status: "fetched", hellodata_id: hdId, cached: false,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
-    let msg: string;
-    if (e instanceof Error) msg = e.message + (e.stack ? `\n${e.stack.split("\n").slice(0, 3).join("\n")}` : "");
-    else { try { msg = JSON.stringify(e); } catch { msg = String(e); } }
-    console.error(`[fetch-hellodata] deal=${dealId} FAILED: ${msg}`);
+    // The generic response below is correct, but hellodata_error is rendered in
+    // the browser (src/pages/DealDetail.tsx), so writing a stack trace to it
+    // routed Deno file paths and internal function names around that response
+    // via the database. Full detail goes to the log under a correlation id; the
+    // column gets only the reference.
+    const correlationId = crypto.randomUUID();
+    const detail = e instanceof Error ? `${e.message}\n${e.stack ?? ""}` : String(e);
+    console.error(JSON.stringify({ correlationId, fn: "fetch-hellodata", dealId, detail }));
     if (dealId) {
       await supabase.from("deals").update({
         hellodata_status: "failed",
-        hellodata_error: msg.slice(0, 1000),
+        hellodata_error: `Enrichment failed (ref ${correlationId})`,
       }).eq("id", dealId);
     }
     // Never throw to the client — return 200 with generic status; keep detail server-side.

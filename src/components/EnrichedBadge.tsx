@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { SuggestionEvidencePanel } from "@/components/SuggestionEvidencePanel";
 import { readProvenance, isStale, ageLabel, SOURCE_LABEL } from "@/lib/fieldProvenance";
+import { userMessage } from "@/lib/errors";
 
 export type EnrichmentSuggestion = {
   value: any;
@@ -71,11 +72,11 @@ export function EnrichedBadge({
 
   const accept = async () => {
     const { data: p, error: rErr } = await supabase.from("partners").select("enriched_fields").eq("id", partnerId).single();
-    if (rErr) return toast.error("Failed to load: " + rErr.message);
+    if (rErr) return toast.error(userMessage(rErr, "Could not load this field."));
     const current = (p?.enriched_fields ?? {}) as EnrichedFieldsMap;
     delete current[fieldKey];
     const { data: rows, error } = await supabase.from("partners").update({ enriched_fields: current }).eq("id", partnerId).select("id");
-    if (error) return toast.error("Failed to accept: " + error.message);
+    if (error) return toast.error(userMessage(error, "Could not mark this as reviewed."));
     if (!rows || rows.length === 0) return toast.error("No rows updated — permission denied?");
     toast.success("Marked as reviewed");
     qc.invalidateQueries({ queryKey: ["partners", partnerId] });
@@ -85,7 +86,7 @@ export function EnrichedBadge({
   const acceptSuggestion = async () => {
     if (!suggested) return;
     const { data: p, error: rErr } = await supabase.from("partners").select("enriched_fields").eq("id", partnerId).single();
-    if (rErr) return toast.error("Failed to load: " + rErr.message);
+    if (rErr) return toast.error(userMessage(rErr, "Could not load this field."));
     const current = (p?.enriched_fields ?? {}) as EnrichedFieldsMap;
     current[fieldKey] = {
       source_note_ids: suggested.source_note_ids ?? [],
@@ -96,7 +97,7 @@ export function EnrichedBadge({
       .update({ [fieldKey]: suggested.value, enriched_fields: current } as any)
       .eq("id", partnerId)
       .select("id");
-    if (error) return toast.error("Failed: " + error.message);
+    if (error) return toast.error(userMessage(error, "Could not apply the suggestion."));
     if (!rows || rows.length === 0) return toast.error("No rows updated — permission denied?");
     toast.success("Applied suggested update");
     qc.invalidateQueries({ queryKey: ["partners", partnerId] });
@@ -105,14 +106,14 @@ export function EnrichedBadge({
 
   const dismissSuggestion = async () => {
     const { data: p, error: rErr } = await supabase.from("partners").select("enriched_fields").eq("id", partnerId).single();
-    if (rErr) return toast.error("Failed to load: " + rErr.message);
+    if (rErr) return toast.error(userMessage(rErr, "Could not load this field."));
     const current = (p?.enriched_fields ?? {}) as EnrichedFieldsMap;
     const entry = { ...(current[fieldKey] ?? {}) };
     delete entry.suggested;
     if (entry.source_note_ids || entry.extracted_at) current[fieldKey] = entry;
     else delete current[fieldKey];
     const { data: rows, error } = await supabase.from("partners").update({ enriched_fields: current }).eq("id", partnerId).select("id");
-    if (error) return toast.error("Failed: " + error.message);
+    if (error) return toast.error(userMessage(error, "Could not dismiss the suggestion."));
     if (!rows || rows.length === 0) return toast.error("No rows updated — permission denied?");
     toast.success("Suggestion dismissed");
     qc.invalidateQueries({ queryKey: ["partners", partnerId] });
