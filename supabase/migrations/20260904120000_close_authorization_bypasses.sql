@@ -127,36 +127,46 @@ GRANT EXECUTE ON FUNCTION public.recompute_deal_total_committed(uuid) TO service
 -- readable by any authenticated user, approved or not.
 -- ----------------------------------------------------------------------------
 
--- buy_box_criteria is the worst of the set: all four policies are granted
--- TO public, which includes anon. Anyone holding the publishable key could read
--- and rewrite the buy-box criteria.
+-- buy_box_criteria was created with all four policies granted TO public (which
+-- includes anon), but a later migration dropped the table. Replaying the full
+-- history on a fresh project confirmed it no longer exists, so this block is
+-- guarded: it only acts if some environment still has the table.
 DO $do$
 DECLARE
   pol record;
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relname = 'buy_box_criteria' AND c.relkind = 'r'
+  ) THEN
+    RAISE NOTICE 'buy_box_criteria not present; skipping';
+    RETURN;
+  END IF;
+
   FOR pol IN
     SELECT policyname FROM pg_policies
     WHERE schemaname = 'public' AND tablename = 'buy_box_criteria'
   LOOP
     EXECUTE format('DROP POLICY IF EXISTS %I ON public.buy_box_criteria', pol.policyname);
   END LOOP;
+
+  REVOKE ALL ON public.buy_box_criteria FROM anon;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON public.buy_box_criteria TO authenticated;
+  GRANT ALL ON public.buy_box_criteria TO service_role;
+  ALTER TABLE public.buy_box_criteria ENABLE ROW LEVEL SECURITY;
+
+  CREATE POLICY "approved users can select" ON public.buy_box_criteria
+    FOR SELECT TO authenticated USING (public.is_approved(auth.uid()));
+  CREATE POLICY "approved users can insert" ON public.buy_box_criteria
+    FOR INSERT TO authenticated WITH CHECK (public.is_approved(auth.uid()));
+  CREATE POLICY "approved users can update" ON public.buy_box_criteria
+    FOR UPDATE TO authenticated USING (public.is_approved(auth.uid()))
+    WITH CHECK (public.is_approved(auth.uid()));
+  CREATE POLICY "approved users can delete" ON public.buy_box_criteria
+    FOR DELETE TO authenticated USING (public.is_approved(auth.uid()));
 END
 $do$;
-
-REVOKE ALL ON public.buy_box_criteria FROM anon;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.buy_box_criteria TO authenticated;
-GRANT ALL ON public.buy_box_criteria TO service_role;
-ALTER TABLE public.buy_box_criteria ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "approved users can select" ON public.buy_box_criteria
-  FOR SELECT TO authenticated USING (public.is_approved(auth.uid()));
-CREATE POLICY "approved users can insert" ON public.buy_box_criteria
-  FOR INSERT TO authenticated WITH CHECK (public.is_approved(auth.uid()));
-CREATE POLICY "approved users can update" ON public.buy_box_criteria
-  FOR UPDATE TO authenticated USING (public.is_approved(auth.uid()))
-  WITH CHECK (public.is_approved(auth.uid()));
-CREATE POLICY "approved users can delete" ON public.buy_box_criteria
-  FOR DELETE TO authenticated USING (public.is_approved(auth.uid()));
 
 
 -- The remaining seven keep their existing admin-only write policies; only the

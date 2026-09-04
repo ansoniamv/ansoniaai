@@ -18,7 +18,7 @@ select status, count(*) from public.profiles group by 1;
 Then:
 
 ```bash
-supabase link --project-ref fmodmsxhujqzkibjnggo
+supabase link --project-ref bkkphsiikibgzeakleqn
 supabase db push          # applies 20260904120000 and 20260904120100
 supabase functions deploy # all 34 functions; niche-schools-test was deleted
 ```
@@ -110,7 +110,7 @@ supabase secrets set ALLOWED_ORIGINS="https://<production domain>,https://deal-p
              outlook-draft score-backtest esri-enrich classify-note; do
      printf '%s ' "$fn"
      curl -s -o /dev/null -w '%{http_code}\n' -X POST \
-       "https://fmodmsxhujqzkibjnggo.supabase.co/functions/v1/$fn" \
+       "https://bkkphsiikibgzeakleqn.supabase.co/functions/v1/$fn" \
        -H 'Content-Type: application/json' -d '{}'
    done
    ```
