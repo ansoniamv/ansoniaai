@@ -40,14 +40,33 @@ pg_dump --version    # must be >= 17
 Use **session mode** (port `5432`). The transaction pooler on `6543` cannot run
 `pg_dump` or hold the session-level setting the load depends on.
 
+Use the **pooler** host, not `db.<ref>.supabase.co` — the direct host resolves
+IPv6-only from a typical Windows network and will hang. The pooler has A records.
+
+The target string below is **verified**: connecting with a deliberately wrong
+password returns `FATAL: password authentication failed`, which confirms host,
+port, user and TLS are all correct and only the password is outstanding.
+
 ```bash
-# Prefer the pooler host: the direct db.<ref>.supabase.co host is IPv6-only on
-# newer projects and will silently fail to resolve on IPv4-only networks.
-OLD='postgresql://postgres.fmodmsxhujqzkibjnggo:SOURCE_PW@aws-0-<region>.pooler.supabase.com:5432/postgres'
-NEW='postgresql://postgres.bkkphsiikibgzeakleqn:TARGET_PW@aws-0-<region>.pooler.supabase.com:5432/postgres'
+# TARGET - verified reachable (resolves to 3.131.201.192 over IPv4)
+NEW='postgresql://postgres.bkkphsiikibgzeakleqn:TARGET_PW@aws-1-us-east-2.pooler.supabase.com:5432/postgres'
+
+# SOURCE - read host/region off ITS OWN dashboard page. Do not assume it matches
+# the target: the region segment is per-project, and the source may not be in
+# us-east-2 at all.
+OLD='postgresql://postgres.fmodmsxhujqzkibjnggo:SOURCE_PW@aws-N-<region>.pooler.supabase.com:5432/postgres'
 
 psql "$OLD" -c 'select count(*) from auth.users'   # sanity: source reachable
 psql "$NEW" -c 'select count(*) from auth.users'   # expect 0
+```
+
+If a password contains `@ : / ? # [ ] %` or similar, percent-encode it in the
+URI or the parse silently targets the wrong host. Safer alternative — keep it
+out of the string entirely:
+
+```bash
+export PGPASSWORD='the raw password'
+psql -h aws-1-us-east-2.pooler.supabase.com -p 5432 -U postgres.bkkphsiikibgzeakleqn -d postgres -c 'select 1'
 ```
 
 ---
