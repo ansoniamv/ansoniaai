@@ -31,3 +31,7 @@ dist-ssr
 .vercel
 .env*
 supabase/.temp/
+
+# Database dumps from scripts/migrate-data.ps1 (production rows + bcrypt hashes)
+auth_data*.sql
+public_data*.sql

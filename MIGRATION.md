@@ -1,6 +1,6 @@
-# Data migration: `fmodmsxhujqzkibjnggo` → `bkkphsiikibgzeakleqn`
+# Data migration: `fmodmsxhujqzkibjnggo` → `pyndxntvoixxndbwiawd`
 
-The schema on the target is already correct — all 101 migrations were replayed,
+The schema on the target is already correct — all 102 migrations were applied,
 45 tables, and it is verified locked down. What is missing is **data**, which is
 why `ansoniaai.vercel.app` rejects logins that work on the old deployment:
 `auth.users` on the target is empty. This is a data copy, not an auth fix.
@@ -49,7 +49,7 @@ port, user and TLS are all correct and only the password is outstanding.
 
 ```bash
 # TARGET - verified reachable (resolves to 3.131.201.192 over IPv4)
-NEW='postgresql://postgres.bkkphsiikibgzeakleqn:TARGET_PW@aws-1-us-east-2.pooler.supabase.com:5432/postgres'
+NEW='postgresql://postgres.pyndxntvoixxndbwiawd:TARGET_PW@aws-0-us-east-2.pooler.supabase.com:5432/postgres'
 
 # SOURCE - read host/region off ITS OWN dashboard page. Do not assume it matches
 # the target: the region segment is per-project, and the source may not be in
@@ -66,7 +66,7 @@ out of the string entirely:
 
 ```bash
 export PGPASSWORD='the raw password'
-psql -h aws-1-us-east-2.pooler.supabase.com -p 5432 -U postgres.bkkphsiikibgzeakleqn -d postgres -c 'select 1'
+psql -h aws-0-us-east-2.pooler.supabase.com -p 5432 -U postgres.pyndxntvoixxndbwiawd -d postgres -c 'select 1'
 ```
 
 ---
@@ -281,7 +281,7 @@ objects**. Copy the files separately, before or after the SQL load:
 # Source and target bucket names are identical, so paths line up.
 rclone copy \
   ":s3,provider=Other,endpoint=https://fmodmsxhujqzkibjnggo.supabase.co/storage/v1/s3,access_key_id=SRC_KEY,secret_access_key=SRC_SECRET,region=<region>:partner-attachments" \
-  ":s3,provider=Other,endpoint=https://bkkphsiikibgzeakleqn.supabase.co/storage/v1/s3,access_key_id=DST_KEY,secret_access_key=DST_SECRET,region=<region>:partner-attachments" \
+  ":s3,provider=Other,endpoint=https://pyndxntvoixxndbwiawd.supabase.co/storage/v1/s3,access_key_id=DST_KEY,secret_access_key=DST_SECRET,region=<region>:partner-attachments" \
   --progress
 ```
 

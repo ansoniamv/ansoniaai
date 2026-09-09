@@ -4,15 +4,32 @@
 > no `.env`, archive or provider key in any commit; the only credential present
 > is the Supabase anon JWT, which is public by design.
 
+## Correction to the original audit
+
+Commit `2dcd035` claimed `buy_box_criteria` was granted to `public` for all four
+operations, i.e. that anyone holding the browser bundle's publishable key could
+read and rewrite the buy-box criteria. **That was wrong.** The table is created
+in `20260330022115` and **dropped** in `20260511161912` — it has not existed
+since May 2026.
+
+The error came from reading the `CREATE TABLE` and its policies in the migration
+history without checking whether a later migration removed it. The remediation
+migration guards for the table's absence, so nothing broke and nothing needs
+re-running, but the count of genuinely affected tables is **seven, not eight**,
+and there was never a live anon-write exposure there.
+
+The other findings in that commit were verified against the live database and
+stand.
+
 Two things happened here: the September 2026 audit fixes (commits `bece34c`,
 `2dcd035`, `46c7e99`, `53c4086`), and the migration of the whole app off
-Supabase project `fmodmsxhujqzkibjnggo` onto `bkkphsiikibgzeakleqn`.
+Supabase project `fmodmsxhujqzkibjnggo` onto `pyndxntvoixxndbwiawd`.
 
 ## Migration status
 
-**Done on `bkkphsiikibgzeakleqn`:**
+**Done on `pyndxntvoixxndbwiawd`:**
 
-- All 101 migrations replayed in order and recorded in
+- All 102 migrations applied in order and recorded in
   `supabase_migrations.schema_migrations`, so the CLI will recognise them.
   45 tables in `public`.
 - All 34 edge functions deployed. `niche-schools-test` was deleted and never
@@ -96,7 +113,7 @@ Current state:
   `VITE_SUPABASE_PUBLISHABLE_KEY` set for production, preview and development.
 - Verified served: all six security headers present, the SPA rewrite resolves
   deep links (`/deals/test` returns 200), and the shipped bundle references
-  only `bkkphsiikibgzeakleqn`.
+  only `pyndxntvoixxndbwiawd`.
 - The old `deal-pipeline-pro` project on the `principesclub` account is
   abandoned. Its blocked deploys and env vars can be deleted.
 
@@ -131,11 +148,11 @@ platform injects).
 Set them with:
 
 ```bash
-supabase secrets set --project-ref bkkphsiikibgzeakleqn HELLODATA_API_KEY=... ESRI_API_KEY=...
+supabase secrets set --project-ref pyndxntvoixxndbwiawd HELLODATA_API_KEY=... ESRI_API_KEY=...
 ```
 
-Note the CLI rejects the `sbp_v0_` token format (v2.116.0 is current and still
-does), so either use a classic `sbp_` token or set them in the dashboard under
+Note: Supabase CLI v2.117.0 accepts the `sbp_v0_` token format; the rejection was a v2.116.0 bug (fixed), so this
+no longer needs a workaround. You can also set them in the dashboard under
 Edge Functions → Secrets.
 
 `ALLOWED_ORIGINS` is set to the live hostnames, so `corsFor()` is enforcing.

@@ -18,8 +18,8 @@
 param(
   [string]$SourceHost = 'aws-0-us-west-2.pooler.supabase.com',
   [string]$SourceUser = 'postgres.fmodmsxhujqzkibjnggo',
-  [string]$TargetHost = 'aws-1-us-east-2.pooler.supabase.com',
-  [string]$TargetUser = 'postgres.bkkphsiikibgzeakleqn',
+  [string]$TargetHost = 'aws-0-us-east-2.pooler.supabase.com',
+  [string]$TargetUser = 'postgres.pyndxntvoixxndbwiawd',
   [int]$Port = 5432,
   [switch]$KeepDumps,
   [switch]$Force
@@ -46,6 +46,13 @@ function Read-Pw($label) {
 }
 
 function Invoke-Psql($pw, $dbHost, $user, $sqlOrArgs, [switch]$File) {
+  # Windows PowerShell 5.1 wraps a native command's redirected stderr in
+  # NativeCommandError records, which $ErrorActionPreference='Stop' promotes to
+  # terminating. psql writes NOTICE to stderr (the orphan check ends in
+  # RAISE NOTICE), so Stop would abort on a *successful* run. Function-scoped,
+  # so the rest of the script keeps Stop semantics; exit codes are still checked
+  # via $LASTEXITCODE at every call site.
+  $ErrorActionPreference = 'Continue'
   $env:PGPASSWORD = $pw
   try {
     if ($File) { & $psql -h $dbHost -p $Port -U $user -d postgres -v ON_ERROR_STOP=1 @sqlOrArgs 2>&1 }
@@ -58,7 +65,7 @@ Write-Host ''
 Write-Host 'Database passwords (Dashboard -> Project Settings -> Database -> Reset database password).' -ForegroundColor Cyan
 Write-Host 'These are the POSTGRES passwords, not API keys and not the JWT secret.' -ForegroundColor DarkGray
 $srcPw = Read-Pw "  SOURCE  fmodmsxhujqzkibjnggo (us-west-2) password"
-$dstPw = Read-Pw "  TARGET  bkkphsiikibgzeakleqn (us-east-2) password"
+$dstPw = Read-Pw "  TARGET  pyndxntvoixxndbwiawd (us-east-2) password"
 
 # --- validate both before doing anything -------------------------------------
 Write-Host ''
