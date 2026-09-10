@@ -1,4 +1,6 @@
+import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { motionOff, useReveal } from "@/hooks/useReveal";
 
 /**
  * Public marketing page for Atlas AI, served at "/" to signed-out visitors.
@@ -8,6 +10,10 @@ import { Link } from "react-router-dom";
  * Palette is restricted to the two Ansonia brand colours already defined as
  * tokens in index.css — #002752 (navy, --primary) and #6AA3D8 (sky, --accent)
  * — plus the existing neutral ramp. No third hue is introduced.
+ *
+ * Motion is opt-out by construction: the reveal states live behind a
+ * data-reveal attribute that only useReveal writes, so no-JS and
+ * reduced-motion visitors get the finished page. See src/hooks/useReveal.ts.
  */
 
 const NAVY = "#002752";
@@ -24,6 +30,49 @@ const SKYLINE_SRC = "/brand/chicago-skyline.webp";
 // resolution to spare: never render it above 40px tall, and never upscale it.
 // 32px sits inside the permitted 24-40px window with room on both sides.
 const MARK_H = "h-8";
+
+/** Sky-blue hairline tracking scroll position. The only thing that moves persistently. */
+function ScrollProgress() {
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (motionOff()) return; // CSS hides the bar too; this skips the listener as well
+    let raf = 0;
+    const write = () => {
+      raf = 0;
+      const doc = document.documentElement;
+      const max = doc.scrollHeight - doc.clientHeight;
+      const p = max > 0 ? Math.min(1, Math.max(0, doc.scrollTop / max)) : 0;
+      ref.current?.style.setProperty("--scroll-progress", p.toFixed(4));
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(write); };
+
+    write();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+
+  return <div ref={ref} aria-hidden className="scroll-progress" />;
+}
+
+type BlockProps = { children: ReactNode; className?: string; style?: CSSProperties };
+
+/** Reveals its whole subtree as one unit when it scrolls into view. */
+function Reveal({ children, className, style }: BlockProps) {
+  const ref = useReveal<HTMLDivElement>();
+  return <div ref={ref} className={className} style={style}>{children}</div>;
+}
+
+/** Reveals its direct children in DOM order. One observer, CSS does the stagger. */
+function RevealGroup({ children, className, style, stagger = 90 }: BlockProps & { stagger?: number }) {
+  const ref = useReveal<HTMLDivElement>({ children: true, stagger });
+  return <div ref={ref} className={className} style={style}>{children}</div>;
+}
 
 /**
  * Logo mark. Placed, never modified: no filter, recolour, crop, rotation or
@@ -66,7 +115,7 @@ function Wordmark({ dark = false }: { dark?: boolean }) {
   );
 }
 
-function Eyebrow({ children }: { children: React.ReactNode }) {
+function Eyebrow({ children }: { children: ReactNode }) {
   return (
     <p className="font-mono text-[11px] tracking-[0.22em] uppercase text-muted-foreground mb-4">
       {children}
@@ -75,8 +124,27 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
 }
 
 export default function LandingPage() {
+  // Hero animates on mount, never on scroll — it is the first thing painted.
+  const navRef = useReveal<HTMLElement>({ immediate: true });
+  // indexOffset 1 continues the sequence the nav starts: nav 0ms, headline
+  // 70ms, subhead 140, body 210, CTA row 280. The photograph never animates.
+  const heroCopyRef = useReveal<HTMLDivElement>({
+    immediate: true, children: true, stagger: 70, indexOffset: 1,
+  });
+
+  // Smooth anchor scrolling, scoped to this page. Setting scroll-behavior on
+  // <html> globally would also change the signed-in app's programmatic
+  // scrolls, so the class goes on at mount and comes off at unmount.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.add("landing-smooth");
+    return () => root.classList.remove("landing-smooth");
+  }, []);
+
   return (
     <div className="bg-background text-foreground">
+      <ScrollProgress />
+
       {/* ───────────────────────── Hero ─────────────────────────
           Sized to its content, never 100vh. The navy base sits under the
           photograph so that if the image is missing (or still loading) the
@@ -85,7 +153,8 @@ export default function LandingPage() {
         {/* 1377x687 WebP. bg-cover + bg-bottom keeps the skyline and waterline
             in frame at every width; past ~1400px it simply scales and the
             scrim carries the contrast rather than chasing crispness. The navy
-            on the parent shows through if the file is absent. */}
+            on the parent shows through if the file is absent. Deliberately
+            outside every reveal: no fade, no zoom, no parallax. */}
         <div
           aria-hidden
           className="absolute inset-0 bg-cover bg-bottom bg-no-repeat"
@@ -107,7 +176,7 @@ export default function LandingPage() {
         />
 
         <div className="relative mx-auto w-full max-w-6xl px-6 pt-8 pb-24 sm:pb-28 lg:pb-32">
-          <nav className="flex items-center justify-between">
+          <nav ref={navRef} className="flex items-center justify-between">
             <Wordmark dark />
             {/* Full white, not white/80: the scrim is at its lightest here and
                 80% measured 3.30:1 against a bright sky pixel — below AA. */}
@@ -119,7 +188,7 @@ export default function LandingPage() {
             </Link>
           </nav>
 
-          <div className="landing-rise mt-20 sm:mt-28 lg:mt-36 max-w-3xl">
+          <div ref={heroCopyRef} className="mt-20 sm:mt-28 lg:mt-36 max-w-3xl">
             <h1 className="font-serif text-white text-4xl sm:text-5xl lg:text-6xl leading-[1.08] tracking-tight">
               Deal flow to capital flow, in one system.
             </h1>
@@ -159,16 +228,18 @@ export default function LandingPage() {
 
       {/* ───────────────────────── The seam ───────────────────────── */}
       <section id="the-seam" className="mx-auto w-full max-w-6xl px-6 py-20 sm:py-28 scroll-mt-8">
-        <Eyebrow>The seam</Eyebrow>
-        <h2 className="font-serif text-3xl sm:text-4xl lg:text-[2.75rem] leading-[1.15] tracking-tight max-w-4xl">
-          The expensive failure isn't a missed email. It's a live deal with no call list.
-        </h2>
-        <p className="mt-6 max-w-3xl text-base sm:text-lg leading-relaxed text-muted-foreground">
-          Deal pipeline software tracks assets. Investor software tracks LPs. Neither owns the
-          handoff between them — and at a six-person firm, the person sourcing the deal is the
-          person raising against it. That handoff is where weeks disappear: reconstructing who is
-          warm, who has dry powder, and who already passed on Phoenix twice and why.
-        </p>
+        <Reveal>
+          <Eyebrow>The seam</Eyebrow>
+          <h2 className="font-serif text-3xl sm:text-4xl lg:text-[2.75rem] leading-[1.15] tracking-tight max-w-4xl">
+            The expensive failure isn't a missed email. It's a live deal with no call list.
+          </h2>
+          <p className="mt-6 max-w-3xl text-base sm:text-lg leading-relaxed text-muted-foreground">
+            Deal pipeline software tracks assets. Investor software tracks LPs. Neither owns the
+            handoff between them — and at a six-person firm, the person sourcing the deal is the
+            person raising against it. That handoff is where weeks disappear: reconstructing who is
+            warm, who has dry powder, and who already passed on Phoenix twice and why.
+          </p>
+        </Reveal>
 
         <SeamDiagram />
       </section>
@@ -176,10 +247,16 @@ export default function LandingPage() {
       {/* ───────────────────── Four pillars ───────────────────── */}
       <section className="border-t" style={{ borderColor: "hsl(var(--hairline))" }}>
         <div className="mx-auto w-full max-w-6xl px-6 py-20 sm:py-28">
-          <Eyebrow>What it does</Eyebrow>
-          <h2 className="font-serif text-3xl sm:text-4xl tracking-tight">Four pillars, one record</h2>
+          <Reveal>
+            <Eyebrow>What it does</Eyebrow>
+            <h2 className="font-serif text-3xl sm:text-4xl tracking-tight">Four pillars, one record</h2>
+          </Reveal>
 
-          <div className="mt-12 grid gap-px sm:grid-cols-2" style={{ backgroundColor: "hsl(var(--hairline))" }}>
+          {/* DOM order is reading order: top-left, top-right, bottom-left, bottom-right. */}
+          <RevealGroup
+            className="mt-12 grid gap-px sm:grid-cols-2"
+            style={{ backgroundColor: "hsl(var(--hairline))" }}
+          >
             <Pillar
               n="01"
               title="Capture & screen"
@@ -201,24 +278,30 @@ export default function LandingPage() {
               moat
               body="A deal clears IC and Atlas returns a ranked call list: who fits, who's warm, who's deploying, who already passed on something similar. Outreach is drafted; a person approves and sends. Nothing auto-fires."
             />
-          </div>
+          </RevealGroup>
 
-          <p className="mt-8 text-sm sm:text-base text-muted-foreground max-w-3xl">
-            Pillars 1–3 are each sold on their own by someone. Pillar 4 only exists when all three
-            sit in the same database.
-          </p>
+          <Reveal>
+            <p className="mt-8 text-sm sm:text-base text-muted-foreground max-w-3xl">
+              Pillars 1–3 are each sold on their own by someone. Pillar 4 only exists when all three
+              sit in the same database.
+            </p>
+          </Reveal>
         </div>
       </section>
 
       {/* ───────────────────── Buybox ───────────────────── */}
       <section className="border-t" style={{ borderColor: "hsl(var(--hairline))" }}>
         <div className="mx-auto w-full max-w-6xl px-6 py-20 sm:py-28">
-          <Eyebrow>Your buybox, encoded</Eyebrow>
-          <h2 className="font-serif text-3xl sm:text-4xl tracking-tight max-w-3xl">
-            Screening criteria stop living in someone's head.
-          </h2>
+          <Reveal>
+            <Eyebrow>Your buybox, encoded</Eyebrow>
+            <h2 className="font-serif text-3xl sm:text-4xl tracking-tight max-w-3xl">
+              Screening criteria stop living in someone's head.
+            </h2>
+          </Reveal>
 
-          <div
+          {/* One unit. Six criteria revealing in sequence is exactly the
+              over-animation this page is meant to avoid. */}
+          <Reveal
             className="mt-10 max-w-2xl border rounded-[3px] overflow-hidden"
             style={{ borderColor: "hsl(var(--hairline))" }}
           >
@@ -243,24 +326,29 @@ export default function LandingPage() {
                 </li>
               ))}
             </ul>
-          </div>
+          </Reveal>
 
-          <p className="mt-5 max-w-2xl text-sm text-muted-foreground">
-            Every firm's buybox is different. Yours gets configured during onboarding, and every
-            inbound deal is scored against it automatically.
-          </p>
+          <Reveal>
+            <p className="mt-5 max-w-2xl text-sm text-muted-foreground">
+              Every firm's buybox is different. Yours gets configured during onboarding, and every
+              inbound deal is scored against it automatically.
+            </p>
+          </Reveal>
         </div>
       </section>
 
       {/* ───────────────────── Where we sit ───────────────────── */}
       <section className="border-t" style={{ borderColor: "hsl(var(--hairline))" }}>
         <div className="mx-auto w-full max-w-6xl px-6 py-20 sm:py-28">
-          <Eyebrow>Where we sit</Eyebrow>
-          <h2 className="font-serif text-3xl sm:text-4xl tracking-tight max-w-3xl">
-            Two categories exist. The seam between them doesn't.
-          </h2>
+          <Reveal>
+            <Eyebrow>Where we sit</Eyebrow>
+            <h2 className="font-serif text-3xl sm:text-4xl tracking-tight max-w-3xl">
+              Two categories exist. The seam between them doesn't.
+            </h2>
+          </Reveal>
 
-          <div className="mt-12 grid gap-6 lg:grid-cols-3">
+          {/* Left to right, so the navy Atlas AI lane lands last. */}
+          <RevealGroup className="mt-12 grid gap-6 lg:grid-cols-3">
             <Lane
               title="Deal pipeline platforms"
               body="Own the asset workflow. Enterprise-priced, enterprise-implemented, and blind to who would fund the deal."
@@ -274,13 +362,13 @@ export default function LandingPage() {
               body="The only place a scored deal and a ranked, warmth-aware partner list are the same query."
               ours
             />
-          </div>
+          </RevealGroup>
         </div>
       </section>
 
       {/* ───────────────────── Built for ───────────────────── */}
       <section className="border-t" style={{ borderColor: "hsl(var(--hairline))" }}>
-        <div className="mx-auto w-full max-w-6xl px-6 py-20 sm:py-28">
+        <Reveal className="mx-auto w-full max-w-6xl px-6 py-20 sm:py-28">
           <Eyebrow>Built for boutique shops</Eyebrow>
           <dl className="grid gap-px sm:grid-cols-2 lg:grid-cols-4" style={{ backgroundColor: "hsl(var(--hairline))" }}>
             {[
@@ -298,12 +386,12 @@ export default function LandingPage() {
           <p className="mt-8 font-serif text-xl sm:text-2xl tracking-tight max-w-2xl">
             Too small for an enterprise build-out. Too big for Excel and Outlook folders.
           </p>
-        </div>
+        </Reveal>
       </section>
 
       {/* ───────────────────── Trust ───────────────────── */}
       <section className="border-t" style={{ borderColor: "hsl(var(--hairline))" }}>
-        <div className="mx-auto w-full max-w-6xl px-6 py-20 sm:py-28 grid gap-10 sm:grid-cols-3">
+        <Reveal className="mx-auto w-full max-w-6xl px-6 py-20 sm:py-28 grid gap-10 sm:grid-cols-3">
           {[
             ["Human-approved by default.", "Atlas proposes; a person decides. Nothing sends itself."],
             ["Your data is yours.", "Per-tenant isolation, with capital-partner data walled off."],
@@ -317,12 +405,12 @@ export default function LandingPage() {
               </p>
             </div>
           ))}
-        </div>
+        </Reveal>
       </section>
 
       {/* ───────────────────── Footer ───────────────────── */}
       <footer style={{ backgroundColor: NAVY }}>
-        <div className="mx-auto w-full max-w-6xl px-6 py-14 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-8">
+        <Reveal className="mx-auto w-full max-w-6xl px-6 py-14 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-8">
           <div>
             <Wordmark dark />
             <p className="mt-4 text-sm text-white/70 max-w-md">
@@ -332,7 +420,7 @@ export default function LandingPage() {
           <p className="font-mono text-[10px] tracking-[0.2em] uppercase text-white/50">
             An Ansonia Properties company
           </p>
-        </div>
+        </Reveal>
       </footer>
     </div>
   );
@@ -341,7 +429,9 @@ export default function LandingPage() {
 function Pillar({ n, title, body, moat = false }: { n: string; title: string; body: string; moat?: boolean }) {
   return (
     <div
-      className="p-7 sm:p-8 relative"
+      // reveal-inner: the card holds its own background while its contents
+      // move, so the grid's hairline never shows through mid-reveal.
+      className="reveal-inner p-7 sm:p-8 relative"
       style={{ backgroundColor: moat ? `${SKY}1F` : "hsl(var(--background))" }}
     >
       <div className="flex items-baseline justify-between gap-4">
@@ -387,93 +477,114 @@ function Lane({ title, body, ours = false }: { title: string; body: string; ours
   );
 }
 
+const DEAL = ["Inbound OMs", "Buybox score", "Comps & enrich", "Stage & IC decision"];
+const CAPITAL = ["Engaged firms", "Appetite & check size", "Warmth & last touch", "Pass history"];
+
+const DIAGRAM_LABEL =
+  "Two lanes converge on a matching engine. The deal-flow lane runs inbound OMs, buybox score, " +
+  "comps and enrichment, then stage and IC decision. The capital-flow lane runs engaged firms, " +
+  "appetite and check size, warmth and last touch, then pass history. Both feed a human-approved " +
+  "matching engine, which outputs a ranked call list.";
+
+// The sky lane draws a beat behind the navy one.
+const SKY_LANE: CSSProperties = { "--lane-delay": "150ms" } as CSSProperties;
+
 /**
  * The two-lane convergence diagram. Inline SVG on wide screens; on narrow
- * screens the lanes stack as text rather than shrinking to illegibility.
+ * screens the lanes stack as text rather than shrinking to illegibility. The
+ * aria-label describes the finished diagram and is accurate at every point of
+ * the animation, including before it starts.
  */
 function SeamDiagram() {
-  const DEAL = ["Inbound OMs", "Buybox score", "Comps & enrich", "Stage & IC decision"];
-  const CAPITAL = ["Engaged firms", "Appetite & check size", "Warmth & last touch", "Pass history"];
-  const label =
-    "Two lanes converge on a matching engine. The deal-flow lane runs inbound OMs, buybox score, " +
-    "comps and enrichment, then stage and IC decision. The capital-flow lane runs engaged firms, " +
-    "appetite and check size, warmth and last touch, then pass history. Both feed a human-approved " +
-    "matching engine, which outputs a ranked call list.";
-
   return (
     <div className="mt-14">
-      {/* Wide: SVG. viewBox leaves room for the outermost labels. */}
-      <svg
-        role="img"
-        aria-label={label}
-        viewBox="0 0 1000 300"
-        className="hidden md:block w-full h-auto"
-      >
+      <SeamDiagramWide />
+      <SeamDiagramNarrow />
+    </div>
+  );
+}
+
+function SeamDiagramWide() {
+  // reveal-draw keeps the container itself from fading — its parts animate.
+  const ref = useReveal<HTMLDivElement>();
+
+  return (
+    <div ref={ref} className="reveal-draw hidden md:block">
+      {/* viewBox leaves room for the outermost labels. */}
+      <svg role="img" aria-label={DIAGRAM_LABEL} viewBox="0 0 1000 300" className="w-full h-auto">
         <defs>
           <marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-            <path d="M0,0 L8,4 L0,8 z" fill="currentColor" />
+            <path className="arrow-head" d="M0,0 L8,4 L0,8 z" fill="currentColor" />
           </marker>
         </defs>
 
         {/* Deal-flow lane */}
-        <text x="0" y="26" className="font-mono" fontSize="11" letterSpacing="2.5" fill="currentColor" opacity="0.55">
+        <text className="draw-fade font-mono" x="0" y="26" fontSize="11" letterSpacing="2.5" fill="currentColor" opacity="0.55">
           DEAL FLOW
         </text>
         {DEAL.map((t, i) => (
           <g key={t} transform={`translate(${i * 168}, 44)`} color={NAVY}>
-            <rect width="152" height="42" rx="2" fill="none" stroke={NAVY} strokeWidth="1.25" />
-            <text x="76" y="26" textAnchor="middle" fontSize="12.5" fill={NAVY}>{t}</text>
+            <rect className="draw-fade" width="152" height="42" rx="2" fill="none" stroke={NAVY} strokeWidth="1.25" />
+            <text className="draw-fade" x="76" y="26" textAnchor="middle" fontSize="12.5" fill={NAVY}>{t}</text>
             {i < DEAL.length - 1 && (
-              <line x1="152" y1="21" x2="166" y2="21" stroke={NAVY} strokeWidth="1.25" markerEnd="url(#ah)" />
+              // pathLength normalises every segment to one unit, so a 14px
+              // connector and a 90px curve draw at the same rate.
+              <line className="lane-seg" pathLength={1} x1="152" y1="21" x2="166" y2="21" stroke={NAVY} strokeWidth="1.25" markerEnd="url(#ah)" />
             )}
           </g>
         ))}
 
         {/* Capital-flow lane */}
-        <text x="0" y="212" className="font-mono" fontSize="11" letterSpacing="2.5" fill="currentColor" opacity="0.55">
+        <text className="draw-fade font-mono" x="0" y="212" fontSize="11" letterSpacing="2.5" fill="currentColor" opacity="0.55">
           CAPITAL FLOW
         </text>
         {CAPITAL.map((t, i) => (
           <g key={t} transform={`translate(${i * 168}, 228)`} color={SKY}>
-            <rect width="152" height="42" rx="2" fill="none" stroke={SKY} strokeWidth="1.25" />
-            <text x="76" y="26" textAnchor="middle" fontSize="12.5" fill={NAVY}>{t}</text>
+            <rect className="draw-fade" width="152" height="42" rx="2" fill="none" stroke={SKY} strokeWidth="1.25" />
+            <text className="draw-fade" x="76" y="26" textAnchor="middle" fontSize="12.5" fill={NAVY}>{t}</text>
             {i < CAPITAL.length - 1 && (
-              <line x1="152" y1="21" x2="166" y2="21" stroke={SKY} strokeWidth="1.25" markerEnd="url(#ah)" />
+              <line className="lane-seg" style={SKY_LANE} pathLength={1} x1="152" y1="21" x2="166" y2="21" stroke={SKY} strokeWidth="1.25" markerEnd="url(#ah)" />
             )}
           </g>
         ))}
 
         {/* Convergence into the matching engine */}
         <g color={NAVY}>
-          <path d="M676,86 C740,112 740,124 762,138" fill="none" stroke={NAVY} strokeWidth="1.25" markerEnd="url(#ah)" />
+          <path className="lane-seg" pathLength={1} d="M676,86 C740,112 740,124 762,138" fill="none" stroke={NAVY} strokeWidth="1.25" markerEnd="url(#ah)" />
         </g>
         <g color={SKY}>
-          <path d="M676,228 C740,202 740,190 762,172" fill="none" stroke={SKY} strokeWidth="1.25" markerEnd="url(#ah)" />
+          <path className="lane-seg" style={SKY_LANE} pathLength={1} d="M676,228 C740,202 740,190 762,172" fill="none" stroke={SKY} strokeWidth="1.25" markerEnd="url(#ah)" />
         </g>
 
-        <rect x="770" y="128" width="150" height="54" rx="2" fill={NAVY} />
-        <text x="845" y="149" textAnchor="middle" fontSize="12.5" fill="#FFFFFF">Matching engine</text>
-        <text x="845" y="167" textAnchor="middle" fontSize="10.5" fill={SKY}>human-approved</text>
+        <rect className="draw-fade" x="770" y="128" width="150" height="54" rx="2" fill={NAVY} />
+        <text className="draw-fade" x="845" y="149" textAnchor="middle" fontSize="12.5" fill="#FFFFFF">Matching engine</text>
+        <text className="draw-fade" x="845" y="167" textAnchor="middle" fontSize="10.5" fill={SKY}>human-approved</text>
 
         <g color={NAVY}>
-          <line x1="920" y1="155" x2="944" y2="155" stroke={NAVY} strokeWidth="1.25" markerEnd="url(#ah)" />
+          <line className="lane-seg" pathLength={1} x1="920" y1="155" x2="944" y2="155" stroke={NAVY} strokeWidth="1.25" markerEnd="url(#ah)" />
         </g>
-        <text x="1000" y="150" textAnchor="end" fontSize="12.5" fill={NAVY} fontWeight="500">Ranked</text>
-        <text x="1000" y="167" textAnchor="end" fontSize="12.5" fill={NAVY} fontWeight="500">call list</text>
+        <text className="draw-fade" x="1000" y="150" textAnchor="end" fontSize="12.5" fill={NAVY} fontWeight="500">Ranked</text>
+        <text className="draw-fade" x="1000" y="167" textAnchor="end" fontSize="12.5" fill={NAVY} fontWeight="500">call list</text>
       </svg>
+    </div>
+  );
+}
 
-      {/* Narrow: stacked, full-size text. */}
-      <div className="md:hidden space-y-8" role="img" aria-label={label}>
-        <StackLane title="Deal flow" steps={DEAL} color={NAVY} />
-        <StackLane title="Capital flow" steps={CAPITAL} color={SKY} />
-        <div className="rounded-[3px] p-5 text-center" style={{ backgroundColor: NAVY }}>
-          <p className="text-sm text-white">Matching engine</p>
-          <p className="mt-1 font-mono text-[10px] tracking-[0.18em] uppercase" style={{ color: SKY }}>
-            human-approved
-          </p>
-        </div>
-        <p className="text-center font-serif text-lg tracking-tight">↓ Ranked call list</p>
+/** Narrow: stacked, full-size text, and a plain group reveal — no line drawing. */
+function SeamDiagramNarrow() {
+  const ref = useReveal<HTMLDivElement>();
+
+  return (
+    <div ref={ref} className="md:hidden space-y-8" role="img" aria-label={DIAGRAM_LABEL}>
+      <StackLane title="Deal flow" steps={DEAL} color={NAVY} />
+      <StackLane title="Capital flow" steps={CAPITAL} color={SKY} />
+      <div className="rounded-[3px] p-5 text-center" style={{ backgroundColor: NAVY }}>
+        <p className="text-sm text-white">Matching engine</p>
+        <p className="mt-1 font-mono text-[10px] tracking-[0.18em] uppercase" style={{ color: SKY }}>
+          human-approved
+        </p>
       </div>
+      <p className="text-center font-serif text-lg tracking-tight">↓ Ranked call list</p>
     </div>
   );
 }

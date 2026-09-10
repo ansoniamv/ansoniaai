@@ -289,19 +289,166 @@ mark.__page-search-hit.__page-search-hit-active {
   .tearsheet .page-break { break-before: page; }
 }
 
-/* ── Landing page: the only motion on the marketing page ───────────────────
-   A quiet fade-and-rise on the hero copy at load. Nothing animates on scroll;
-   every section is fully readable in the first still frame. Respects users
-   who have asked for reduced motion. */
-@keyframes landing-rise {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
+/* ── Landing page motion ───────────────────────────────────────────────────
+   Every rule below is keyed off a data-reveal attribute that only
+   src/hooks/useReveal.ts ever writes. The hidden state is deliberately not the
+   default: with JS off, or under reduced motion where the hook writes nothing,
+   none of these selectors match and the page renders finished. Only opacity
+   and transform animate, so nothing here triggers layout. */
+
+[data-reveal="pending"] {
+  opacity: 0;
+  transform: translateY(10px);
+  will-change: opacity, transform;
 }
 
-.landing-rise {
-  animation: landing-rise 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+[data-reveal="shown"] {
+  opacity: 1;
+  transform: none;
+  transition: opacity 520ms cubic-bezier(0.22, 1, 0.36, 1),
+              transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
+  /* Stagger. --i is the child's index, set by the hook; --reveal-stagger is
+     the per-section spacing. Both default to zero, so an unstaggered reveal
+     needs no extra rule. */
+  transition-delay: calc(var(--i, 0) * var(--reveal-stagger, 0ms));
+  will-change: auto;
+}
+
+/* Backstop. The hook already bails out under reduced motion and never writes
+   the attribute; this covers the case where the preference changes after the
+   attribute is on the element. */
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* Cards in a gap-px grid draw their dividers from the grid's own background.
+   Fading such a card to zero exposes that background as a solid block — a
+   grey rectangle where the card should be, worst in dark mode where hairline
+   and background are 14 points of lightness apart. So for those, the card
+   holds its background and its contents do the moving. */
+.reveal-inner[data-reveal="pending"] {
+  opacity: 1;
+  transform: none;
+}
+
+.reveal-inner[data-reveal="pending"] > * {
+  opacity: 0;
+  transform: translateY(10px);
+  will-change: opacity, transform;
+}
+
+.reveal-inner[data-reveal="shown"] > * {
+  opacity: 1;
+  transform: none;
+  transition: opacity 520ms cubic-bezier(0.22, 1, 0.36, 1),
+              transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: calc(var(--i, 0) * var(--reveal-stagger, 0ms));
+  will-change: auto;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .landing-rise { animation: none; }
+  .reveal-inner[data-reveal] > * {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* ── The seam diagram: the one flourish ────────────────────────────────────
+   The container itself must not fade, because its parts animate separately.
+   Every stroked segment carries pathLength="1", so a single dash length draws
+   a 14px connector and a 90px curve at the same rate without measuring either. */
+.reveal-draw[data-reveal="pending"],
+.reveal-draw[data-reveal="shown"] {
+  opacity: 1;
+  transform: none;
+  transition: none;
+}
+
+/* Order matters, and not the way it first looks. Drawing the lanes before the
+   boxes exist leaves seven 14px connectors and two curves hanging in empty
+   space for most of a second — it reads as a broken render, not a flourish.
+   So the boxes and labels settle first and the lanes then draw between them,
+   which is also the point the diagram is making: the two lanes join up. */
+.lane-seg {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset 700ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: calc(300ms + var(--lane-delay, 0ms));
+}
+
+.reveal-draw[data-reveal="pending"] .lane-seg {
+  stroke-dashoffset: 1;
+  transition: none;
+}
+
+.draw-fade {
+  opacity: 1;
+  transition: opacity 420ms ease-out;
+}
+
+.reveal-draw[data-reveal="pending"] .draw-fade {
+  opacity: 0;
+  transition: none;
+}
+
+/* Markers paint at a path's vertex regardless of the dash pattern, so without
+   this the arrowheads would sit there alone while the lines are still hidden.
+   They arrive as the lanes land. */
+.arrow-head {
+  fill-opacity: 1;
+  transition: fill-opacity 260ms ease-out 850ms;
+}
+
+.reveal-draw[data-reveal="pending"] .arrow-head {
+  fill-opacity: 0;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lane-seg,
+  .reveal-draw[data-reveal="pending"] .lane-seg {
+    stroke-dashoffset: 0;
+    transition: none;
+  }
+  .draw-fade,
+  .reveal-draw[data-reveal="pending"] .draw-fade {
+    opacity: 1;
+    transition: none;
+  }
+  .arrow-head,
+  .reveal-draw[data-reveal="pending"] .arrow-head {
+    fill-opacity: 1;
+    transition: none;
+  }
+}
+
+/* ── Scroll progress ───────────────────────────────────────────────────────
+   scaleX rather than width: width would lay out on every scroll frame. */
+.scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 50;
+  pointer-events: none;
+  transform-origin: 0 50%;
+  transform: scaleX(var(--scroll-progress, 0));
+  will-change: transform;
+  background-color: #6aa3d8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-progress { display: none; }
+}
+
+/* Scoped to the landing page by a class the page adds to <html> on mount, so
+   the signed-in app's programmatic scrolls keep their existing behaviour. */
+@media (prefers-reduced-motion: no-preference) {
+  html.landing-smooth { scroll-behavior: smooth; }
 }
