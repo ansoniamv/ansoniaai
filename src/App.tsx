@@ -5,7 +5,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/AppLayout";
-import { AuthProvider } from "@/hooks/useAuth";
+import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { AuthGuard } from "@/components/AuthGuard";
 import { ScrollToTop } from "@/components/ScrollToTop";
 import { RouteFallback } from "@/components/RouteFallback";
@@ -28,6 +28,7 @@ const ApiStatusPage = lazy(() => import("./pages/ApiStatusPage"));
 const PipelineDashboardPage = lazy(() => import("./pages/PipelineDashboardPage"));
 const DealPipelinePage = lazy(() => import("./pages/DealPipelinePage"));
 const ChatPage = lazy(() => import("./pages/ChatPage"));
+const LandingPage = lazy(() => import("./pages/LandingPage"));
 const AuthPage = lazy(() => import("./pages/AuthPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
@@ -52,6 +53,18 @@ const Protected = ({ children, admin = false }: { children: React.ReactNode; adm
   </AuthGuard>
 );
 
+/**
+ * "/" serves two audiences. Signed-out visitors get the public Atlas AI
+ * landing page; signed-in users get the Ansonia-branded dashboard, exactly as
+ * before. Branching here rather than redirecting keeps every existing link to
+ * "/" working, including AuthPage's post-login navigate("/").
+ */
+const RootRoute = () => {
+  const { user, loading } = useAuth();
+  if (loading) return <RouteFallback />;
+  return user ? <Protected><DashboardPage /></Protected> : <LandingPage />;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -64,7 +77,7 @@ const App = () => (
             <Routes>
               <Route path="/auth" element={<AuthPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
-              <Route path="/" element={<Protected><DashboardPage /></Protected>} />
+              <Route path="/" element={<RootRoute />} />
               <Route path="/dashboard" element={<Protected><PipelineDashboardPage /></Protected>} />
               <Route path="/pipeline-dashboard" element={<Protected><PipelineDashboardPage /></Protected>} />
               <Route path="/deals" element={<Protected><Index /></Protected>} />

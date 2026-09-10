@@ -32,7 +32,7 @@ const pipelineNav = [
 const capitalNav = [
   { title: "Capital Partners", url: "/partners", icon: Users },
   { title: "Capital Raise", url: "/capital-raise", icon: Columns3 },
-  { title: "Atlas Inbox", url: "/suggestions", icon: Sparkles },
+  { title: "Suggestions", url: "/suggestions", icon: Sparkles },
 ];
 
 const workspaceNav = [

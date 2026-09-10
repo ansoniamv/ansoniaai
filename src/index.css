@@ -288,3 +288,20 @@ mark.__page-search-hit.__page-search-hit-active {
   .tearsheet tr, .tearsheet .band-group { break-inside: avoid; }
   .tearsheet .page-break { break-before: page; }
 }
+
+/* ── Landing page: the only motion on the marketing page ───────────────────
+   A quiet fade-and-rise on the hero copy at load. Nothing animates on scroll;
+   every section is fully readable in the first still frame. Respects users
+   who have asked for reduced motion. */
+@keyframes landing-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.landing-rise {
+  animation: landing-rise 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-rise { animation: none; }
+}

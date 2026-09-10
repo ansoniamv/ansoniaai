@@ -86,7 +86,7 @@ export function PartnerSuggestionsSection({ partnerId, manualFields }: { partner
     <Card>
       <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
         <CardTitle className="text-base">
-          Suggested Changes {pending.length > 0 && <Badge variant="secondary" className="ml-1">{pending.length}</Badge>}
+          Suggestions {pending.length > 0 && <Badge variant="secondary" className="ml-1">{pending.length}</Badge>}
         </CardTitle>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => analyze.mutate({ partner_id: partnerId })} disabled={analyze.isPending}>

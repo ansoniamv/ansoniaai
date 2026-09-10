@@ -1,7 +1,7 @@
 {
-  "name": "Ansonia.AI",
-  "short_name": "Ansonia",
-  "description": "Ansonia Properties - Real Estate Investment Deal Flow Platform",
+  "name": "Atlas AI",
+  "short_name": "Atlas",
+  "description": "The acquisitions operating system for boutique multifamily private equity.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
