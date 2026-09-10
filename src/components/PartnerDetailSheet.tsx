@@ -108,7 +108,7 @@ function TimelineRow({ item }: { item: TimelineItem }) {
           <div className="mt-1 flex items-center gap-2">
             {item.atlas && (
               <span className="rounded border px-1 py-0.5 text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
-                Atlas
+                Email
               </span>
             )}
             {item.factCategory && (

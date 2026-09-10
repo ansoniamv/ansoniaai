@@ -194,7 +194,7 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
     const failed = out.length - ok;
     const skipped = recipients.filter((r) => selected.has(r.engagement.id) && !r.email).length;
     if (ok > 0)
-      toast.success(`Created ${ok} draft${ok === 1 ? "" : "s"} in Atlas · ${skipped} skipped · ${failed} failed`);
+      toast.success(`Created ${ok} draft${ok === 1 ? "" : "s"} in the Partner mailbox · ${skipped} skipped · ${failed} failed`);
     else toast.error(`No drafts created · ${failed} failed`);
   };
 
@@ -204,7 +204,7 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
         <DialogHeader>
           <DialogTitle>Draft Outreach Email</DialogTitle>
           <DialogDescription>
-            Create personalized draft emails in the Atlas mailbox for each selected pipeline partner.
+            Create personalized draft emails in the Partner mailbox for each selected pipeline partner.
             Nothing is sent — review and send from Outlook Drafts.
           </DialogDescription>
         </DialogHeader>

@@ -438,7 +438,7 @@ function UnattributedList() {
 
   if (isLoading) return <div className="text-sm text-muted-foreground p-4">Loading…</div>;
   if (!messages || messages.length === 0) {
-    return <div className="text-sm text-muted-foreground p-4">No unattributed Atlas messages.</div>;
+    return <div className="text-sm text-muted-foreground p-4">No unattributed partner messages.</div>;
   }
 
   return (
@@ -531,7 +531,7 @@ export default function SuggestionsPage() {
         <div>
           <h1 className="text-2xl font-semibold">Suggestions</h1>
           <p className="text-sm text-muted-foreground">
-            AI-proposed updates from Atlas emails. Nothing is applied until you approve.
+            AI-proposed updates from partner email. Nothing is applied until you approve.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -596,7 +596,7 @@ export default function SuggestionsPage() {
         <TabsContent value="pending" className="pt-4">
           {grouped.size === 0 && (
             <div className="text-sm text-muted-foreground text-center py-12">
-              No pending suggestions. Click "Analyze new emails" to scan the Atlas inbox.
+              No pending suggestions. Click "Analyze new emails" to scan the Partner mailbox.
             </div>
           )}
           {[...grouped.entries()].map(([pid, items]) => {

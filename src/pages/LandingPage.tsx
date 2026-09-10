@@ -47,13 +47,14 @@ function AtlasMark({ heightClass = MARK_H }: { heightClass?: string }) {
 }
 
 /**
- * Mark + wordmark lockup. The gap matches the mark's rendered height so the
- * mark keeps clear space of at least its own height on every side — the nav
- * row and footer both pad well beyond that on the remaining edges.
+ * Mark + wordmark lockup. 16px, so the two read as one lockup rather than as
+ * a mark and a separate word. The Ansonia guidelines set no clear-space rule
+ * around the mark — they require it be placed unmodified and set a minimum
+ * width for the linear wordmark — so this spacing is a design choice.
  */
 function Wordmark({ dark = false }: { dark?: boolean }) {
   return (
-    <div className="flex items-center gap-8">
+    <div className="flex items-center gap-4">
       <AtlasMark />
       <span
         className="font-mono text-sm tracking-[0.28em] font-medium"

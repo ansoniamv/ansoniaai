@@ -52,7 +52,7 @@ export function AtlasAutomationCard() {
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="font-medium">Scheduled Atlas Analysis</span>
+              <span className="font-medium">Scheduled Partner Analysis</span>
               <span
                 className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] ${
                   STATUS_STYLES[status] || STATUS_STYLES.ok
@@ -62,7 +62,7 @@ export function AtlasAutomationCard() {
               </span>
             </div>
             <div className="text-xs text-muted-foreground">
-              Runs Atlas sync → analyze → warmth. Files suggestions only.
+              Runs Partner mailbox sync → analyze → warmth. Files suggestions only.
             </div>
           </div>
           <Switch
@@ -95,7 +95,7 @@ export function AtlasAutomationCard() {
         {lastError && (
           <div className="text-xs text-destructive">
             {lastError}
-            {needsReconnect && " Reconnect the Atlas mailbox in Lovable → Integrations."}
+            {needsReconnect && " Reconnect the Partner mailbox in Lovable → Integrations."}
           </div>
         )}
 

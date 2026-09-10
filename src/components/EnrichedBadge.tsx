@@ -210,7 +210,7 @@ function longDate(iso: string): string {
 
 const SOURCE_SENTENCE: Record<string, string> = {
   manual: "Set by hand",
-  email: "Set from an Atlas email",
+  email: "Set from a partner email",
   denial: "Inferred from a pass on a deal",
   notes: "Extracted from notes",
   import: "Loaded from an import",
