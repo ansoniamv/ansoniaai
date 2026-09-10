@@ -19,7 +19,7 @@ const FACT_CATEGORIES = [
   "capital","personnel","strategy","organizational","relationship","other",
 ] as const;
 
-const AI_MODEL = "google/gemini-2.5-flash";
+// Model selection lives in _shared/anthropic.ts (claude-opus-5).
 const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
 // Confidence gates

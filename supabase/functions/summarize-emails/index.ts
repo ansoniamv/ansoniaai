@@ -10,12 +10,11 @@ const corsHeaders = {
 
 // Lovable AI Gateway (OpenAI-compatible). Much higher rate limits than direct Anthropic.
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-// Structured extraction is the foundation for gating + scoring — use a stronger model.
-const EXTRACTION_MODEL = "google/gemini-2.5-flash";
-// Vision-capable model for reading facts off marketing images.
-const VISION_MODEL = "google/gemini-2.5-flash";
-// Cheap multi-email roll-up summary — flash-lite is fine.
-const SUMMARY_MODEL = "google/gemini-2.5-flash-lite";
+// Structured extraction here is the foundation for gating + scoring, so it runs
+// on the platform default. Model selection lives in _shared/anthropic.ts
+// (claude-opus-5). The former per-call Gemini constants were vestigial: callLLM
+// ignored the argument, and the usage log already records the model that
+// actually answered.
 
 // Outlook connector — used to fetch inline image attachments referenced by cid:
 const OUTLOOK_GATEWAY = "https://connector-gateway.lovable.dev/microsoft_outlook";
@@ -43,7 +42,6 @@ async function callLLM(
   apiKey: string,
   prompt: string,
   maxTokens = 400,
-  model = SUMMARY_MODEL,
   ctx?: { supabase: any; deal_id?: string | null },
 ): Promise<string> {
   // Routing and retries live in _shared/ai.ts — Claude Opus 5 primary, gateway fallback.
@@ -209,7 +207,7 @@ async function extractSummaryAndFields(
     `Subject: ${stripFenceMarkers(subject || "(none)")}\n\nBody:\n${stripFenceMarkers(body).slice(0, 8000)}\n` +
     `<<<UNTRUSTED_EMAIL_END>>>`;
 
-  const raw = await callLLM(apiKey, prompt, 900, EXTRACTION_MODEL, ctx);
+  const raw = await callLLM(apiKey, prompt, 900, ctx);
   const parsed = parseJsonLoose(raw) as { summary?: unknown; fields?: unknown } | null;
   if (!parsed || typeof parsed !== "object") return { summary: null, fields: {} };
 
@@ -469,7 +467,6 @@ Deno.serve(async (req) => {
             `Write a short narrative of the deal's history in 1-3 sentences, chronological (oldest first). ` +
             `Highlight price changes, deadlines, and status updates.\n\n${bundle}`,
             250,
-            SUMMARY_MODEL,
             { supabase, deal_id: dealId },
           );
         } catch (err) { console.error("thread summary failed", dealId, err); }

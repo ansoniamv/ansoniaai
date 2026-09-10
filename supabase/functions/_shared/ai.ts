@@ -23,6 +23,12 @@ export interface CompleteOptions {
   timeoutMs?: number;
   /** Set false for calls that must not silently degrade to the fallback model. */
   allowFallback?: boolean;
+  /**
+   * JSON Schema constraining the response. Anthropic enforces it server-side.
+   * The gateway fallback has no equivalent, so a schema'd call that falls back
+   * still returns prose — completeJSON's tolerant parse covers that case.
+   */
+  schema?: Record<string, unknown>;
 }
 
 export interface CompleteResult {
@@ -78,6 +84,7 @@ export async function completeText(prompt: string, opts: CompleteOptions = {}): 
         system: opts.system,
         max_tokens: opts.maxTokens ?? 8000,
         effort: opts.effort,
+        schema: opts.schema,
         timeoutMs: opts.timeoutMs,
       });
       return { text: res.text, model: res.model, provider: "anthropic", usage: res.usage };

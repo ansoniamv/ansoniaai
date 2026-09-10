@@ -47,6 +47,13 @@ export interface ClaudeRequest {
   tools?: any[];
   /** "low" | "medium" | "high" | "xhigh" | "max" — omit to use the API default. */
   effort?: string;
+  /**
+   * JSON Schema for a structured output. When set, the API constrains the
+   * response to match it, so the caller gets schema-valid JSON instead of
+   * fishing an object out of prose. Strongly preferred for scoring calls,
+   * where a parse failure means a deal silently goes unscored.
+   */
+  schema?: Record<string, unknown>;
   timeoutMs?: number;
   maxRetries?: number;
 }
@@ -89,7 +96,13 @@ export async function callClaudeRaw(req: ClaudeRequest): Promise<ClaudeResponse>
   };
   if (req.system) body.system = req.system;
   if (req.tools?.length) body.tools = req.tools;
-  if (req.effort) body.output_config = { effort: req.effort };
+  // effort and format both live under output_config; merge rather than clobber.
+  if (req.effort || req.schema) {
+    body.output_config = {
+      ...(req.effort ? { effort: req.effort } : {}),
+      ...(req.schema ? { format: { type: "json_schema", schema: req.schema } } : {}),
+    };
+  }
 
   let lastErr: unknown = null;
 
@@ -162,6 +175,19 @@ export async function callClaudeJSON<T = any>(
   opts: Omit<ClaudeRequest, "messages"> = {},
 ): Promise<{ parsed: T; usage: any; model: string }> {
   const res = await callClaude(prompt, { max_tokens: 8000, ...opts });
+
+  // With a schema the API guarantees a schema-valid JSON body, so parse it
+  // directly. The regex path below is the legacy fallback for callers that have
+  // not supplied one; it is greedy and can capture the wrong span when the model
+  // wraps the object in prose containing braces.
+  if (opts.schema) {
+    try {
+      return { parsed: JSON.parse(res.text) as T, usage: res.usage, model: res.model };
+    } catch {
+      // Fall through to the tolerant path rather than failing outright.
+    }
+  }
+
   const match = res.text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
   if (!match) {
     throw new Error(`No JSON found in Claude response: ${res.text.slice(0, 300)}`);

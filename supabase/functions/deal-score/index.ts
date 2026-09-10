@@ -4,6 +4,22 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage } from "../_shared/logUsage.ts";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 
+/** Shape of the thesis-alignment adjustment, enforced by Opus 5. */
+const DEAL_ADJUSTMENT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["rationale", "adjustment"],
+  properties: {
+    rationale: { type: "string", description: "2-3 sentence narrative justifying the adjustment." },
+    adjustment: {
+      type: "integer",
+      minimum: -10,
+      maximum: 10,
+      description: "How well the deal aligns with the thesis beyond the numeric pillar score.",
+    },
+  },
+} as const satisfies Record<string, unknown>;
+
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
@@ -224,6 +240,10 @@ serve(async (req) => {
           {
             system: "You are an investment committee analyst evaluating a value-add multifamily deal against an investment thesis. Be concise and specific.",
             maxTokens: 4000,
+            // Opus 5 enforces the shape server-side, so `adjustment` arrives as
+            // a bounded integer rather than something the clamp below has to
+            // rescue from a stray string or a hallucinated field name.
+            schema: DEAL_ADJUSTMENT_SCHEMA,
           },
         );
         await logAiUsage(supabase, { function_name: "deal-score", model, provider, usage, deal_id });

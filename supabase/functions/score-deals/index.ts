@@ -12,9 +12,10 @@ const MAX_DEALS_PER_CALL = 200;
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const RATIONALE_MODEL = "google/gemini-2.5-flash";
+// Scoring runs on Claude Opus 5 via _shared/ai.ts. The old Lovable-gateway
+// Gemini rationale path was removed when scoring moved to Opus 5; its constants
+// lingered as dead code and are gone now. Provider routing and any fallback
+// belong in _shared/ai.ts, not here.
 
 function clamp(n: number, min = 0, max = 100) { return Math.max(min, Math.min(max, n)); }
 
