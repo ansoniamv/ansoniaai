@@ -1,7 +1,8 @@
 {
-  "name": "vite_react_shadcn_ts",
+  "name": "atlas-ai",
   "private": true,
   "version": "0.0.0",
+  "description": "Atlas AI — the acquisitions operating system for boutique multifamily private equity.",
   "type": "module",
   "scripts": {
     "dev": "vite",
