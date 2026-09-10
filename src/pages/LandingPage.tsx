@@ -13,14 +13,32 @@ import { Link } from "react-router-dom";
 const NAVY = "#002752";
 const SKY = "#6AA3D8";
 
-/** Logo mark. Placed, never modified: no filter, recolour, crop or shadow. */
-function AtlasMark({ className = "h-8 w-8" }: { className?: string }) {
+// ── Brand assets ──────────────────────────────────────────────────────────
+// Both paths live here so replacing an asset is a one-line change. A
+// higher-resolution / SVG mark is expected; swapping ATLAS_MARK_SRC is all it
+// should take.
+const ATLAS_MARK_SRC = "/brand/atlas-mark.png";
+const SKYLINE_SRC = "/brand/chicago-skyline.webp";
+
+// The current mark is 119x124 and was recovered from a screenshot, so it has no
+// resolution to spare: never render it above 40px tall, and never upscale it.
+// 32px sits inside the permitted 24-40px window with room on both sides.
+const MARK_H = "h-8";
+
+/**
+ * Logo mark. Placed, never modified: no filter, recolour, crop, rotation or
+ * shadow. Height is set and width left auto — the source is 119x124, so
+ * forcing a square would stretch it ~4%, which is a modification.
+ */
+function AtlasMark({ heightClass = MARK_H }: { heightClass?: string }) {
   return (
     <img
-      src="/brand/atlas-mark.png"
+      src={ATLAS_MARK_SRC}
       alt=""
       aria-hidden
-      className={`${className} shrink-0 select-none`}
+      width={119}
+      height={124}
+      className={`${heightClass} w-auto shrink-0 select-none`}
       // Until the asset is dropped in, hide the element rather than show a
       // broken-image glyph. The wordmark still carries the brand.
       onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
@@ -28,10 +46,15 @@ function AtlasMark({ className = "h-8 w-8" }: { className?: string }) {
   );
 }
 
+/**
+ * Mark + wordmark lockup. The gap matches the mark's rendered height so the
+ * mark keeps clear space of at least its own height on every side — the nav
+ * row and footer both pad well beyond that on the remaining edges.
+ */
 function Wordmark({ dark = false }: { dark?: boolean }) {
   return (
-    <div className="flex items-center gap-3">
-      <AtlasMark className="h-9 w-9" />
+    <div className="flex items-center gap-8">
+      <AtlasMark />
       <span
         className="font-mono text-sm tracking-[0.28em] font-medium"
         style={{ color: dark ? "#FFFFFF" : NAVY }}
@@ -58,10 +81,14 @@ export default function LandingPage() {
           photograph so that if the image is missing (or still loading) the
           scrim colour is what shows — text never lands on bare photo. */}
       <header className="relative isolate overflow-hidden" style={{ backgroundColor: NAVY }}>
+        {/* 1377x687 WebP. bg-cover + bg-bottom keeps the skyline and waterline
+            in frame at every width; past ~1400px it simply scales and the
+            scrim carries the contrast rather than chasing crispness. The navy
+            on the parent shows through if the file is absent. */}
         <div
           aria-hidden
           className="absolute inset-0 bg-cover bg-bottom bg-no-repeat"
-          style={{ backgroundImage: "url('/brand/chicago-skyline.jpg')" }}
+          style={{ backgroundImage: `url('${SKYLINE_SRC}')` }}
         />
         {/* Bottom-heavy scrim: near-opaque navy where the copy sits, clearing
             toward the top so the skyline and waterline stay legible. */}
