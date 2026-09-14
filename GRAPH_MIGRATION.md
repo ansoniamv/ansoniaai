@@ -70,17 +70,29 @@ Safer order:
 3. Widen `since` in steps to drain the backlog at a time you choose.
 4. Re-enable `atlas_automation` only after the backlog is drained.
 
-**Unverified — check before relying on it.** The Atlas cadence is believed to come
-from a Supabase `pg_cron` job rather than the card's `interval_hours`, which would
-mean changing the card does not change when it wakes up. Nothing in version control
-confirms this: there is no `cron.schedule` in `supabase/migrations/`, because the
-jobs were recreated through the dashboard (see MIGRATION.md:308), so the real
-schedule lives only in the database. Confirm before the backlog drain:
+**Verified 2026-09-14.** The Atlas cadence is a real `pg_cron` job, not the card's
+`interval_hours`:
 
-    select jobid, schedule, command, active from cron.job order by jobid;
+    select jobid, jobname, schedule, active from cron.job;
+    -- scheduled-atlas-run | */30 * * * * | active
+    -- daily-digest        | 0 4 * * *    | active
 
-If the job is real, disabling `atlas_automation` in `connectors` may not be what
-actually stops it from firing — check both.
+The job POSTs to `scheduled-atlas-run` and reads its credentials from Vault at call
+time rather than embedding them in the job body (see SECURITY.md on why the old
+project's approach was wrong).
+
+`scheduled-atlas-run` checks `connectors.atlas_automation` immediately after the
+cron-secret check and returns `{ok: true, skipped: "disabled"}` before any stage
+runs. So disabling the flag genuinely stops the work — **but the job keeps firing
+every 30 minutes regardless, and still writes `last_run_at` into `connectors.config`
+each time.** A moving `last_run_at` is therefore not evidence that anything ran;
+`last_status` is, and while disabled it reads `"disabled"`.
+
+Consequence for the drain: setting the `GRAPH_*` secrets does not wake the backlog.
+The job will keep no-opping until someone flips the flag deliberately, so secrets can
+go in during a workday. `outlook-sync` is not gated by the flag at all — it takes
+`mailbox` and `since` directly — so the manual widening-`since` drain works with
+automation still off.
 
 ## Cleanup once Graph is live
 

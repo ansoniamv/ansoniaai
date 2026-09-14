@@ -1,6 +1,6 @@
 // Scheduled Atlas orchestrator. Files suggestions only — never applies.
 // Guarded by connectors.atlas_automation.enabled.
-// Cadence lives in pg_cron (job 11), not in this function or the app.
+// Cadence lives in pg_cron: select * from cron.job where jobname = 'scheduled-atlas-run';
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { requireCronSecret } from "../_shared/auth.ts";
 
