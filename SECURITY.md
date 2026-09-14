@@ -138,8 +138,9 @@ platform injects).
 
 | Secret | What breaks without it |
 | --- | --- |
-| `LOVABLE_API_KEY` | The gateway fallback when Anthropic errors, **and** all Outlook calls, which route through the Lovable connector gateway |
-| `MICROSOFT_OUTLOOK_API_KEY`, `..._API_KEY_1`, `..._ATLAS_API_KEY` | `outlook-sync`, `outlook-send`, `outlook-draft`, `sync-acquisitions-inbox` — so the whole email ingest pipeline and `/suggestions` |
+| `LOVABLE_API_KEY` | The gateway fallback when Anthropic errors, and the vision/text LLM passes in `summarize-emails`. No longer required for Outlook — see below |
+| `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET` | `outlook-sync`, `outlook-send`, `outlook-draft`, `sync-acquisitions-inbox` — so the whole email ingest pipeline and `/suggestions` |
+| `MICROSOFT_OUTLOOK_API_KEY`, `..._API_KEY_1`, `..._ATLAS_API_KEY` | Legacy Lovable gateway fallback for the same four functions. Only needed until app-only Graph is consented |
 | `HELLODATA_API_KEY` | Property search on the New Deal form, `fetch-hellodata`, `hellodata-detail`, `hellodata-enrich` |
 | `ESRI_API_KEY`, `ESRI_CLIENT_ID`, `ESRI_CLIENT_SECRET`, `ESRI_AUTH_MODE` | `esri-enrich` (the demographics panel), and `market-metrics-enrich` indirectly, since it reads Esri ring data |
 | `FIRECRAWL_API_KEY` | `schools-enrich`, `find-partner-website` |
@@ -154,6 +155,33 @@ supabase secrets set --project-ref pyndxntvoixxndbwiawd HELLODATA_API_KEY=... ES
 Note: Supabase CLI v2.117.0 accepts the `sbp_v0_` token format; the rejection was a v2.116.0 bug (fixed), so this
 no longer needs a workaround. You can also set them in the dashboard under
 Edge Functions → Secrets.
+
+### Outlook: app-only Microsoft Graph
+
+The Outlook functions call Microsoft Graph directly with an app-only
+(client-credentials) token, via `_shared/graphToken.ts` and
+`_shared/graphMail.ts`. Mailboxes are addressed explicitly as `/users/{upn}`, so
+a connection cannot bind to whichever account happened to be signed in at
+authorize time. Neither the client secret nor any minted token is ever logged —
+not even a prefix.
+
+**Blast radius.** Graph *application* permissions reach **every mailbox in the
+tenant** by default. Scoping the app registration down to the two mailboxes with
+an application access policy is required, not optional.
+
+**Legacy path, until Graph is live.** `resolveMailbox()` falls back to the
+Lovable connector gateway while the `GRAPH_*` secrets are unset, authenticating
+with `LOVABLE_API_KEY` plus a per-mailbox connection key. On that path the
+mailbox identity is **unverifiable** — the connection is bound to whoever
+authorized it, not to a mailbox we name — which is why `api-status` reports the
+gateway as `degraded` rather than healthy. Once Graph is verified in production,
+delete the fallback branch, `_shared/outlookKeys.ts`, and the
+`MICROSOFT_OUTLOOK_*` secrets.
+
+Setup procedure — app registration, permissions, admin consent, the scoping
+policy, secret names, verification and the Atlas backlog sequence — lives in
+[`GRAPH_MIGRATION.md`](GRAPH_MIGRATION.md). One canonical copy; do not restate it
+here.
 
 `ALLOWED_ORIGINS` is set to the live hostnames, so `corsFor()` is enforcing.
 `site_url` and the auth redirect allow-list point at
