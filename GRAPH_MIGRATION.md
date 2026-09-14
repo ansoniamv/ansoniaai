@@ -111,20 +111,45 @@ Each step is deliberate. Do not collapse them.
 4. **Confirm the status page.** Both Outlook rows should read
    `Reachable as <upn> (Graph app-only)`. A 403 here is consent or the access
    policy, not the code.
-5. **Run `sync-acquisitions-inbox` manually and watch it.** Its 24-hour window
-   self-limits the Graph read, but it chains `summarize-emails` with `limit: 200`.
-   That batch now bills: the vestigial `LOVABLE_API_KEY` guard was removed, so
-   summarization runs through Anthropic instead of failing fast.
-6. **Reactivate the driver. This is a step, not a footnote:**
+5. **Measure the batch before anything runs it at full size.** `summarize-emails`
+   has never billed against Anthropic, because the guard removed in this branch was
+   failing it fast the whole time. The `{limit: 200}` in `sync-acquisitions-inbox`
+   was sized for the Lovable era — the comment beside it reads *"larger batch +
+   flash-lite"* — and that call now routes to Claude Opus 5 through `_shared/ai.ts`.
+   A number chosen for flash-lite economics is now executing on Opus.
+
+   Measure with a **direct** call, not through the chain: `sync-acquisitions-inbox`
+   fires summarization unawaited and only when `touchedDealIds.size > 0`, so its
+   response tells you nothing about the batch. Invoke `summarize-emails` with
+   `{"limit": 20}`, then:
+
+       select count(*) as calls,
+              round(sum(cost_usd)::numeric, 4)  as total_usd,
+              round(avg(cost_usd)::numeric, 5)  as avg_per_call_usd
+       from ai_usage_log
+       where function_name = 'summarize-emails'
+         and created_at > now() - interval '1 hour';
+
+6. **Set the batch size deliberately, before the nightly job inherits it.** The 200
+   is hardcoded in `sync-acquisitions-inbox`, not a config value — changing it is a
+   code edit and another deploy. If the measured per-email cost says 200 is wrong,
+   change it here, while a human is still watching. After step 8 it belongs to a
+   nightly unattended job.
+
+7. **Run `sync-acquisitions-inbox` manually and watch it.** Its 24-hour window
+   self-limits the Graph read. Watch `ai_usage_log`, not the function's response —
+   the summarization it chains is fire-and-forget and returns long after the call does.
+
+8. **Reactivate the driver. This is a step, not a footnote:**
 
        update cron.job set active = true where jobname = 'daily-digest';
 
    While `daily-digest` is off, `score-deals` does not run either, so deals silently
    stop being scored. Nothing logs an error and nothing on the status page goes red.
    That is the kind of quiet failure that stays broken for a week. Do it in the same
-   sitting as step 5.
+   sitting as step 7.
 
-7. **Only then, Atlas.** The mailbox has not synced since 2026-08-17, so the first
+9. **Only then, Atlas.** The mailbox has not synced since 2026-08-17, so the first
    pass pulls roughly a month (bounded by the 120-day lookback cap in `outlook-sync`):
 
    1. Leave `atlas_automation` disabled.
