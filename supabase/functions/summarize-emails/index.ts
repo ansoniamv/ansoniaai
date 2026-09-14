@@ -8,8 +8,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Lovable AI Gateway (OpenAI-compatible). Much higher rate limits than direct Anthropic.
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 // Structured extraction here is the foundation for gating + scoring, so it runs
 // on the platform default. Model selection lives in _shared/anthropic.ts
 // (claude-opus-5). The former per-call Gemini constants were vestigial: callLLM
@@ -17,8 +15,23 @@ const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 // actually answered.
 
 // Outlook connector — used to fetch inline image attachments referenced by cid:
-const OUTLOOK_GATEWAY = "https://connector-gateway.lovable.dev/microsoft_outlook";
+import { graphFetch, resolveMailbox } from "../_shared/graphMail.ts";
 
+// Batch size for every path through this function. This is a COST decision whose
+// premise is the model on the other end: it was 100/200, sized for the Lovable
+// gateway's flash-lite pricing, and routing now goes to Claude Opus 5 via
+// _shared/ai.ts. The premise is named on purpose — if routing changes again, this
+// comment should read as wrong rather than age quietly.
+//
+// It is also a THROUGHPUT floor, not only a ceiling: selection below is
+// newest-first, so a batch smaller than daily inflow leaves older rows permanently
+// outranked. Keep it above the arrival rate or drain with backfill: true.
+const SUMMARIZE_BATCH_SIZE = Number(Deno.env.get("SUMMARIZE_BATCH_SIZE")) || 20;
+
+// Cursor values are interpolated into a PostgREST filter string, so every half of
+// the cursor is reconstructed or shape-checked before use — never trusted from the
+// request body as-is.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Fields we try to extract from each email and merge into inbox_deals
 const EXTRACTABLE_FIELDS = [
   "property_name",
@@ -39,7 +52,6 @@ const EXTRACTABLE_FIELDS = [
 type Extracted = Partial<Record<typeof EXTRACTABLE_FIELDS[number], string | number | null>>;
 
 async function callLLM(
-  apiKey: string,
   prompt: string,
   maxTokens = 400,
   ctx?: { supabase: any; deal_id?: string | null },
@@ -60,7 +72,6 @@ async function callLLM(
 }
 
 async function callVisionLLM(
-  apiKey: string,
   prompt: string,
   imageUrls: string[],
   maxTokens = 400,
@@ -125,19 +136,14 @@ function extractImageRefs(html: string | null | undefined): { urls: string[]; ci
 
 /** Fetch inline attachments from Outlook by message id, return as data URLs keyed by cid. */
 async function fetchOutlookInlineImages(
-  outlookKey: string,
-  lovableKey: string,
   messageId: string,
 ): Promise<Map<string, { dataUrl: string; size: number }>> {
   const out = new Map<string, { dataUrl: string; size: number }>();
   try {
-    const url = `${OUTLOOK_GATEWAY}/me/messages/${encodeURIComponent(messageId)}/attachments`;
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${lovableKey}`,
-        "X-Connection-Api-Key": outlookKey,
-      },
-    });
+    // Inline images live on the acquisitions mailbox message we just summarized.
+    const mb = resolveMailbox("acquisitions");
+    if (!mb) return out;
+    const res = await graphFetch(mb, `/messages/${encodeURIComponent(messageId)}/attachments`);
     if (!res.ok) return out;
     const json = await res.json();
     const items = Array.isArray(json?.value) ? json.value : [];
@@ -166,7 +172,6 @@ function stripFenceMarkers(s: string): string {
 }
 
 async function extractSummaryAndFields(
-  apiKey: string,
   subject: string,
   body: string,
   ctx?: { supabase: any; deal_id?: string | null },
@@ -207,7 +212,7 @@ async function extractSummaryAndFields(
     `Subject: ${stripFenceMarkers(subject || "(none)")}\n\nBody:\n${stripFenceMarkers(body).slice(0, 8000)}\n` +
     `<<<UNTRUSTED_EMAIL_END>>>`;
 
-  const raw = await callLLM(apiKey, prompt, 900, ctx);
+  const raw = await callLLM(prompt, 900, ctx);
   const parsed = parseJsonLoose(raw) as { summary?: unknown; fields?: unknown } | null;
   if (!parsed || typeof parsed !== "object") return { summary: null, fields: {} };
 
@@ -237,8 +242,6 @@ function coerceFields(fieldsRaw: Record<string, unknown>): Extracted {
 
 /** Vision pass — read facts from marketing images in the email body. */
 async function visionExtract(
-  lovableKey: string,
-  outlookKey: string | undefined,
   rawHtmlBody: string | null,
   emailMessageId: string | null,
   ctx?: { supabase: any; deal_id?: string | null },
@@ -246,8 +249,8 @@ async function visionExtract(
   const { urls, cids } = extractImageRefs(rawHtmlBody);
 
   const imageInputs: string[] = [...urls];
-  if (cids.length && emailMessageId && outlookKey) {
-    const inline = await fetchOutlookInlineImages(outlookKey, lovableKey, emailMessageId);
+  if (cids.length && emailMessageId) {
+    const inline = await fetchOutlookInlineImages(emailMessageId);
     // sort by size desc, take in order they appeared
     for (const cid of cids) {
       const hit = inline.get(cid) ?? inline.get(`<${cid}>`);
@@ -268,7 +271,7 @@ async function visionExtract(
     `{ "units": int|null, "year_built": int|null, "avg_sf": int|null, "occupancy_pct": number|null, "address": string|null }. ` +
     `Only report values you can actually read in the images. No prose, no code fences.`;
 
-  const raw = await callVisionLLM(lovableKey, prompt, picks, 400, ctx);
+  const raw = await callVisionLLM(prompt, picks, 400, ctx);
   const parsed = parseJsonLoose(raw) as Record<string, unknown> | null;
   if (!parsed) return { ran: true, fields: {}, reason: "parse-failed" };
   return { ran: true, fields: coerceFields(parsed), reason: `ok:${picks.length}img` };
@@ -280,28 +283,73 @@ Deno.serve(async (req) => {
   if (auth && !auth.ok) return auth.response;
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    const OUTLOOK_KEY = Deno.env.get("MICROSOFT_OUTLOOK_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      return new Response(JSON.stringify({ error: "LOVABLE_API_KEY not set" }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    let body: { deal_id?: string; limit?: number; force?: boolean; backfill?: boolean; depth?: number } = {};
+    let body: {
+      deal_id?: string; limit?: number; force?: boolean;
+      backfill?: boolean; depth?: number; oldest?: boolean;
+      after?: string; after_id?: string;
+    } = {};
     try { body = await req.json(); } catch { /* no body */ }
 
     // 1. Pick emails that still need summary OR extracted_fields OR vision pass
+    const oldestFirst = !!(body.backfill || body.oldest);
     let q = supabase
       .from("deal_emails")
       .select("id, deal_id, subject, body, received_at, summary, extracted_fields, email_message_id, vision_checked")
-      .order("received_at", { ascending: false })
-      .limit(body.limit ?? 100);
+      // Steady state is newest-first: fresh broker mail is what someone is waiting
+      // on. A drain flips to oldest-first, so the rows the nightly batch keeps
+      // outranking are exactly the ones it reaches first. `oldest` gives that
+      // ordering WITHOUT chaining, so a measurement run can sample the same
+      // population a drain will actually process.
+      .order("received_at", { ascending: oldestFirst })
+      // id is the tiebreaker that makes the sort total — see the cursor below.
+      .order("id", { ascending: oldestFirst })
+      .limit(body.limit ?? SUMMARIZE_BATCH_SIZE);
+    // Keyset paging: each drain hop starts after the last row the previous hop saw,
+    // instead of re-running the predicate from the top. Rows that fail permanently
+    // (a text pass that wrote nothing, a transient vision error that left
+    // vision_checked false) sort to the head of every oldest-first page, so
+    // re-running from the top re-pays for them on every hop. Keyset makes the walk
+    // strictly monotonic: each stuck row costs once per drain, and the chain ends on
+    // a short page rather than on progress detection.
+    //
+    // The cursor is composite because received_at is NOT unique — broker blasts and
+    // bulk Graph delivery land several emails on the same second. A bare
+    // "received_at >" would step over the rest of a boundary cluster; "received_at >="
+    // would re-process it, and the rows it re-processes are exactly the stuck ones.
+    // (received_at, id) is total, so this skips nothing and re-pays for nothing.
+    // BOTH halves cross the trust boundary into that filter string, where a single
+    // quote terminates it early — so neither is passed through. Date.parse is not a
+    // guard here: its legacy path accepts 'Jun 22 2026"' and returns a valid number.
+    // The timestamp is therefore re-serialized from a Date we constructed, and the
+    // id is shape-checked.
+    //
+    // PREMISE, because the serializer can undo the cursor: Postgres timestamptz holds
+    // microseconds, JS Date holds milliseconds. This round trip is lossless only while
+    // received_at is whole-second data — it was, for all 2,227 rows, on 2026-09-14.
+    // Graph's receivedDateTime does not produce sub-millisecond values, but a row
+    // written by another route (a bulk import, a DB-side now() default) could. Then
+    // toISOString() truncates, the eq branch stops matching, and that row is skipped:
+    // exactly the failure the composite cursor exists to prevent, reappearing through
+    // the serializer rather than through the comparison. If this premise ever goes
+    // false, keep the raw string and validate it with a strict format check instead of
+    // reconstructing a Date.
+    if (body.backfill && body.after) {
+      const parsed = new Date(body.after);
+      const afterTs = Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+      const afterId = body.after_id && UUID_RE.test(body.after_id) ? body.after_id : null;
+      if (afterTs && afterId) {
+        q = q.or(
+          `received_at.gt."${afterTs}",and(received_at.eq."${afterTs}",id.gt.${afterId})`,
+        );
+      } else if (afterTs) {
+        q = q.gt("received_at", afterTs);
+      }
+    }
     if (body.deal_id) q = q.eq("deal_id", body.deal_id);
     if (!body.force) {
       q = q.or("summary.is.null,extracted_fields.is.null,vision_checked.eq.false");
@@ -314,6 +362,7 @@ Deno.serve(async (req) => {
     let extracted = 0;
     let visionRan = 0;
     let visionSkipped = 0;
+    let advancedRows = 0;
     const touchedDealIds = new Set<string>();
 
     const CONCURRENCY = 8;
@@ -341,7 +390,6 @@ Deno.serve(async (req) => {
         if (needSummary || needExtract) {
           try {
             const { summary, fields } = await extractSummaryAndFields(
-              LOVABLE_API_KEY,
               (e.subject as string) ?? "",
               cleanBody,
               { supabase, deal_id: (e.deal_id as string | null) ?? null },
@@ -375,8 +423,6 @@ Deno.serve(async (req) => {
           } else {
             try {
               const { ran, fields: vFields, reason } = await visionExtract(
-                LOVABLE_API_KEY,
-                OUTLOOK_KEY,
                 rawBody,
                 (e.email_message_id as string | null) ?? null,
                 { supabase, deal_id: (e.deal_id as string | null) ?? null },
@@ -410,6 +456,7 @@ Deno.serve(async (req) => {
 
         if (Object.keys(update).length) {
           await supabase.from("deal_emails").update(update).eq("id", e.id);
+          advancedRows++;
         }
         results.push({
           dealId: (e.deal_id as string | null) ?? null,
@@ -462,7 +509,6 @@ Deno.serve(async (req) => {
           .join("\n");
         try {
           threadSummary = await callLLM(
-            LOVABLE_API_KEY,
             `Below are summaries of broker emails about the same real estate deal, newest first. ` +
             `Write a short narrative of the deal's history in 1-3 sentences, chronological (oldest first). ` +
             `Highlight price changes, deadlines, and status updates.\n\n${bundle}`,
@@ -531,18 +577,36 @@ Deno.serve(async (req) => {
     // If backfill mode and we processed a full batch, chain another run.
     // Hard depth cap (max 10 chained runs) + env kill switch so a backfill can
     // never become an unbounded self-invoking loop.
+    const lastRow = emails?.length ? emails[emails.length - 1] : null;
+    const nextCursor = lastRow ? ((lastRow.received_at as string | null) ?? null) : null;
+    const nextCursorId = lastRow ? ((lastRow.id as string | null) ?? null) : null;
     const depth = Number(body.depth ?? 0);
     const MAX_DEPTH = 10;
     const killed = Deno.env.get("SUMMARIZE_EMAILS_CHAIN_DISABLED") === "true";
-    if (body.backfill && (emails?.length ?? 0) >= (body.limit ?? 100)) {
+    // advancedRows guards the one way a drain can spin: a text-pass failure writes
+    // nothing, and a transient vision error deliberately leaves vision_checked
+    // false, so a row can fail the predicate forever. Newest-first those rows get
+    // pushed down by new arrivals; oldest-first they sit at the head of every page.
+    // Without this, a fully-stuck page would burn MAX_DEPTH x limit calls re-reading
+    // the same emails. A short page or a page that moved nothing ends the chain.
+    if (body.backfill && (emails?.length ?? 0) >= (body.limit ?? SUMMARIZE_BATCH_SIZE)) {
       if (killed) {
         console.log("backfill chain disabled by kill switch");
+      } else if (advancedRows === 0) {
+        console.log("backfill chain stopped: page made no progress (rows failing the predicate repeatedly)");
       } else if (depth >= MAX_DEPTH) {
         console.log(`backfill chain stopped: depth cap ${MAX_DEPTH} reached`);
       } else {
         supabase.functions
           .invoke("summarize-emails", {
-            body: { limit: body.limit ?? 100, backfill: true, depth: depth + 1 },
+            body: {
+              limit: body.limit ?? SUMMARIZE_BATCH_SIZE,
+              backfill: true,
+              depth: depth + 1,
+              // Ascending order: the last row is the page's high-water mark.
+              ...(nextCursor ? { after: nextCursor } : {}),
+              ...(nextCursorId ? { after_id: nextCursorId } : {}),
+            },
           })
           .then(({ error }) => {
             if (error) console.error("backfill chain invoke returned error", error);
@@ -560,6 +624,7 @@ Deno.serve(async (req) => {
         extracted,
         visionRan,
         visionSkipped,
+        advancedRows,
         threadsUpdated,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },

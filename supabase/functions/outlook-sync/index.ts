@@ -1,14 +1,20 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { requireUserOrService } from "../_shared/auth.ts";
-import { resolveAtlasKey, resolveAcquisitionsKey } from "../_shared/outlookKeys.ts";
+import { resolveAtlasKey } from "../_shared/outlookKeys.ts";
+import {
+  graphFetch,
+  resolveMailbox,
+  safeNextLink,
+  type MailboxKey,
+  type MailboxTransport,
+} from "../_shared/graphMail.ts";
+import { graphConfigured } from "../_shared/graphToken.ts";
 
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const GATEWAY_URL = "https://connector-gateway.lovable.dev/microsoft_outlook";
 
 interface GraphMessage {
   id: string;
@@ -28,10 +34,8 @@ interface GraphMessage {
   parentFolderId?: string;
 }
 
-interface Mailbox {
-  key: string;              // logical name stored on the row
-  connectionApiKey: string; // X-Connection-Api-Key value
-}
+/** Logical mailbox name stored on the row, plus how to reach it. */
+type Mailbox = { key: MailboxKey; transport: MailboxTransport };
 
 const ANSONIA_DOMAIN = "ansoniaproperties.com";
 const GENERIC_DOMAINS = new Set([
@@ -98,14 +102,14 @@ Deno.serve(async (req) => {
   try {
     const auth = await requireUserOrService(req);
     if (auth && !auth.ok) return auth.response;
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    const acqRes = resolveAcquisitionsKey();
+    // On the Graph path each mailbox is addressed by UPN, so the acquisitions/
+    // Atlas key collision check below only applies to the legacy gateway path.
     const atlasRes = resolveAtlasKey();
-    const ACQ_KEY = acqRes.key;
-    const ATLAS_KEY = atlasRes.collidesWithAcquisitions ? null : atlasRes.key;
+    const acqTransport = resolveMailbox("acquisitions");
+    const atlasTransport = resolveMailbox("atlas");
+    const keysCollide = !graphConfigured() && atlasRes.collidesWithAcquisitions;
 
-
-    if (!LOVABLE_API_KEY || (!ACQ_KEY && !ATLAS_KEY)) {
+    if (!acqTransport && !atlasTransport) {
       return new Response(JSON.stringify({ error: "Outlook connector not configured" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -128,8 +132,8 @@ Deno.serve(async (req) => {
     const requestedMailbox: string | undefined = body.mailbox; // optional filter
 
     const mailboxes: Mailbox[] = [];
-    if (ACQ_KEY) mailboxes.push({ key: "acquisitions", connectionApiKey: ACQ_KEY });
-    if (ATLAS_KEY) mailboxes.push({ key: "atlas", connectionApiKey: ATLAS_KEY });
+    if (acqTransport) mailboxes.push({ key: "acquisitions", transport: acqTransport });
+    if (atlasTransport) mailboxes.push({ key: "atlas", transport: atlasTransport });
 
     const targets = requestedMailbox
       ? mailboxes.filter((m) => m.key === requestedMailbox)
@@ -167,8 +171,8 @@ Deno.serve(async (req) => {
     const candidates = new Map<string, Candidate>();
 
 
-    const results: Record<string, { fetched: number; upserted: number; matched: number; error?: string; since?: string; pages?: number; truncated?: boolean; key_name?: string | null }> = {};
-    if (atlasRes.collidesWithAcquisitions) {
+    const results: Record<string, { fetched: number; upserted: number; matched: number; error?: string; since?: string; pages?: number; truncated?: boolean; key_name?: string | null; via?: string }> = {};
+    if (keysCollide) {
       results.atlas = {
         fetched: 0,
         upserted: 0,
@@ -215,7 +219,7 @@ Deno.serve(async (req) => {
       if (floor < hardFloor) floor = hardFloor;
 
       const baseUrl =
-        `${GATEWAY_URL}/me/mailFolders/${folder}/messages` +
+        `/mailFolders/${encodeURIComponent(folder)}/messages` +
         `?$top=${PAGE_SIZE}` +
         `&$orderby=receivedDateTime desc` +
         `&$filter=receivedDateTime ge ${floor.toISOString()}` +
@@ -228,17 +232,12 @@ Deno.serve(async (req) => {
       let failed = false;
 
       while (url && pages < MAX_PAGES) {
-        const res = await fetch(url, {
-          headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
-            "X-Connection-Api-Key": mb.connectionApiKey,
-          },
-        });
+        const res = await graphFetch(mb.transport, url);
         if (!res.ok) {
           const text = await res.text();
           results[mb.key] = {
             fetched: 0, upserted: 0, matched: 0,
-            error: `HTTP ${res.status}: ${text.slice(0, 300)}`,
+            error: `HTTP ${res.status} via ${mb.transport.detail}: ${text.slice(0, 300)}`,
           };
           failed = true;
           break;
@@ -248,15 +247,9 @@ Deno.serve(async (req) => {
         messages.push(...batch);
         pages++;
 
-        const next = data["@odata.nextLink"];
-        if (typeof next === "string" && next.startsWith(GATEWAY_URL)) {
-          url = next;
-        } else if (next || batch.length === PAGE_SIZE) {
-          // Gateway didn't return a followable nextLink — fall back to $skip paging.
-          url = `${baseUrl}&$skip=${pages * PAGE_SIZE}`;
-        } else {
-          url = null;
-        }
+        // Graph always hands back a followable @odata.nextLink when more pages
+        // exist; no $skip fallback (that only ever worked around the gateway).
+        url = safeNextLink(mb.transport, data["@odata.nextLink"]);
       }
       if (failed) continue;
       if (pages >= MAX_PAGES && url) truncated = true;
@@ -390,7 +383,8 @@ Deno.serve(async (req) => {
         results[mb.key] = {
           fetched: messages.length, upserted, matched: matchedCount,
           since: floor.toISOString(), pages,
-          ...(mb.key === "atlas" ? { key_name: atlasRes.name } : {}),
+          ...(mb.key === "atlas" && mb.transport.via === "gateway" ? { key_name: atlasRes.name } : {}),
+          via: mb.transport.detail,
           ...(truncated ? { truncated: true } : {}),
         };
 

@@ -1,13 +1,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { graphFetch, resolveMailbox } from "../_shared/graphMail.ts";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
-
-const GATEWAY_URL = "https://connector-gateway.lovable.dev/microsoft_outlook";
 
 const SKIP_SUBJECT_TERMS = [
   "quarantine", "out of office", "microsoft alert",
   "unsubscribe notice", "undeliverable",
 ];
 const BLOCKED_DOMAINS = ["ansoniaproperties.com"];
+
 
 interface GraphMessage {
   id: string;
@@ -178,9 +178,8 @@ Deno.serve(async (req) => {
   if (authz && !authz.ok) return authz.response;
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    const OUTLOOK_KEY = Deno.env.get("MICROSOFT_OUTLOOK_API_KEY");
-    if (!LOVABLE_API_KEY || !OUTLOOK_KEY) {
+    const mb = resolveMailbox("acquisitions");
+    if (!mb) {
       return new Response(JSON.stringify({ error: "Outlook connector not configured" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -192,18 +191,13 @@ Deno.serve(async (req) => {
     );
 
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const url =
-      `${GATEWAY_URL}/me/messages` +
+    const path =
+      `/messages` +
       `?$top=100&$orderby=receivedDateTime desc` +
       `&$filter=${encodeURIComponent(`receivedDateTime ge ${since}`)}` +
       `&$select=id,subject,bodyPreview,body,from,receivedDateTime`;
 
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "X-Connection-Api-Key": OUTLOOK_KEY,
-      },
-    });
+    const res = await graphFetch(mb, path);
     if (!res.ok) {
       const text = await res.text();
       return new Response(
@@ -336,11 +330,13 @@ Deno.serve(async (req) => {
         .eq("id", id);
     }
 
-    // Fire summarization async (don't block response). Larger batch + flash-lite
-    // means we can process the whole sync in one call.
+    // Fire summarization async (don't block response) — which means a failing
+    // batch never reaches this caller. Watch ai_usage_log and the function logs,
+    // not this function's response. Batch size is owned by summarize-emails
+    // (SUMMARIZE_BATCH_SIZE), so no limit is passed here.
     if (touchedDealIds.size > 0) {
       supabase.functions
-        .invoke("summarize-emails", { body: { limit: 200 } })
+        .invoke("summarize-emails", { body: {} })
         .then(({ error }) => {
           if (error) console.error("summarize-emails invoke returned error", error);
         })
