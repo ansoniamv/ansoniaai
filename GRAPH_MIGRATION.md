@@ -44,11 +44,12 @@ unchanged — so you can deploy now and flip by adding secrets.
 
 ```powershell
 New-ApplicationAccessPolicy -AppId <client-id> `
-  -PolicyScopeGroupId dpp-graph-mailboxes@ansoniaproperties.com `
+  -PolicyScopeGroupId <mail-enabled-security-group> `
   -AccessRight RestrictAccess -Description "DPP: acquisitions + atlas only"
 ```
 
 (mail-enabled security group containing the two mailboxes; Exchange Online PowerShell).
+(group name is in the Azure setup notes, not in this repo — the repo is public.)
 
 ## Verify
 
