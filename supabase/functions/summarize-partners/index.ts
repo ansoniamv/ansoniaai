@@ -31,6 +31,34 @@ const PARTNER_FIELDS =
 
 type ContactLite = { name: string | null; role: string | null };
 
+/**
+ * Exactly the columns PARTNER_FIELDS selects, typed from the generated schema.
+ * PARTNER_FIELDS is assembled with "+", so TypeScript widens it to the plain
+ * string type and postgrest-js cannot parse it at the type level. Without this,
+ * rows come back as GenericStringError and every field read is a type error.
+ */
+type PartnerRow = {
+  id: string;
+  name: string;
+  firm_type: string | null;
+  investor_type: string[] | null;
+  headquarters: string | null;
+  min_equity_m: number | null;
+  max_equity_m: number | null;
+  geography: string[] | null;
+  geography_avoid: string[];
+  strategy_value_add: boolean | null;
+  strategy_core_plus: boolean | null;
+  strategy_workforce: boolean | null;
+  strategy_affordable: boolean | null;
+  product_types: string[] | null;
+  hold_period: string[] | null;
+  additional_notes: string | null;
+  organized_notes: string | null;
+  profile_summary: string | null;
+  profile_summary_hash: string | null;
+};
+
 async function sha256(str: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -155,11 +183,11 @@ Deno.serve(async (req) => {
     let query = sb.from("partners").select(PARTNER_FIELDS);
     if (partnerIds && partnerIds.length > 0) query = query.in("id", partnerIds);
     else query = query.is("archived_at", null);
-    const { data: partners, error: pErr } = await query;
+    const { data: partners, error: pErr } = await query.returns<PartnerRow[]>();
     if (pErr) throw pErr;
     if (!partners?.length) return json({ ok: true, processed: 0, skipped: 0, failed: 0 });
 
-    const ids = partners.map((p: any) => p.id);
+    const ids = partners.map((p) => p.id);
     const { data: contactRows, error: cErr } = await sb
       .from("partner_contacts")
       .select("partner_id, name, role")
@@ -174,7 +202,7 @@ Deno.serve(async (req) => {
     }
 
     // Hash every candidate; skip unchanged. Hashing is cheap — LLM calls are not.
-    type Work = { partner: any; hash: string };
+    type Work = { partner: PartnerRow; hash: string };
     const queue: Work[] = [];
     let skipped = 0;
     for (const p of partners) {
