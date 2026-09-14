@@ -326,8 +326,18 @@ Deno.serve(async (req) => {
     // quote terminates it early — so neither is passed through. Date.parse is not a
     // guard here: its legacy path accepts 'Jun 22 2026"' and returns a valid number.
     // The timestamp is therefore re-serialized from a Date we constructed, and the
-    // id is shape-checked. Re-serializing is lossless for this column (no sub-second
-    // values), so the eq half of the cursor still matches.
+    // id is shape-checked.
+    //
+    // PREMISE, because the serializer can undo the cursor: Postgres timestamptz holds
+    // microseconds, JS Date holds milliseconds. This round trip is lossless only while
+    // received_at is whole-second data — it was, for all 2,227 rows, on 2026-09-14.
+    // Graph's receivedDateTime does not produce sub-millisecond values, but a row
+    // written by another route (a bulk import, a DB-side now() default) could. Then
+    // toISOString() truncates, the eq branch stops matching, and that row is skipped:
+    // exactly the failure the composite cursor exists to prevent, reappearing through
+    // the serializer rather than through the comparison. If this premise ever goes
+    // false, keep the raw string and validate it with a strict format check instead of
+    // reconstructing a Date.
     if (body.backfill && body.after) {
       const parsed = new Date(body.after);
       const afterTs = Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
