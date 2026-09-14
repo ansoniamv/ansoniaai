@@ -177,9 +177,12 @@ Each step is deliberate. Do not collapse them.
    is genuinely wrong rather than merely slow; both remain as backstops. Kill switch:
    `SUMMARIZE_EMAILS_CHAIN_DISABLED=true`.
 
-   One bounded caveat: the cursor is a strict `received_at >`, so rows sharing the
-   exact boundary timestamp can be skipped. Re-run the drain — the backlog count is
-   the check, and a second pass picks up anything the first stepped over.
+   The cursor is composite — `(received_at, id)` — because `received_at` is not
+   unique: broker blasts and bulk Graph delivery land several emails on the same
+   second (2 such clusters in the current 2,227 rows, none of them in the backlog).
+   A bare `received_at >` would step over the rest of a boundary cluster and `>=`
+   would re-process it, re-paying for exactly the stuck rows. The composite cursor
+   skips nothing and re-pays for nothing, so there is no caveat to work around.
 
 8. **Run `sync-acquisitions-inbox` manually and watch it.** Its 24-hour window
    self-limits the Graph read.
