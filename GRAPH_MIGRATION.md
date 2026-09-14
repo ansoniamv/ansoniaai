@@ -12,7 +12,7 @@ signed in at connect time. That is what makes the wrong-mailbox failure permanen
 | `supabase/functions/_shared/graphMail.ts` | **New.** One place that decides mailbox + transport. Graph when `GRAPH_*` secrets exist; legacy gateway otherwise, so this ships before consent lands. |
 | `outlook-sync/index.ts` | Mailboxes now carry a transport, not a connection key. `$skip` paging fallback **deleted** — Graph always returns a followable `@odata.nextLink`. Per-mailbox result now reports `via`. |
 | `sync-acquisitions-inbox/index.ts` | `/me/messages` → `/users/{acq upn}/messages`. Query string unchanged. |
-| `summarize-emails/index.ts` | Inline-attachment fetch moved onto the shared transport; `outlookKey` plumbing removed. |
+| `summarize-emails/index.ts` | Inline-attachment fetch moved onto the shared transport; `outlookKey` plumbing removed. Also drops the vestigial `LOVABLE_API_KEY` guard — the file has no gateway call left, so summarization now runs via Anthropic instead of failing fast. Changes what the first post-deploy batch costs; see step 5. |
 | `outlook-draft/index.ts` | Draft created in the Atlas mailbox by UPN. |
 | `outlook-send/index.ts` | `sendMail` / `reply` from the acquisitions mailbox by UPN. |
 | `api-status/index.ts` | Both Outlook probes rewritten: single `probeMailbox()`. On Graph, reachable == right mailbox, and 401/403/404 are each explained. On the gateway it reports **degraded** and says identity is unverifiable. |
@@ -53,49 +53,107 @@ New-ApplicationAccessPolicy -AppId <client-id> `
 
 ## Verify
 
-1. Deploy functions, add secrets.
-2. Open the status page — both Outlook rows should read `Reachable as <upn> (Graph app-only)`.
-   A 403 there means step 3 or 4 above, not a code problem.
-3. `outlook-sync` with `{"mailbox":"atlas","top":10}` — check `via` in the response.
-4. Once Atlas is confirmed green, re-enable `atlas_automation` deliberately (see below).
+Step by step in **Deploy and first-run sequence** below — it supersedes a bare
+checklist, because the order and the gates are the part that matters.
 
-## Atlas backlog — re-enable on purpose, not by surprise
+## What each gate actually covers
 
-`atlas_automation` has been off in `connectors` since Sep 11 and the Atlas mailbox
-has not synced since Aug 17. First successful sync pulls roughly a month of mail
-(bounded by the 120-day lookback cap in `outlook-sync`) and fans out into analysis.
+**Verified 2026-09-14.** This was modelled wrong twice, in opposite directions,
+before anyone checked it — once assuming the flag stopped everything, once
+assuming secrets woke nothing. Trust the checks below, not the plausible version:
 
-Safer order:
-1. Leave `atlas_automation` disabled.
-2. Run `outlook-sync` manually with `{"mailbox":"atlas","since":"<48h ago>"}` to confirm the path.
-3. Widen `since` in steps to drain the backlog at a time you choose.
-4. Re-enable `atlas_automation` only after the backlog is drained.
+- `connectors.atlas_automation` gates **the Atlas path only**. `scheduled-atlas-run`
+  reads the flag immediately after its cron-secret check and returns
+  `{ok: true, skipped: "disabled"}` before any stage. Its stages are
+  `outlook-sync {mailbox:"atlas"}`, `analyze-partner-emails` and
+  `compute-partner-warmth` — no gating, no scoring.
+- **Nothing gates the acquisitions chain.** `sync-acquisitions-inbox` reads a fixed
+  24-hour Graph window, writes `deal_emails` / `inbox_deals`, and invokes
+  `summarize-emails` with `limit: 200`. That is the app's largest cost driver.
+- `daily-digest` (pg_cron job 1, `0 4 * * *`, active) is what drives it unattended:
+  it calls `sync-acquisitions-inbox`, then `score-deals {since_days: 1}`. Gated by
+  `requireCronSecret` and nothing else.
 
-**Verified 2026-09-14.** The Atlas cadence is a real `pg_cron` job, not the card's
-`interval_hours`:
+So setting the `GRAPH_*` secrets does **not** wake Atlas, but it does wake
+acquisitions at the next 04:00 UTC.
+
+`outlook-sync {mailbox:"acquisitions"}` is not the expensive path — it writes
+`outlook_messages` and `partner_suggestions` only, with no LLM call. Do not use it
+as a proxy for watching the cascade; it does not drive one.
+
+The pg_cron facts:
 
     select jobid, jobname, schedule, active from cron.job;
-    -- scheduled-atlas-run | */30 * * * * | active
     -- daily-digest        | 0 4 * * *    | active
+    -- scheduled-atlas-run | */30 * * * * | active
 
-The job POSTs to `scheduled-atlas-run` and reads its credentials from Vault at call
-time rather than embedding them in the job body (see SECURITY.md on why the old
+Both jobs POST to their function and read credentials from Vault at call time
+rather than embedding them in the job body (see SECURITY.md on why the old
 project's approach was wrong).
 
-`scheduled-atlas-run` checks `connectors.atlas_automation` immediately after the
-cron-secret check and returns `{ok: true, skipped: "disabled"}` before any stage
-runs. So disabling the flag genuinely stops the work — **but the job keeps firing
-every 30 minutes regardless, and still writes `last_run_at` into `connectors.config`
-each time.** A moving `last_run_at` is therefore not evidence that anything ran;
-`last_status` is, and while disabled it reads `"disabled"`.
+**`last_run_at` is not evidence that anything ran.** While `atlas_automation` is
+disabled the job still fires every 30 minutes and still writes `last_run_at` into
+`connectors.config` each time. `last_status` is the field that tells you; while
+disabled it reads `"disabled"`.
 
-Consequence for the drain: setting the `GRAPH_*` secrets does not wake the backlog.
-The job will keep no-opping until someone flips the flag deliberately, so secrets can
-go in during a workday. `outlook-sync` is not gated by the flag at all — it takes
-`mailbox` and `since` directly — so the manual widening-`since` drain works with
-automation still off.
+## Deploy and first-run sequence
+
+Each step is deliberate. Do not collapse them.
+
+1. **Deactivate the unattended driver**, so the first acquisitions run is one you
+   are watching rather than one that happens at 04:00 UTC:
+
+       update cron.job set active = false where jobname = 'daily-digest';
+
+2. **Set the secrets** — `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`.
+3. **Deploy the functions.** Secrets first, then deploy: functions read secrets at
+   boot, so deploying first leaves running instances on the gateway until replaced.
+4. **Confirm the status page.** Both Outlook rows should read
+   `Reachable as <upn> (Graph app-only)`. A 403 here is consent or the access
+   policy, not the code.
+5. **Run `sync-acquisitions-inbox` manually and watch it.** Its 24-hour window
+   self-limits the Graph read, but it chains `summarize-emails` with `limit: 200`.
+   That batch now bills: the vestigial `LOVABLE_API_KEY` guard was removed, so
+   summarization runs through Anthropic instead of failing fast.
+6. **Reactivate the driver. This is a step, not a footnote:**
+
+       update cron.job set active = true where jobname = 'daily-digest';
+
+   While `daily-digest` is off, `score-deals` does not run either, so deals silently
+   stop being scored. Nothing logs an error and nothing on the status page goes red.
+   That is the kind of quiet failure that stays broken for a week. Do it in the same
+   sitting as step 5.
+
+7. **Only then, Atlas.** The mailbox has not synced since 2026-08-17, so the first
+   pass pulls roughly a month (bounded by the 120-day lookback cap in `outlook-sync`):
+
+   1. Leave `atlas_automation` disabled.
+   2. Run `outlook-sync` with `{"mailbox":"atlas","since":"<48h ago>"}` to confirm the path.
+   3. Widen `since` in steps to drain the backlog at a time you choose.
+   4. Re-enable `atlas_automation` only after the backlog is drained.
+
+   `outlook-sync` is not gated by the flag — it takes `mailbox` and `since`
+   directly — so the whole drain runs with automation still off.
 
 ## Cleanup once Graph is live
 
 Delete the gateway branch in `graphMail.ts`, `_shared/outlookKeys.ts`, and the
 `MICROSOFT_OUTLOOK_*` secrets.
+
+**Do not sweep further than that.** A "remove all the Lovable gateway code" pass
+breaks the two remaining exit items, silently, and at call time rather than at boot:
+
+- `GATEWAY` in `api-status/index.ts` has exactly one use left — Firecrawl's
+  `/api/v1/verify_credentials` probe. Same host as the Outlook connector gateway,
+  different path. It stays.
+- `LOVABLE_API_KEY` is read in 14 files. Firecrawl's probe needs it as the bearer
+  token, and `_shared/ai.ts` plus nine functions use it for the AI-gateway
+  fallback. It stays.
+- Anything on `ai.gateway.lovable.dev` is a separate exit item from the connector
+  gateway. Out of scope here.
+
+Neither remaining item is a live migration. `FIRECRAWL_API_KEY` and
+`LOVABLE_API_KEY` are both absent from the project, so Firecrawl is dead code with
+a dead key, and the AI gateway is an unreachable fallback behind a configured
+Anthropic path. That makes the rest of the Lovable exit a deletion job that can
+happen whenever — nothing is currently calling either.
