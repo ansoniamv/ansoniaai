@@ -109,9 +109,45 @@ Each step is deliberate. Do not collapse them.
 2. **Set the secrets** — `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`.
 3. **Deploy the functions.** Secrets first, then deploy: functions read secrets at
    boot, so deploying first leaves running instances on the gateway until replaced.
-4. **Confirm the status page.** Both Outlook rows should read
-   `Reachable as <upn> (Graph app-only)`. A 403 here is consent or the access
-   policy, not the code.
+4. **Confirm the connection with a direct call, not the status page.** The status
+   page needs an approved-user JWT and has never been loaded successfully during
+   this work; do not make the first confirmation of a deploy depend on a surface
+   that has never worked. Call `outlook-sync` with a deliberately tiny window —
+   it does no LLM work, and it is not gated by `atlas_automation`, so both
+   mailboxes can be tested with the flag still off:
+
+       {"mailbox": "acquisitions", "since": "<2 hours ago ISO>", "top": 5}
+       {"mailbox": "atlas",        "since": "<2 hours ago ISO>", "top": 5}
+
+   Success looks like `via: Graph app-only as <upn>`. Load the status page
+   afterwards as confirmation if you can, but not as the test.
+
+   **Reading a failure.** Four distinct layers produce what looks like one error,
+   and the error text tells you which — read it before changing anything:
+
+   | What you see | Layer | Meaning |
+   |---|---|---|
+   | `AADSTS700016` at token mint | Entra | Client ID not in that directory. Wrong `GRAPH_CLIENT_ID` (Object ID and Secret ID are both look-alike GUIDs) or wrong `GRAPH_TENANT_ID`. Nothing to do with consent. |
+   | Token mints, Graph `403 ErrorAccessDenied … [RAOP]` | Exchange | Consent **is** granted. An application access policy is denying this mailbox. |
+   | Token mints, Graph `403` with a permissions message | Entra | Admin consent missing, or the application permissions are wrong. |
+   | Token mints, Graph `404` | Ours | That UPN does not exist. Check `GRAPH_ACQUISITIONS_UPN` / `GRAPH_ATLAS_UPN`. The only branch that is our config rather than the tenant's. |
+
+   Three signals that read as reassurance while sitting next to the thing they
+   appear to confirm:
+
+   - **Entra sign-in logs show success for a `[RAOP]` denial.** The token mint
+     genuinely succeeded; the denial is Exchange's, downstream, with no presence in
+     those logs. "Check the sign-in logs" is the first thing most people reach for
+     and here it actively misleads — it confirms auth, which was never the question.
+   - **`Get-ApplicationAccessPolicy` returning empty does not mean no policy.** It
+     usually means the tenant is on RBAC for Applications rather than classic access
+     policies. Both produce the same `[RAOP]` error. Check
+     `Get-ManagementRoleAssignment -App <appid>` and its attached scope.
+   - **`Test-ApplicationAccessPolicy` returning `Granted` on both mailboxes proves
+     reachability, not containment.** An app with no effective scope returns
+     `Granted` too. Only a control mailbox that should be blocked, returning
+     `Denied`, demonstrates the blast radius is closed.
+
 5. **Measure the batch before anything runs it at full size.** `summarize-emails`
    has never billed against Anthropic, because the guard removed in this branch was
    failing it fast the whole time. The chained batch was a hardcoded 200, sized for
