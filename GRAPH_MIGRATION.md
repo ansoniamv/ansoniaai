@@ -131,12 +131,42 @@ Each step is deliberate. Do not collapse them.
        where function_name = 'summarize-emails'
          and created_at > now() - interval '1 hour';
 
-6. **Set the batch size deliberately, before the nightly job inherits it.** The batch
-   defaults to 20 and is read from the `SUMMARIZE_BATCH_SIZE` secret, so changing it
-   is a secret change with no deploy. Set it from what step 5 measured, while a human
-   is still watching — after step 8 the number belongs to a nightly unattended job.
+6. **Size the nightly from peak inflow, not the mean.** The batch defaults to 20 and
+   is read from the `SUMMARIZE_BATCH_SIZE` secret, so changing it is a secret change
+   with no deploy. Two constraints, and the throughput one binds harder than cost:
 
-7. **Run `sync-acquisitions-inbox` manually and watch it.** Its 24-hour window
+   Measured 2026-09-14 — business days bring **40-60 `deal_emails`, of which 15-22
+   need work**; weekends bring 0-2. A nightly batch of 20 is therefore break-even at
+   the mean and underwater on the peak, and because steady state is newest-first,
+   every day that exceeds the batch leaves a residue that is never revisited. Size
+   from *max observed daily need × ~2* — about **40** — not from the average. The
+   weekend lull absorbs the rest.
+
+   The headroom is the point: undersizing is invisible. Nothing errors, nothing goes
+   red, the backlog just grows.
+
+7. **Drain the standing backlog, deliberately and with a number in front of you.**
+   As of 2026-09-14 there are **528 rows needing work** (81 with no summary at all)
+   out of 2,227 total. A backfill run orders oldest-first, so it reaches exactly the
+   rows the nightly batch keeps outranking.
+
+   **Compute the spend before triggering it.** From step 5: `total_usd ÷ 20` is the
+   per-email cost on the current model; × 528 is what this step costs. 528 emails
+   through Opus 5 is the largest single spend in this sequence. Read the number
+   first.
+
+   Invoke `summarize-emails` with `{"backfill": true, "limit": 100}`.
+
+   **Confirm it terminates on a short page, not on the depth cap.** 528 rows at 100
+   per hop should clear in six, with the seventh coming back short and stopping. If
+   the logs show `depth cap 10 reached`, rows are not leaving the predicate and the
+   chain is re-reading the same page — a text-pass failure writes nothing, and a
+   transient vision error deliberately leaves `vision_checked` false, so a
+   permanently-failing row sits at the head of every oldest-first page. The chain now
+   also stops on `page made no progress`; seeing that means the same thing. Kill
+   switch if needed: `SUMMARIZE_EMAILS_CHAIN_DISABLED=true`.
+
+8. **Run `sync-acquisitions-inbox` manually and watch it.** Its 24-hour window
    self-limits the Graph read.
 
    **This step has no failure surface.** The chained summarization is invoked
@@ -145,25 +175,25 @@ Each step is deliberate. Do not collapse them.
    obvious signal is not the one that carries the information. Watch `ai_usage_log`
    and the function logs, not the HTTP response.
 
-8. **Reactivate the driver. This is a step, not a footnote:**
+9. **Reactivate the driver. This is a step, not a footnote:**
 
        update cron.job set active = true where jobname = 'daily-digest';
 
    While `daily-digest` is off, `score-deals` does not run either, so deals silently
    stop being scored. Nothing logs an error and nothing on the status page goes red.
    That is the kind of quiet failure that stays broken for a week. Do it in the same
-   sitting as step 7.
+   sitting as step 8.
 
-9. **Only then, Atlas.** The mailbox has not synced since 2026-08-17, so the first
-   pass pulls roughly a month (bounded by the 120-day lookback cap in `outlook-sync`):
+10. **Only then, Atlas.** The mailbox has not synced since 2026-08-17, so the first
+    pass pulls roughly a month (bounded by the 120-day lookback cap in `outlook-sync`):
 
-   1. Leave `atlas_automation` disabled.
-   2. Run `outlook-sync` with `{"mailbox":"atlas","since":"<48h ago>"}` to confirm the path.
-   3. Widen `since` in steps to drain the backlog at a time you choose.
-   4. Re-enable `atlas_automation` only after the backlog is drained.
+    1. Leave `atlas_automation` disabled.
+    2. Run `outlook-sync` with `{"mailbox":"atlas","since":"<48h ago>"}` to confirm the path.
+    3. Widen `since` in steps to drain the backlog at a time you choose.
+    4. Re-enable `atlas_automation` only after the backlog is drained.
 
-   `outlook-sync` is not gated by the flag — it takes `mailbox` and `since`
-   directly — so the whole drain runs with automation still off.
+    `outlook-sync` is not gated by the flag — it takes `mailbox` and `since`
+    directly — so the whole drain runs with automation still off.
 
 ## Cleanup once Graph is live
 

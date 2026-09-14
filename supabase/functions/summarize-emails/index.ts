@@ -290,7 +290,10 @@ Deno.serve(async (req) => {
     let q = supabase
       .from("deal_emails")
       .select("id, deal_id, subject, body, received_at, summary, extracted_fields, email_message_id, vision_checked")
-      .order("received_at", { ascending: false })
+      // Steady state is newest-first: fresh broker mail is what someone is waiting
+      // on. A backfill drain flips to oldest-first, so the rows the nightly batch
+      // keeps outranking are exactly the ones a drain reaches first.
+      .order("received_at", { ascending: !!body.backfill })
       .limit(body.limit ?? SUMMARIZE_BATCH_SIZE);
     if (body.deal_id) q = q.eq("deal_id", body.deal_id);
     if (!body.force) {
@@ -304,6 +307,7 @@ Deno.serve(async (req) => {
     let extracted = 0;
     let visionRan = 0;
     let visionSkipped = 0;
+    let advancedRows = 0;
     const touchedDealIds = new Set<string>();
 
     const CONCURRENCY = 8;
@@ -397,6 +401,7 @@ Deno.serve(async (req) => {
 
         if (Object.keys(update).length) {
           await supabase.from("deal_emails").update(update).eq("id", e.id);
+          advancedRows++;
         }
         results.push({
           dealId: (e.deal_id as string | null) ?? null,
@@ -520,9 +525,17 @@ Deno.serve(async (req) => {
     const depth = Number(body.depth ?? 0);
     const MAX_DEPTH = 10;
     const killed = Deno.env.get("SUMMARIZE_EMAILS_CHAIN_DISABLED") === "true";
+    // advancedRows guards the one way a drain can spin: a text-pass failure writes
+    // nothing, and a transient vision error deliberately leaves vision_checked
+    // false, so a row can fail the predicate forever. Newest-first those rows get
+    // pushed down by new arrivals; oldest-first they sit at the head of every page.
+    // Without this, a fully-stuck page would burn MAX_DEPTH x limit calls re-reading
+    // the same emails. A short page or a page that moved nothing ends the chain.
     if (body.backfill && (emails?.length ?? 0) >= (body.limit ?? SUMMARIZE_BATCH_SIZE)) {
       if (killed) {
         console.log("backfill chain disabled by kill switch");
+      } else if (advancedRows === 0) {
+        console.log("backfill chain stopped: page made no progress (rows failing the predicate repeatedly)");
       } else if (depth >= MAX_DEPTH) {
         console.log(`backfill chain stopped: depth cap ${MAX_DEPTH} reached`);
       } else {
@@ -546,6 +559,7 @@ Deno.serve(async (req) => {
         extracted,
         visionRan,
         visionSkipped,
+        advancedRows,
         threadsUpdated,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
