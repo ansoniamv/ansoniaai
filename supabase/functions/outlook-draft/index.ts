@@ -4,8 +4,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
 import { errorResponse } from "../_shared/errors.ts";
-
-const GATEWAY_URL = "https://connector-gateway.lovable.dev/microsoft_outlook";
+import { graphFetch, resolveMailbox } from "../_shared/graphMail.ts";
 
 Deno.serve(async (req) => {
   const corsHeaders = corsFor(req);
@@ -17,14 +16,9 @@ Deno.serve(async (req) => {
   if (!authz.ok) return authz.response;
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    // Atlas mailbox connection. Fall back to the main Outlook key if the Atlas
-    // one isn't configured.
-    const OUTLOOK_KEY =
-      Deno.env.get("MICROSOFT_OUTLOOK_ATLAS_API_KEY") ||
-      Deno.env.get("MICROSOFT_OUTLOOK_API_KEY_1") ||
-      Deno.env.get("MICROSOFT_OUTLOOK_API_KEY");
-    if (!LOVABLE_API_KEY || !OUTLOOK_KEY) {
+    // Drafts are always written into the Atlas mailbox, named explicitly.
+    const mb = resolveMailbox("atlas");
+    if (!mb) {
       return new Response(JSON.stringify({ error: "Outlook connector not configured" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -60,13 +54,9 @@ Deno.serve(async (req) => {
     };
 
     // POST /me/messages -> creates a DRAFT (does NOT send)
-    const res = await fetch(`${GATEWAY_URL}/me/messages`, {
+    const res = await graphFetch(mb, "/messages", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "X-Connection-Api-Key": OUTLOOK_KEY,
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(message),
     });
 

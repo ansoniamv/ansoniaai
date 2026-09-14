@@ -1,12 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { requireApprovedUser } from "../_shared/auth.ts";
+import { graphFetch, resolveMailbox } from "../_shared/graphMail.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const GATEWAY_URL = "https://connector-gateway.lovable.dev/microsoft_outlook";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -15,9 +14,9 @@ Deno.serve(async (req) => {
     const auth = await requireApprovedUser(req);
     if (!auth.ok) return auth.response;
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    const OUTLOOK_KEY = Deno.env.get("MICROSOFT_OUTLOOK_API_KEY");
-    if (!LOVABLE_API_KEY || !OUTLOOK_KEY) {
+    // Outbound mail goes from the acquisitions mailbox, named explicitly.
+    const mb = resolveMailbox("acquisitions");
+    if (!mb) {
       return new Response(JSON.stringify({ error: "Outlook connector not configured" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -53,20 +52,16 @@ Deno.serve(async (req) => {
     };
 
     const endpoint = replyToMessageId
-      ? `${GATEWAY_URL}/me/messages/${replyToMessageId}/reply`
-      : `${GATEWAY_URL}/me/sendMail`;
+      ? `/messages/${encodeURIComponent(replyToMessageId)}/reply`
+      : `/sendMail`;
 
     const payload = replyToMessageId
       ? { comment: html || text, message: { toRecipients: message.toRecipients } }
       : { message, saveToSentItems: true };
 
-    const res = await fetch(endpoint, {
+    const res = await graphFetch(mb, endpoint, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "X-Connection-Api-Key": OUTLOOK_KEY,
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
 

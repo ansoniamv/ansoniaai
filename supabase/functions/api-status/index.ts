@@ -2,6 +2,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { requireApprovedUser } from "../_shared/auth.ts";
 import { getArcGISToken } from "../_shared/arcgisToken.ts";
 import { resolveAtlasKey, ATLAS_CANDIDATES } from "../_shared/outlookKeys.ts";
+import { graphConfigured, getGraphToken, graphSecretsPresent } from "../_shared/graphToken.ts";
+import { graphFetch, resolveMailbox, MAILBOX_UPN } from "../_shared/graphMail.ts";
 
 
 const corsHeaders = {
@@ -30,7 +32,76 @@ async function timed(fn: () => Promise<{ ok: boolean; status?: number; detail: s
 }
 
 const GATEWAY = "https://connector-gateway.lovable.dev";
-const EXPECTED_ATLAS = "atlas@ansoniaproperties.com";
+
+/**
+ * Probe one mailbox over whatever transport production uses for it.
+ *
+ * Graph path: the mailbox is named in the URL, so "reachable" and "is the right
+ * mailbox" are the same question — a 404 means that UPN does not exist, a 403
+ * means application permissions (Mail.Read / Mail.Send, plus any application
+ * access policy) do not cover it. There is no identity to drift.
+ *
+ * Gateway path: identity stays unverifiable, so say so rather than implying health.
+ */
+async function probeMailbox(
+  mailbox: "acquisitions" | "atlas",
+): Promise<{ ok: boolean; status?: number; detail: string; degraded?: boolean }> {
+  const atlasRes = resolveAtlasKey();
+  const found = mailbox === "atlas"
+    ? (atlasRes.present.length
+      ? `Found: ${atlasRes.present.join(", ")}`
+      : `No Atlas secret found (checked: ${ATLAS_CANDIDATES.join(", ")})`)
+    : "";
+
+  if (graphConfigured()) {
+    const upn = MAILBOX_UPN[mailbox];
+    let token = "";
+    try {
+      token = (await getGraphToken()).token;
+    } catch (e) {
+      return { ok: false, detail: `${(e as Error).message} (secrets present: ${graphSecretsPresent().join(", ")})` };
+    }
+    const r = await fetch(
+      `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(upn)}/messages?$top=1&$select=id`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (r.ok) return { ok: true, status: r.status, detail: `Reachable as ${upn} (Graph app-only)` };
+    const body = await r.text().catch(() => "");
+    if (r.status === 404) {
+      return { ok: false, status: 404, detail: `Mailbox ${upn} not found — check GRAPH_${mailbox.toUpperCase()}_UPN.` };
+    }
+    if (r.status === 403) {
+      return {
+        ok: false, status: 403,
+        detail: `Forbidden for ${upn} — app lacks Mail.Read/Mail.Send application permission, or an application access policy excludes this mailbox.`,
+      };
+    }
+    if (r.status === 401) {
+      return { ok: false, status: 401, detail: `Unauthorized for ${upn} — admin consent missing or client secret rotated.` };
+    }
+    return { ok: false, status: r.status, detail: `HTTP ${r.status} for ${upn}: ${body.slice(0, 120)}` };
+  }
+
+  // ---- legacy gateway path ----
+  const mb = resolveMailbox(mailbox);
+  if (!mb) {
+    return { ok: false, detail: `Connector not linked (Graph secrets not set)${found ? ` — ${found}` : ""}` };
+  }
+  if (mailbox === "atlas" && atlasRes.collidesWithAcquisitions) {
+    return { ok: false, status: 409, detail: `${atlasRes.name} matches the acquisitions key — wrong mailbox authorized. ${found}` };
+  }
+  const r = await graphFetch(mb, "/messages?$top=1&$select=id");
+  if (r.ok) {
+    return {
+      ok: true, degraded: true, status: r.status,
+      detail: `Reachable via ${mb.detail} — set GRAPH_TENANT_ID/CLIENT_ID/CLIENT_SECRET to verify mailbox identity. ${found}`.trim(),
+    };
+  }
+  if (r.status === 401 || r.status === 403) {
+    return { ok: false, status: r.status, detail: `HTTP ${r.status} via ${mb.detail} — grant expired or revoked. ${found}`.trim() };
+  }
+  return { ok: false, status: r.status, detail: `HTTP ${r.status} via ${mb.detail}. ${found}`.trim() };
+}
 
 
 Deno.serve(async (req) => {
@@ -57,70 +128,10 @@ Deno.serve(async (req) => {
 
   // Run probes in parallel.
   const [outlook, outlookAtlas, hellodata, esri, firecrawl, lovableAi] = await Promise.all([
-    // Outlook via gateway — acquisitions mailbox
-    timed(async () => {
-      if (!LOVABLE_API_KEY || !OUTLOOK_KEY) return { ok: false, detail: "Connector not linked" };
-      const r = await fetch(`${GATEWAY}/microsoft_outlook/me/messages?$top=1&$select=id`, {
-        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "X-Connection-Api-Key": OUTLOOK_KEY },
-      });
-      return { ok: r.ok, status: r.status, detail: r.ok ? "Reachable" : `HTTP ${r.status}` };
-    }),
-    // Outlook — Atlas mailbox (separate connection from acquisitions)
-    timed(async () => {
-      const found = atlasRes.present.length
-        ? `Found: ${atlasRes.present.join(", ")}`
-        : `No Atlas secret found (checked: ${ATLAS_CANDIDATES.join(", ")})`;
-      if (!LOVABLE_API_KEY || !atlasRes.key) {
-        return { ok: false, detail: `Atlas connector not linked — ${found}` };
-      }
-      if (atlasRes.collidesWithAcquisitions) {
-        return {
-          ok: false, status: 409,
-          detail: `${atlasRes.name} matches the acquisitions key — wrong mailbox authorized. ${found}`,
-        };
-      }
-      // Identity check: which mailbox is this connection actually bound to?
-      const idRes = await fetch(`${GATEWAY}/microsoft_outlook/me?$select=mail,userPrincipalName`, {
-        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "X-Connection-Api-Key": atlasRes.key },
-      });
-      if (idRes.ok) {
-        const me = await idRes.json().catch(() => ({}));
-        const addr = String(me.mail || me.userPrincipalName || "").toLowerCase();
-        if (addr && addr !== EXPECTED_ATLAS) {
-          return {
-            ok: false, status: 409,
-            detail: `Connected to ${addr}, expected ${EXPECTED_ATLAS} — re-authorize in a private window signed in as Atlas. ${found}`,
-          };
-        }
-        return {
-          ok: true, status: idRes.status,
-          detail: `Connected as ${addr || "unknown"} via ${atlasRes.name}. ${found}`,
-        };
-      }
-      if (idRes.status === 401 || idRes.status === 403) {
-        return {
-          ok: false, status: idRes.status,
-          detail: `HTTP ${idRes.status} via ${atlasRes.name} — grant expired or revoked, reconnect the mailbox. ${found}`,
-        };
-      }
-      // Gateway may not proxy /me — fall back to the message probe, unverified identity.
-      const r = await fetch(`${GATEWAY}/microsoft_outlook/me/messages?$top=1&$select=id`, {
-        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "X-Connection-Api-Key": atlasRes.key },
-      });
-      if (r.ok) {
-        return {
-          ok: true, status: r.status,
-          detail: `Reachable via ${atlasRes.name} — mailbox identity unverified (/me returned HTTP ${idRes.status}). ${found}`,
-        };
-      }
-      if (r.status === 401 || r.status === 403) {
-        return {
-          ok: false, status: r.status,
-          detail: `HTTP ${r.status} via ${atlasRes.name} — Atlas grant expired, reconnect the mailbox. ${found}`,
-        };
-      }
-      return { ok: false, status: r.status, detail: `HTTP ${r.status} via ${atlasRes.name}. ${found}` };
-    }),
+    // Outlook — acquisitions mailbox
+    timed(() => probeMailbox("acquisitions")),
+    // Outlook — Atlas mailbox
+    timed(() => probeMailbox("atlas")),
 
     // HelloData
     timed(async () => {
@@ -184,12 +195,14 @@ Deno.serve(async (req) => {
   const probes: Probe[] = [
     {
       id: "outlook", name: "Microsoft Outlook — Acquisitions", category: "connector",
-      status: !OUTLOOK_KEY ? "unconfigured" : outlook.ok ? "ok" : "down",
+      status: (!graphConfigured() && !OUTLOOK_KEY) ? "unconfigured"
+        : outlook.degraded ? "degraded" : outlook.ok ? "ok" : "down",
       latency_ms: outlook.ms, detail: outlook.detail, http_status: outlook.status,
     },
     {
       id: "outlook_atlas", name: "Microsoft Outlook — Atlas", category: "connector",
-      status: atlasRes.present.length === 0 ? "unconfigured" : outlookAtlas.ok ? "ok" : "down",
+      status: (!graphConfigured() && atlasRes.present.length === 0) ? "unconfigured"
+        : outlookAtlas.degraded ? "degraded" : outlookAtlas.ok ? "ok" : "down",
       latency_ms: outlookAtlas.ms, detail: outlookAtlas.detail, http_status: outlookAtlas.status,
     },
     {

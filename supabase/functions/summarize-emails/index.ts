@@ -17,7 +17,7 @@ const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 // actually answered.
 
 // Outlook connector — used to fetch inline image attachments referenced by cid:
-const OUTLOOK_GATEWAY = "https://connector-gateway.lovable.dev/microsoft_outlook";
+import { graphFetch, resolveMailbox } from "../_shared/graphMail.ts";
 
 // Fields we try to extract from each email and merge into inbox_deals
 const EXTRACTABLE_FIELDS = [
@@ -125,19 +125,14 @@ function extractImageRefs(html: string | null | undefined): { urls: string[]; ci
 
 /** Fetch inline attachments from Outlook by message id, return as data URLs keyed by cid. */
 async function fetchOutlookInlineImages(
-  outlookKey: string,
-  lovableKey: string,
   messageId: string,
 ): Promise<Map<string, { dataUrl: string; size: number }>> {
   const out = new Map<string, { dataUrl: string; size: number }>();
   try {
-    const url = `${OUTLOOK_GATEWAY}/me/messages/${encodeURIComponent(messageId)}/attachments`;
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${lovableKey}`,
-        "X-Connection-Api-Key": outlookKey,
-      },
-    });
+    // Inline images live on the acquisitions mailbox message we just summarized.
+    const mb = resolveMailbox("acquisitions");
+    if (!mb) return out;
+    const res = await graphFetch(mb, `/messages/${encodeURIComponent(messageId)}/attachments`);
     if (!res.ok) return out;
     const json = await res.json();
     const items = Array.isArray(json?.value) ? json.value : [];
@@ -238,7 +233,6 @@ function coerceFields(fieldsRaw: Record<string, unknown>): Extracted {
 /** Vision pass — read facts from marketing images in the email body. */
 async function visionExtract(
   lovableKey: string,
-  outlookKey: string | undefined,
   rawHtmlBody: string | null,
   emailMessageId: string | null,
   ctx?: { supabase: any; deal_id?: string | null },
@@ -246,8 +240,8 @@ async function visionExtract(
   const { urls, cids } = extractImageRefs(rawHtmlBody);
 
   const imageInputs: string[] = [...urls];
-  if (cids.length && emailMessageId && outlookKey) {
-    const inline = await fetchOutlookInlineImages(outlookKey, lovableKey, emailMessageId);
+  if (cids.length && emailMessageId) {
+    const inline = await fetchOutlookInlineImages(emailMessageId);
     // sort by size desc, take in order they appeared
     for (const cid of cids) {
       const hit = inline.get(cid) ?? inline.get(`<${cid}>`);
@@ -281,7 +275,6 @@ Deno.serve(async (req) => {
 
   try {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    const OUTLOOK_KEY = Deno.env.get("MICROSOFT_OUTLOOK_API_KEY");
     if (!LOVABLE_API_KEY) {
       return new Response(JSON.stringify({ error: "LOVABLE_API_KEY not set" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -376,7 +369,6 @@ Deno.serve(async (req) => {
             try {
               const { ran, fields: vFields, reason } = await visionExtract(
                 LOVABLE_API_KEY,
-                OUTLOOK_KEY,
                 rawBody,
                 (e.email_message_id as string | null) ?? null,
                 { supabase, deal_id: (e.deal_id as string | null) ?? null },
