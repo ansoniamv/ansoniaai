@@ -8,8 +8,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Lovable AI Gateway (OpenAI-compatible). Much higher rate limits than direct Anthropic.
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 // Structured extraction here is the foundation for gating + scoring, so it runs
 // on the platform default. Model selection lives in _shared/anthropic.ts
 // (claude-opus-5). The former per-call Gemini constants were vestigial: callLLM
@@ -39,7 +37,6 @@ const EXTRACTABLE_FIELDS = [
 type Extracted = Partial<Record<typeof EXTRACTABLE_FIELDS[number], string | number | null>>;
 
 async function callLLM(
-  apiKey: string,
   prompt: string,
   maxTokens = 400,
   ctx?: { supabase: any; deal_id?: string | null },
@@ -60,7 +57,6 @@ async function callLLM(
 }
 
 async function callVisionLLM(
-  apiKey: string,
   prompt: string,
   imageUrls: string[],
   maxTokens = 400,
@@ -161,7 +157,6 @@ function stripFenceMarkers(s: string): string {
 }
 
 async function extractSummaryAndFields(
-  apiKey: string,
   subject: string,
   body: string,
   ctx?: { supabase: any; deal_id?: string | null },
@@ -202,7 +197,7 @@ async function extractSummaryAndFields(
     `Subject: ${stripFenceMarkers(subject || "(none)")}\n\nBody:\n${stripFenceMarkers(body).slice(0, 8000)}\n` +
     `<<<UNTRUSTED_EMAIL_END>>>`;
 
-  const raw = await callLLM(apiKey, prompt, 900, ctx);
+  const raw = await callLLM(prompt, 900, ctx);
   const parsed = parseJsonLoose(raw) as { summary?: unknown; fields?: unknown } | null;
   if (!parsed || typeof parsed !== "object") return { summary: null, fields: {} };
 
@@ -232,7 +227,6 @@ function coerceFields(fieldsRaw: Record<string, unknown>): Extracted {
 
 /** Vision pass — read facts from marketing images in the email body. */
 async function visionExtract(
-  lovableKey: string,
   rawHtmlBody: string | null,
   emailMessageId: string | null,
   ctx?: { supabase: any; deal_id?: string | null },
@@ -262,7 +256,7 @@ async function visionExtract(
     `{ "units": int|null, "year_built": int|null, "avg_sf": int|null, "occupancy_pct": number|null, "address": string|null }. ` +
     `Only report values you can actually read in the images. No prose, no code fences.`;
 
-  const raw = await callVisionLLM(lovableKey, prompt, picks, 400, ctx);
+  const raw = await callVisionLLM(prompt, picks, 400, ctx);
   const parsed = parseJsonLoose(raw) as Record<string, unknown> | null;
   if (!parsed) return { ran: true, fields: {}, reason: "parse-failed" };
   return { ran: true, fields: coerceFields(parsed), reason: `ok:${picks.length}img` };
@@ -274,13 +268,6 @@ Deno.serve(async (req) => {
   if (auth && !auth.ok) return auth.response;
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      return new Response(JSON.stringify({ error: "LOVABLE_API_KEY not set" }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -334,7 +321,6 @@ Deno.serve(async (req) => {
         if (needSummary || needExtract) {
           try {
             const { summary, fields } = await extractSummaryAndFields(
-              LOVABLE_API_KEY,
               (e.subject as string) ?? "",
               cleanBody,
               { supabase, deal_id: (e.deal_id as string | null) ?? null },
@@ -368,7 +354,6 @@ Deno.serve(async (req) => {
           } else {
             try {
               const { ran, fields: vFields, reason } = await visionExtract(
-                LOVABLE_API_KEY,
                 rawBody,
                 (e.email_message_id as string | null) ?? null,
                 { supabase, deal_id: (e.deal_id as string | null) ?? null },
@@ -454,7 +439,6 @@ Deno.serve(async (req) => {
           .join("\n");
         try {
           threadSummary = await callLLM(
-            LOVABLE_API_KEY,
             `Below are summaries of broker emails about the same real estate deal, newest first. ` +
             `Write a short narrative of the deal's history in 1-3 sentences, chronological (oldest first). ` +
             `Highlight price changes, deadlines, and status updates.\n\n${bundle}`,
