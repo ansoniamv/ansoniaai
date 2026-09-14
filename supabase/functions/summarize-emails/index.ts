@@ -28,8 +28,9 @@ import { graphFetch, resolveMailbox } from "../_shared/graphMail.ts";
 // outranked. Keep it above the arrival rate or drain with backfill: true.
 const SUMMARIZE_BATCH_SIZE = Number(Deno.env.get("SUMMARIZE_BATCH_SIZE")) || 20;
 
-// Cursor ids are interpolated into a PostgREST filter string, so they are shape-
-// checked before use rather than trusted from the request body.
+// Cursor values are interpolated into a PostgREST filter string, so every half of
+// the cursor is reconstructed or shape-checked before use — never trusted from the
+// request body as-is.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Fields we try to extract from each email and merge into inbox_deals
 const EXTRACTABLE_FIELDS = [
@@ -321,14 +322,22 @@ Deno.serve(async (req) => {
     // "received_at >" would step over the rest of a boundary cluster; "received_at >="
     // would re-process it, and the rows it re-processes are exactly the stuck ones.
     // (received_at, id) is total, so this skips nothing and re-pays for nothing.
-    if (body.backfill && body.after && !Number.isNaN(Date.parse(body.after))) {
-      const afterId = body.after_id;
-      if (afterId && UUID_RE.test(afterId)) {
+    // BOTH halves cross the trust boundary into that filter string, where a single
+    // quote terminates it early — so neither is passed through. Date.parse is not a
+    // guard here: its legacy path accepts 'Jun 22 2026"' and returns a valid number.
+    // The timestamp is therefore re-serialized from a Date we constructed, and the
+    // id is shape-checked. Re-serializing is lossless for this column (no sub-second
+    // values), so the eq half of the cursor still matches.
+    if (body.backfill && body.after) {
+      const parsed = new Date(body.after);
+      const afterTs = Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+      const afterId = body.after_id && UUID_RE.test(body.after_id) ? body.after_id : null;
+      if (afterTs && afterId) {
         q = q.or(
-          `received_at.gt."${body.after}",and(received_at.eq."${body.after}",id.gt.${afterId})`,
+          `received_at.gt."${afterTs}",and(received_at.eq."${afterTs}",id.gt.${afterId})`,
         );
-      } else {
-        q = q.gt("received_at", body.after);
+      } else if (afterTs) {
+        q = q.gt("received_at", afterTs);
       }
     }
     if (body.deal_id) q = q.eq("deal_id", body.deal_id);
