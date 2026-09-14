@@ -8,6 +8,15 @@ const SKIP_SUBJECT_TERMS = [
 ];
 const BLOCKED_DOMAINS = ["ansoniaproperties.com"];
 
+// How many emails the chained summarize-emails call processes. This is a COST
+// decision, not a throughput one, and the premise is the model on the other end:
+// it was originally 200, sized for the Lovable gateway's flash-lite pricing, and
+// routing now goes to Claude Opus 5 via _shared/ai.ts. The premise is named here
+// on purpose — if routing changes again, this comment should read as wrong.
+// Default stays small until the per-email cost on the current model is measured;
+// raise it with the SUMMARIZE_BATCH_SIZE secret, no deploy needed.
+const SUMMARIZE_BATCH_SIZE = Number(Deno.env.get("SUMMARIZE_BATCH_SIZE")) || 20;
+
 interface GraphMessage {
   id: string;
   subject?: string;
@@ -329,11 +338,12 @@ Deno.serve(async (req) => {
         .eq("id", id);
     }
 
-    // Fire summarization async (don't block response). Larger batch + flash-lite
-    // means we can process the whole sync in one call.
+    // Fire summarization async (don't block response) — which means a failing
+    // batch never reaches this caller. Watch ai_usage_log and the function logs,
+    // not this function's response.
     if (touchedDealIds.size > 0) {
       supabase.functions
-        .invoke("summarize-emails", { body: { limit: 200 } })
+        .invoke("summarize-emails", { body: { limit: SUMMARIZE_BATCH_SIZE } })
         .then(({ error }) => {
           if (error) console.error("summarize-emails invoke returned error", error);
         })

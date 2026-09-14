@@ -11,7 +11,7 @@ signed in at connect time. That is what makes the wrong-mailbox failure permanen
 | `supabase/functions/_shared/graphToken.ts` | **New.** Cached client-credentials minter, modeled on `arcgisToken.ts`. Secret values never logged. |
 | `supabase/functions/_shared/graphMail.ts` | **New.** One place that decides mailbox + transport. Graph when `GRAPH_*` secrets exist; legacy gateway otherwise, so this ships before consent lands. |
 | `outlook-sync/index.ts` | Mailboxes now carry a transport, not a connection key. `$skip` paging fallback **deleted** — Graph always returns a followable `@odata.nextLink`. Per-mailbox result now reports `via`. |
-| `sync-acquisitions-inbox/index.ts` | `/me/messages` → `/users/{acq upn}/messages`. Query string unchanged. |
+| `sync-acquisitions-inbox/index.ts` | `/me/messages` → `/users/{acq upn}/messages`. Query string unchanged. The chained `summarize-emails` batch is now `SUMMARIZE_BATCH_SIZE` (default 20, was a hardcoded 200). |
 | `summarize-emails/index.ts` | Inline-attachment fetch moved onto the shared transport; `outlookKey` plumbing removed. Also drops the vestigial `LOVABLE_API_KEY` guard — the file has no gateway call left, so summarization now runs via Anthropic instead of failing fast. Changes what the first post-deploy batch costs; see step 5. |
 | `outlook-draft/index.ts` | Draft created in the Atlas mailbox by UPN. |
 | `outlook-send/index.ts` | `sendMail` / `reply` from the acquisitions mailbox by UPN. |
@@ -28,6 +28,7 @@ GRAPH_CLIENT_ID        <app registration client id>
 GRAPH_CLIENT_SECRET    <client secret value>
 GRAPH_ACQUISITIONS_UPN acquisitions@ansoniaproperties.com   # optional, this is the default
 GRAPH_ATLAS_UPN        atlas@ansoniaproperties.com          # optional, this is the default
+SUMMARIZE_BATCH_SIZE   20                                   # optional, this is the default
 ```
 
 Until all three of the first three exist, every function keeps using the gateway
@@ -113,10 +114,10 @@ Each step is deliberate. Do not collapse them.
    policy, not the code.
 5. **Measure the batch before anything runs it at full size.** `summarize-emails`
    has never billed against Anthropic, because the guard removed in this branch was
-   failing it fast the whole time. The `{limit: 200}` in `sync-acquisitions-inbox`
-   was sized for the Lovable era — the comment beside it reads *"larger batch +
-   flash-lite"* — and that call now routes to Claude Opus 5 through `_shared/ai.ts`.
-   A number chosen for flash-lite economics is now executing on Opus.
+   failing it fast the whole time. The chained batch was a hardcoded 200, sized for
+   the Lovable era — the comment beside it read *"larger batch + flash-lite"* — and
+   that call now routes to Claude Opus 5 through `_shared/ai.ts`. A number chosen for
+   flash-lite economics was about to execute on Opus, so the default is now 20.
 
    Measure with a **direct** call, not through the chain: `sync-acquisitions-inbox`
    fires summarization unawaited and only when `touchedDealIds.size > 0`, so its
@@ -130,15 +131,19 @@ Each step is deliberate. Do not collapse them.
        where function_name = 'summarize-emails'
          and created_at > now() - interval '1 hour';
 
-6. **Set the batch size deliberately, before the nightly job inherits it.** The 200
-   is hardcoded in `sync-acquisitions-inbox`, not a config value — changing it is a
-   code edit and another deploy. If the measured per-email cost says 200 is wrong,
-   change it here, while a human is still watching. After step 8 it belongs to a
-   nightly unattended job.
+6. **Set the batch size deliberately, before the nightly job inherits it.** The batch
+   defaults to 20 and is read from the `SUMMARIZE_BATCH_SIZE` secret, so changing it
+   is a secret change with no deploy. Set it from what step 5 measured, while a human
+   is still watching — after step 8 the number belongs to a nightly unattended job.
 
 7. **Run `sync-acquisitions-inbox` manually and watch it.** Its 24-hour window
-   self-limits the Graph read. Watch `ai_usage_log`, not the function's response —
-   the summarization it chains is fire-and-forget and returns long after the call does.
+   self-limits the Graph read.
+
+   **This step has no failure surface.** The chained summarization is invoked
+   unawaited, so a batch that fails entirely never reaches the caller — the response
+   reads the same either way. Same shape as the `last_run_at` trap above: the
+   obvious signal is not the one that carries the information. Watch `ai_usage_log`
+   and the function logs, not the HTTP response.
 
 8. **Reactivate the driver. This is a step, not a footnote:**
 
