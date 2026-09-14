@@ -283,7 +283,10 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    let body: { deal_id?: string; limit?: number; force?: boolean; backfill?: boolean; depth?: number } = {};
+    let body: {
+      deal_id?: string; limit?: number; force?: boolean;
+      backfill?: boolean; depth?: number; after?: string; oldest?: boolean;
+    } = {};
     try { body = await req.json(); } catch { /* no body */ }
 
     // 1. Pick emails that still need summary OR extracted_fields OR vision pass
@@ -291,10 +294,20 @@ Deno.serve(async (req) => {
       .from("deal_emails")
       .select("id, deal_id, subject, body, received_at, summary, extracted_fields, email_message_id, vision_checked")
       // Steady state is newest-first: fresh broker mail is what someone is waiting
-      // on. A backfill drain flips to oldest-first, so the rows the nightly batch
-      // keeps outranking are exactly the ones a drain reaches first.
-      .order("received_at", { ascending: !!body.backfill })
+      // on. A drain flips to oldest-first, so the rows the nightly batch keeps
+      // outranking are exactly the ones it reaches first. `oldest` gives that
+      // ordering WITHOUT chaining, so a measurement run can sample the same
+      // population a drain will actually process.
+      .order("received_at", { ascending: !!(body.backfill || body.oldest) })
       .limit(body.limit ?? SUMMARIZE_BATCH_SIZE);
+    // Keyset paging: each drain hop starts after the last received_at the previous
+    // hop saw, instead of re-running the predicate from the top. Rows that fail
+    // permanently (a text pass that wrote nothing, a transient vision error that
+    // left vision_checked false) sort to the head of every oldest-first page, so
+    // re-running from the top re-pays for them on every hop. Keyset makes the walk
+    // strictly monotonic: each stuck row costs once per drain, and the chain ends
+    // on a short page rather than on progress detection.
+    if (body.backfill && body.after) q = q.gt("received_at", body.after);
     if (body.deal_id) q = q.eq("deal_id", body.deal_id);
     if (!body.force) {
       q = q.or("summary.is.null,extracted_fields.is.null,vision_checked.eq.false");
@@ -522,6 +535,9 @@ Deno.serve(async (req) => {
     // If backfill mode and we processed a full batch, chain another run.
     // Hard depth cap (max 10 chained runs) + env kill switch so a backfill can
     // never become an unbounded self-invoking loop.
+    const nextCursor = emails?.length
+      ? ((emails[emails.length - 1].received_at as string | null) ?? null)
+      : null;
     const depth = Number(body.depth ?? 0);
     const MAX_DEPTH = 10;
     const killed = Deno.env.get("SUMMARIZE_EMAILS_CHAIN_DISABLED") === "true";
@@ -541,7 +557,13 @@ Deno.serve(async (req) => {
       } else {
         supabase.functions
           .invoke("summarize-emails", {
-            body: { limit: body.limit ?? SUMMARIZE_BATCH_SIZE, backfill: true, depth: depth + 1 },
+            body: {
+              limit: body.limit ?? SUMMARIZE_BATCH_SIZE,
+              backfill: true,
+              depth: depth + 1,
+              // Ascending order: the last row carries the page's max received_at.
+              ...(nextCursor ? { after: nextCursor } : {}),
+            },
           })
           .then(({ error }) => {
             if (error) console.error("backfill chain invoke returned error", error);

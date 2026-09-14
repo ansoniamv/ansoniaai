@@ -121,8 +121,15 @@ Each step is deliberate. Do not collapse them.
 
    Measure with a **direct** call, not through the chain: `sync-acquisitions-inbox`
    fires summarization unawaited and only when `touchedDealIds.size > 0`, so its
-   response tells you nothing about the batch. Invoke `summarize-emails` with
-   `{"limit": 20}`, then:
+   response tells you nothing about the batch.
+
+   **Sample the population you are about to price.** Default ordering is
+   newest-first, so a plain `{"limit": 20}` measures the 20 *newest* emails — but the
+   528 in step 7 are the *oldest*. They are not interchangeable: the vision pass is
+   the expensive branch, and whether year-old broker mail carries more inline
+   marketing images than last week's is not known. Invoke `summarize-emails` with
+   `{"limit": 20, "oldest": true}` — ascending order, same rows a drain reaches, and
+   `oldest` does not chain the way `backfill` does. Then:
 
        select count(*) as calls,
               round(sum(cost_usd)::numeric, 4)  as total_usd,
@@ -157,14 +164,22 @@ Each step is deliberate. Do not collapse them.
 
    Invoke `summarize-emails` with `{"backfill": true, "limit": 100}`.
 
-   **Confirm it terminates on a short page, not on the depth cap.** 528 rows at 100
-   per hop should clear in six, with the seventh coming back short and stopping. If
-   the logs show `depth cap 10 reached`, rows are not leaving the predicate and the
-   chain is re-reading the same page — a text-pass failure writes nothing, and a
-   transient vision error deliberately leaves `vision_checked` false, so a
-   permanently-failing row sits at the head of every oldest-first page. The chain now
-   also stops on `page made no progress`; seeing that means the same thing. Kill
-   switch if needed: `SUMMARIZE_EMAILS_CHAIN_DISABLED=true`.
+   **Expect exactly six hops.** The drain pages by keyset: each hop starts after the
+   last `received_at` the previous one saw, rather than re-running the predicate from
+   the top. That makes the walk strictly monotonic, so 528 rows at 100 per hop clear
+   in six, with the seventh coming back short and stopping. It also means a
+   permanently-failing row — a text pass that wrote nothing, or a transient vision
+   error that left `vision_checked` false — is paid for **once per drain** instead of
+   once per hop. Under top-of-predicate paging those rows sorted to the head of every
+   oldest-first page and were re-billed on each one.
+
+   `depth cap 10 reached` or `page made no progress` in the logs now means something
+   is genuinely wrong rather than merely slow; both remain as backstops. Kill switch:
+   `SUMMARIZE_EMAILS_CHAIN_DISABLED=true`.
+
+   One bounded caveat: the cursor is a strict `received_at >`, so rows sharing the
+   exact boundary timestamp can be skipped. Re-run the drain — the backlog count is
+   the check, and a second pass picks up anything the first stepped over.
 
 8. **Run `sync-acquisitions-inbox` manually and watch it.** Its 24-hour window
    self-limits the Graph read.
