@@ -17,6 +17,16 @@ const corsHeaders = {
 // Outlook connector — used to fetch inline image attachments referenced by cid:
 import { graphFetch, resolveMailbox } from "../_shared/graphMail.ts";
 
+// Batch size for every path through this function. This is a COST decision whose
+// premise is the model on the other end: it was 100/200, sized for the Lovable
+// gateway's flash-lite pricing, and routing now goes to Claude Opus 5 via
+// _shared/ai.ts. The premise is named on purpose — if routing changes again, this
+// comment should read as wrong rather than age quietly.
+//
+// It is also a THROUGHPUT floor, not only a ceiling: selection below is
+// newest-first, so a batch smaller than daily inflow leaves older rows permanently
+// outranked. Keep it above the arrival rate or drain with backfill: true.
+const SUMMARIZE_BATCH_SIZE = Number(Deno.env.get("SUMMARIZE_BATCH_SIZE")) || 20;
 // Fields we try to extract from each email and merge into inbox_deals
 const EXTRACTABLE_FIELDS = [
   "property_name",
@@ -281,7 +291,7 @@ Deno.serve(async (req) => {
       .from("deal_emails")
       .select("id, deal_id, subject, body, received_at, summary, extracted_fields, email_message_id, vision_checked")
       .order("received_at", { ascending: false })
-      .limit(body.limit ?? 100);
+      .limit(body.limit ?? SUMMARIZE_BATCH_SIZE);
     if (body.deal_id) q = q.eq("deal_id", body.deal_id);
     if (!body.force) {
       q = q.or("summary.is.null,extracted_fields.is.null,vision_checked.eq.false");
@@ -510,7 +520,7 @@ Deno.serve(async (req) => {
     const depth = Number(body.depth ?? 0);
     const MAX_DEPTH = 10;
     const killed = Deno.env.get("SUMMARIZE_EMAILS_CHAIN_DISABLED") === "true";
-    if (body.backfill && (emails?.length ?? 0) >= (body.limit ?? 100)) {
+    if (body.backfill && (emails?.length ?? 0) >= (body.limit ?? SUMMARIZE_BATCH_SIZE)) {
       if (killed) {
         console.log("backfill chain disabled by kill switch");
       } else if (depth >= MAX_DEPTH) {
@@ -518,7 +528,7 @@ Deno.serve(async (req) => {
       } else {
         supabase.functions
           .invoke("summarize-emails", {
-            body: { limit: body.limit ?? 100, backfill: true, depth: depth + 1 },
+            body: { limit: body.limit ?? SUMMARIZE_BATCH_SIZE, backfill: true, depth: depth + 1 },
           })
           .then(({ error }) => {
             if (error) console.error("backfill chain invoke returned error", error);
