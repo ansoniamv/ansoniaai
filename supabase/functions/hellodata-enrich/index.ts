@@ -1,15 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { mapHelloDataProperty } from "../_shared/hellodataMapping.ts";
+import { mapHelloDataProperty, INTAKE_ONLY_KEYS } from "../_shared/hellodataMapping.ts";
 import { logApiRequest } from "../_shared/logUsage.ts";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 import { errorResponse } from "../_shared/errors.ts";
-
-// Intake-only fields from the shared mapper — captured on the New Deal form
-// and NOT overwritten by the post-create enrichment run.
-const INTAKE_ONLY_KEYS = new Set([
-  "property_name", "street_address_raw", "city", "state", "zip",
-  "unit_count", "vintage_year",
-]);
 
 Deno.serve(async (req) => {
   const corsHeaders = corsFor(req);

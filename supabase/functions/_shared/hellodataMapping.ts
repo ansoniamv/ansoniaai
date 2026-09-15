@@ -18,10 +18,71 @@ const pickNum = (...vals: any[]) => {
   return typeof v === "number" && !Number.isNaN(v) ? v : null;
 };
 
+// Intake-only fields — captured on the New Deal form and never overwritten by
+// enrichment. One definition, imported by hellodata-enrich and fetch-hellodata.
+export const INTAKE_ONLY_KEYS = new Set([
+  "property_name", "street_address_raw", "city", "state", "zip",
+  "unit_count", "vintage_year",
+]);
+
+/**
+ * Written only where the deal has no value yet. Intake fields plus
+ * management_company — a HelloData mismatch overwrote hand-entered managers with
+ * the wrong building's ("Ardent" -> "Extended Stay America"), and the prior value
+ * is recoverable from nowhere.
+ */
+export const FILL_IF_NULL_KEYS = new Set([...INTAKE_ONLY_KEYS, "management_company"]);
+
+/**
+ * Pick the mapper fields that are safe to write onto a loaded deal row.
+ *
+ * Two rules, both learned the hard way:
+ *  - Skip any key that is not a column on the row. The mapper emits
+ *    street_address_raw for hellodata-detail's New Deal form, but that is not a
+ *    column on public.deals, and including it makes PostgREST reject the ENTIRE
+ *    update. Keying off the loaded row (which uses select("*"), so every real
+ *    column is present even when null) keeps this correct as the mapper grows.
+ *  - Skip nulls, and skip fill-if-null keys that already hold a value, so
+ *    enrichment never blanks or overwrites a human-entered field.
+ *
+ * Pure and dependency-free so it can be unit tested outside Deno.
+ */
+export function selectWritableFields(
+  mapped: Record<string, unknown>,
+  dealRow: Record<string, unknown>,
+  fillIfNull: Set<string> = FILL_IF_NULL_KEYS,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(mapped)) {
+    if (!(k in dealRow)) continue;
+    if (v === null || v === undefined) continue;
+    if (fillIfNull.has(k) && dealRow[k] != null) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
 export type MappedHelloData = {
   update: Record<string, any>;
   photoUrls: string[];
   field_coverage: Record<string, boolean>;
+};
+
+/**
+ * Demographic percentages arrive from HelloData as 0..1 fractions (verified
+ * 27/27 payloads: vacant_housing_units_perc, *_degree_perc,
+ * owner_occupied_housing_units_perc and every *_pop_perc key are all <= 1).
+ * 0..100 is canonical in the database, so convert here.
+ *
+ * The <= 1 guard mirrors the one fetch-hellodata used, so remapping a payload is
+ * idempotent. It is safe because this only ever reads RAW payload values, never a
+ * stored column — feeding an already-converted column back through would
+ * double-convert anything that legitimately landed in (0, 1].
+ */
+const pct = (v: unknown): number | null => {
+  const n = typeof v === "number" && Number.isFinite(v) ? v : null;
+  if (n === null) return null;
+  return n <= 1 ? +(n * 100).toFixed(2) : +n.toFixed(2);
 };
 
 export function mapHelloDataProperty(p: any): MappedHelloData {
@@ -114,10 +175,15 @@ export function mapHelloDataProperty(p: any): MappedHelloData {
     ? active.map((c: any) => c.description).filter(Boolean).join("; ").slice(0, 500)
     : null;
 
+  // Same 0..1 source scale as the other demographic percentages, so normalized
+  // the same way — otherwise race shares would render at 1/100th of the others.
   const raceBreakdown: Record<string, number> = {};
   for (const [k, v] of Object.entries(demo)) {
     if (k.endsWith("_pop_perc") && k !== "unemployed_pop_perc" && typeof v === "number") {
-      raceBreakdown[k.replace(/_pop_perc$/, "").replace(/_/g, " ")] = v;
+      const scaled = pct(v);
+      if (scaled !== null) {
+        raceBreakdown[k.replace(/_pop_perc$/, "").replace(/_/g, " ")] = scaled;
+      }
     }
   }
   const bachelorsPct = (typeof demo.bachelors_degree_perc === "number" ? demo.bachelors_degree_perc : 0)
@@ -127,10 +193,12 @@ export function mapHelloDataProperty(p: any): MappedHelloData {
   const sumCounts = (o: any) => o && typeof o === "object"
     ? Object.values(o).filter((n) => typeof n === "number").reduce((a: number, b: any) => a + b, 0)
     : null;
-  const reviewAvg = pickNum(
+  const reviewAvgRaw = pickNum(
     typeof reviews.avg_score === "number" ? reviews.avg_score * 5 : null,
     reviews.average_rating, reviews.avg_rating, reviews.rating, reviews.overall_rating, reviews.score,
   );
+  // 2dp, matching the precision the inline fetch-hellodata mapper wrote.
+  const reviewAvg = reviewAvgRaw === null ? null : +reviewAvgRaw.toFixed(2);
   const reviewCount = pickNum(
     reviews.count_reviews, reviews.review_count, reviews.count,
     reviews.total_reviews, reviews.num_reviews, reviews.reviews_count,
@@ -186,16 +254,23 @@ export function mapHelloDataProperty(p: any): MappedHelloData {
     median_income_tract: pickNum(demo.median_income, demo.median_household_income, demo.household_median_income),
     median_rent_tract: pickNum(demo.median_rent, demo.median_gross_rent),
     median_age_tract: pickNum(demo.median_age),
-    bachelors_pct_tract: bachelorsPct > 0 ? bachelorsPct : pickNum(demo.bachelors_degree_perc),
-    vacancy_rate_tract: pickNum(demo.vacant_housing_units_perc, demo.vacancy_rate, demo.vacancy_perc),
-    owner_occupied_pct_tract: pickNum(demo.owner_occupied_housing_units_perc, demo.owner_occupied_pct, demo.owner_occupied_perc),
+    // Summed first, converted second: three fractions summed then scaled, not
+    // three scaled values summed (same result, but the order is load-bearing if
+    // the guard ever sees a value > 1).
+    bachelors_pct_tract: pct(bachelorsPct > 0 ? bachelorsPct : pickNum(demo.bachelors_degree_perc)),
+    vacancy_rate_tract: pct(pickNum(demo.vacant_housing_units_perc, demo.vacancy_rate, demo.vacancy_perc)),
+    owner_occupied_pct_tract: pct(pickNum(demo.owner_occupied_housing_units_perc, demo.owner_occupied_pct, demo.owner_occupied_perc)),
     population_density_tract: pickNum(demo.pop_density, demo.population_density, demo.density),
     race_breakdown_tract: Object.keys(raceBreakdown).length ? raceBreakdown : null,
     building_quality_score: buildingQualityScore,
     is_lease_up: pick(p.is_lease_up, p.lease_up),
     uses_rev_management: pick(pricing.is_using_rev_management, pricing.uses_rev_management),
     in_place_avg_rent: inPlaceAvgRent,
-    avg_time_on_market: pickNum(pricing.avg_time_on_market, pricing.avg_dom, pricing.average_time_on_market),
+    // Whole days, matching the integer the inline mapper wrote.
+    avg_time_on_market: (() => {
+      const d = pickNum(pricing.avg_time_on_market, pricing.avg_dom, pricing.average_time_on_market);
+      return d === null ? null : Math.round(d);
+    })(),
     avg_price_change: pickNum(pricing.avg_price_change, pricing.average_price_change),
     avg_posting_duration: pickNum(pricing.avg_duration, pricing.avg_posting_duration, pricing.average_duration),
     active_concessions_summary: activeConcessionsSummary,
