@@ -332,17 +332,43 @@ export default function DealDetail() {
     if (!id) return;
     setEnriching(true);
     try {
-      const { error: resetErr } = await supabase
-        .from("deals")
-        .update({ hellodata_status: "pending" })
-        .eq("id", id);
-      if (resetErr) throw resetErr;
+      // Do NOT pre-set hellodata_status here. fetch-hellodata reads that column
+      // to decide whether its cached payload is usable, so writing 'pending'
+      // first defeated the cache and billed a fresh call on every click — and,
+      // once the match gate landed, could strand an already-enriched deal in
+      // 'unmatched'. A refresh SHOULD bill a fresh call; that is what force does.
       const { data, error } = await supabase.functions.invoke("fetch-hellodata", {
-        body: { deal_id: id },
+        body: { deal_id: id, force: true },
       });
       if (error) throw error;
-      if ((data as any)?.status === "failed")
-        throw new Error((data as any).error || "HelloData fetch failed");
+
+      const result = data as
+        | { status?: string; skipped?: boolean; reason?: string; error?: string }
+        | null;
+
+      // Every branch fetch-hellodata can return is handled explicitly. Anything
+      // that is not status === 'fetched' must not read as success — a silent
+      // skip reported as "refreshed" is what left nine deals stranded while
+      // telling the user it had worked.
+      if (result?.skipped) {
+        toast.warning(
+          result.reason === "connector_disabled"
+            ? "HelloData connector is disabled — no data was fetched."
+            : `HelloData skipped: ${result.reason ?? "unknown reason"}`,
+        );
+        return;
+      }
+      if (result?.status === "unmatched") {
+        toast.warning(result.reason || "No confident HelloData match for this property.");
+        queryClient.invalidateQueries({ queryKey: ["deals", id] });
+        return;
+      }
+      if (result?.status === "failed") {
+        throw new Error(result.error || "HelloData fetch failed");
+      }
+      if (result?.status !== "fetched") {
+        throw new Error(`Unexpected HelloData response: ${JSON.stringify(result)}`);
+      }
 
       // Re-fetch the freshly enriched deal row and re-run the buybox scoring
       // engine so tier/score reflect new rent-lag/occupancy/opex signals.
