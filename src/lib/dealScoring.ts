@@ -179,6 +179,22 @@ export function incomeSubScore(ami: number | null | undefined, floor = 55000): n
 
 // ---------- factor scorers ----------
 
+/**
+ * CAUTION — semantic mismatch, deliberately left non-computing rather than
+ * papered over. This function treats in_place_avg_rent as tenant-paid in-place
+ * rent. It is not: the HelloData mapper derives it by averaging asking prices on
+ * AVAILABLE units in payload.building_availability. Asking rent on vacant units
+ * is systematically above in-place rent on occupied ones, so a lag computed from
+ * it understates the true gap.
+ *
+ * The market-rent side reads payload.market_rent_per_unit / avg_market_rent /
+ * market_rent, none of which HelloData returns (0 of 28 payloads), so this
+ * returns null for every deal today. Do NOT "fix" that by pointing market rent
+ * at building_availability as well: in_place_avg_rent already comes from that
+ * array, so market would equal in-place and this would report a confident ~0%
+ * lag on every deal. A wrong number that looks computed is worse than a null.
+ * Pending a decision on HelloData comps access.
+ */
 function scoreRentLag(deal: ScoreableDeal): number | null {
   const market = marketRentFrom(deal.hellodata_payload);
   const inPlace = deal.in_place_avg_rent;

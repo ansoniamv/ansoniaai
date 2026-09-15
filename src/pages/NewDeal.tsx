@@ -8,8 +8,17 @@ export default function NewDeal() {
   const createDeal = useCreateDeal();
 
   const handleSubmit = (values: DealFormValues) => {
+    // Required on create. deals.address was NULL on all 82 existing deals
+    // because no intake path ever wrote it, which is why the match gate had
+    // nothing to search on and every lookup fell back to a city-level guess.
+    if (!values.address || !values.address.trim()) {
+      toast.error("A street address is required — market-data matching cannot identify a building from a city alone.");
+      return;
+    }
+
     const payload = {
       property_name: values.property_name,
+      address: values.address.trim(),
       broker: values.broker || null,
       status: values.status as any,
       property_address: values.property_address || null,

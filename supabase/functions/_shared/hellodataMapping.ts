@@ -121,6 +121,22 @@ export function mapHelloDataProperty(p: any): MappedHelloData {
     u.days_on_market, u.dom, u.days_listed, u.time_on_market, u.avg_days_on_market,
   );
 
+  // Concession spread: the gap between advertised price and effective price on
+  // available units, which is what a concession actually is. This is a real
+  // signal building_availability supports, unlike market-vs-in-place rent — both
+  // sides of which would come from this same array, making the comparison
+  // circular. Kept as its own field; deliberately NOT routed into rent_lag.
+  const concessionPairs = avail
+    .map((u: any) => {
+      const asking = pickNum(u.max_price, u.price);
+      const effective = pickNum(u.effective_price, u.max_effective_price, u.min_effective_price);
+      return asking && effective && asking > 0 ? (asking - effective) / asking : null;
+    })
+    .filter((v: any): v is number => typeof v === "number" && Number.isFinite(v));
+  const concessionSpreadPct = concessionPairs.length
+    ? +((concessionPairs.reduce((a: number, b: number) => a + b, 0) / concessionPairs.length) * 100).toFixed(2)
+    : null;
+
   const rents = avail.map(unitRent).filter((r: any) => typeof r === "number");
   const inPlaceAvgRent = rents.length > 0
     ? Math.round(rents.reduce((a, b) => a + b, 0) / rents.length)
@@ -265,7 +281,10 @@ export function mapHelloDataProperty(p: any): MappedHelloData {
     building_quality_score: buildingQualityScore,
     is_lease_up: pick(p.is_lease_up, p.lease_up),
     uses_rev_management: pick(pricing.is_using_rev_management, pricing.uses_rev_management),
+    // NOTE: this is the average ASKING rent on available units, not tenant-paid
+    // in-place rent. See scoreRentLag in src/lib/dealScoring.ts.
     in_place_avg_rent: inPlaceAvgRent,
+    concession_spread_pct: concessionSpreadPct,
     // Whole days, matching the integer the inline mapper wrote.
     avg_time_on_market: (() => {
       const d = pickNum(pricing.avg_time_on_market, pricing.avg_dom, pricing.average_time_on_market);
