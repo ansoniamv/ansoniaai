@@ -5,6 +5,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logApiRequest } from "../_shared/logUsage.ts";
 import { mapHelloDataProperty, selectWritableFields } from "../_shared/hellodataMapping.ts";
+import { INVALIDATED_DERIVED_FIELDS } from "../_shared/quarantine.ts";
 import {
   hdSearch,
   hdPropertyResilient,
@@ -90,6 +91,8 @@ Deno.serve(async (req) => {
             hellodata_error: q.reason,
             hellodata_match_confidence: null,
             hellodata_match_evidence: { refused: true, reason: q.reason, at: new Date().toISOString() },
+            // Same update, not a follow-up — see _shared/quarantine.ts.
+            ...INVALIDATED_DERIVED_FIELDS,
           }).eq("id", dealId);
           return new Response(JSON.stringify({ deal_id: dealId, status: "unmatched", reason: q.reason }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -108,6 +111,7 @@ Deno.serve(async (req) => {
             hellodata_error: `No confident HelloData match: ${evidence.reason}`,
             hellodata_match_confidence: evidence.confidence,
             hellodata_match_evidence: { ...evidence, query: q.query, candidates_considered: results.length, at: new Date().toISOString() },
+            ...INVALIDATED_DERIVED_FIELDS,
           }).eq("id", dealId);
           return new Response(JSON.stringify({ deal_id: dealId, status: "unmatched", reason: evidence.reason, confidence: evidence.confidence }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -145,6 +149,7 @@ Deno.serve(async (req) => {
           at: new Date().toISOString(),
         },
         hellodata_error: `No confident HelloData match: ${verdict.reason}`,
+        ...INVALIDATED_DERIVED_FIELDS,
       }).eq("id", dealId);
       return new Response(JSON.stringify({
         deal_id: dealId, status: "unmatched",

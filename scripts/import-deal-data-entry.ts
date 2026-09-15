@@ -21,6 +21,11 @@ const FILE = Deno.args.find((a) => !a.startsWith("--")) ?? "deal-data-entry.csv"
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const REGULATORY = new Set(["green", "yellow", "red"]);
+const CONFIRMED = new Set(["y", "yes", "true", "1", "x", "confirmed"]);
+
+// Cap rates outside this band are almost certainly a typo or a different metric.
+// Narrower than "0 to 20" on purpose: the point is to catch meaning, not type.
+const CAP_MIN = 3, CAP_MAX = 12;
 
 /** Same bar the match gate applies: a number and a name. "Columbus, OH" fails. */
 function hasStreetAddress(s: string): boolean {
@@ -49,7 +54,7 @@ const rows = parseCsv(text);
 const head = rows[0].map((h) => h.trim());
 const idx = (name: string) => head.indexOf(name);
 
-for (const required of ["id", "street_address", "classic_units_remaining", "market_cap_rate", "regulatory_risk"]) {
+for (const required of ["id", "street_address", "confirmed", "classic_units_remaining", "market_cap_rate", "regulatory_risk"]) {
   if (idx(required) < 0) { console.error(`CSV is missing the "${required}" column`); Deno.exit(1); }
 }
 
@@ -66,20 +71,39 @@ for (let r = 1; r < rows.length; r++) {
 
   const patch: Record<string, unknown> = {};
 
+  // Confirmation gate. Some street_address cells were pre-filled from the
+  // broker-supplied property_address; pre-filled is not the same as checked, and
+  // an unreviewed address is exactly how the wrong-building problem started. No
+  // address reaches deals.address without a human having ticked this row.
+  const confirmed = (cells[idx("confirmed")] ?? "").trim().toLowerCase();
+  const isConfirmed = CONFIRMED.has(confirmed);
+
   const street = (cells[idx("street_address")] ?? "").trim();
   if (street) {
-    if (!hasStreetAddress(street)) {
+    if (!isConfirmed) {
+      skips.push({ row: r + 1, id, field: "street_address", value: street, why: "confirmed column is blank — pre-filled is not reviewed; tick it to accept" });
+    } else if (!hasStreetAddress(street)) {
       skips.push({ row: r + 1, id, field: "street_address", value: street, why: "no street number + name — a city-level value cannot identify a building" });
     } else {
       patch.address = street;
     }
   }
 
+  // classic_units_remaining is the +0.18 field — the single largest unlock in
+  // the sheet — so a wrong value here is the most expensive error available.
+  // It cannot exceed the unit count: unrenovated units are a subset of units.
   const classic = (cells[idx("classic_units_remaining")] ?? "").trim();
   if (classic) {
     const n = Number(classic);
-    if (!Number.isFinite(n) || n < 0) skips.push({ row: r + 1, id, field: "classic_units_remaining", value: classic, why: "not a non-negative number" });
-    else patch.classic_units_remaining = n;
+    const unitsCell = idx("unit_count") >= 0 ? (cells[idx("unit_count")] ?? "").trim() : "";
+    const units = unitsCell ? Number(unitsCell) : NaN;
+    if (!Number.isFinite(n) || n < 0) {
+      skips.push({ row: r + 1, id, field: "classic_units_remaining", value: classic, why: "not a non-negative number" });
+    } else if (Number.isFinite(units) && n > units) {
+      skips.push({ row: r + 1, id, field: "classic_units_remaining", value: classic, why: `exceeds unit_count (${units}) — unrenovated units are a subset of total units` });
+    } else {
+      patch.classic_units_remaining = n;
+    }
   }
 
   const cap = (cells[idx("market_cap_rate")] ?? "").trim();
@@ -90,12 +114,12 @@ for (let r = 1; r < rows.length; r++) {
     // "valid number" is not the reading "valid cap rate". Real cap rates do not
     // sit below 1%, so anything under 1 is the decimal form and is rejected
     // rather than silently reinterpreted.
-    if (!Number.isFinite(n) || n < 1 || n > 20) {
+    if (!Number.isFinite(n) || n < CAP_MIN || n > CAP_MAX) {
       skips.push({
         row: r + 1, id, field: "market_cap_rate", value: cap,
         why: n > 0 && n < 1
           ? "looks like decimal form — enter 5.5, not 0.055"
-          : "expected a percentage between 1 and 20, e.g. 5.5",
+          : `outside the plausible ${CAP_MIN}-${CAP_MAX}% band — check the figure`,
       });
     }
     else patch.market_cap_rate = n;
@@ -114,6 +138,7 @@ for (let r = 1; r < rows.length; r++) {
 console.log(`${APPLY ? "APPLY" : "DRY RUN"} — ${FILE}\n`);
 console.log(`rows read:            ${rows.length - 1}`);
 console.log(`rows with no values:  ${blankRows} (left untouched)`);
+console.log(`rows unconfirmed:     ${skips.filter((s) => s.why.startsWith("confirmed column")).length}`);
 console.log(`rows to update:       ${updates.length}`);
 console.log(`values rejected:      ${skips.length}\n`);
 

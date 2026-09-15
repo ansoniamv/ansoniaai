@@ -54,7 +54,10 @@ export function PipelineDashboard({ deals }: { deals: Deal[] }) {
     let tier12Upside = 0;
     const lags: number[] = [];
     deals.forEach((d) => {
-      const tier = ((d as any).deal_tier as string) ?? "Tier 4 – Weak";
+      // A null tier means not scored — or scored and then invalidated, as the
+      // quarantined deals were. Defaulting it to "Tier 4 – Weak" invented a
+      // verdict out of an absence and counted it in the tier mix.
+      const tier = ((d as any).deal_tier as string) ?? "Not scored";
       counts[tier] = (counts[tier] ?? 0) + 1;
       if (tier === "Tier 1 – Strong Fit" || tier === "Tier 2 – Fit") {
         const u = (d as any).value_add_upside as number | null;
@@ -146,7 +149,7 @@ export function PipelineDashboard({ deals }: { deals: Deal[] }) {
           ) : (
             <ul className="divide-y divide-hairline">
               {newest.map((d) => {
-                const tier = ((d as any).deal_tier as string) ?? "Tier 4 – Weak";
+                const tier = ((d as any).deal_tier as string) ?? "Not scored";
                 const ts = dealDate(d);
                 return (
                   <li
