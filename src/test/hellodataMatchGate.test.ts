@@ -80,3 +80,26 @@ describe("pickBestMatch", () => {
     expect(evidence.accepted).toBe(false);
   });
 });
+
+describe("stored hellodata_id still goes through the gate", () => {
+  // Regression: the gate originally ran only inside `if (!hdId)`, so a deal that
+  // already had an id refetched ungated. The Station at MacArthur was enriched
+  // that way AFTER the gate deployed. fetch-hellodata now scores the fetched
+  // payload on every path — cached, stored-id and freshly-searched.
+  it("rejects a stored-id payload that describes a different building", () => {
+    const deal = { property_name: "One Superior", unit_count: 809, zip: "60654", hellodata_id: "stale-id-pointing-elsewhere" };
+    const storedIdPayload = { building_name: "23 West Chicago Ave.", number_units: 4, is_single_family: true };
+    const v = scoreCandidate(deal, storedIdPayload);
+    expect(v.accepted).toBe(false);
+  });
+
+  it("accepts a stored-id payload that genuinely matches", () => {
+    // The Station at MacArthur, real production values: 100% confidence.
+    const v = scoreCandidate(
+      { property_name: "The Station at MacArthur", unit_count: 444, zip: "75038", hellodata_id: "known-good" },
+      { building_name: "The Station at MacArthur", street_address: "1100 Hidden Ridge Drive", zip_code: "75038", number_units: 444, is_apartment: true },
+    );
+    expect(v.accepted).toBe(true);
+    expect(v.confidence).toBe(100);
+  });
+});

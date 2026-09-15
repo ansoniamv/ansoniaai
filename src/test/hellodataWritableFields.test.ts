@@ -65,3 +65,14 @@ describe("selectWritableFields", () => {
     expect(FILL_IF_NULL_KEYS.has("median_income_tract")).toBe(false);
   });
 });
+
+describe("quarantined payloads cannot feed a score", () => {
+  it("suppresses hellodata_payload when the match was rejected", async () => {
+    const { isQuarantinedPayload } = await import("../lib/dealScoring");
+    expect(isQuarantinedPayload({ hellodata_status: "unmatched" } as never)).toBe(true);
+    expect(isQuarantinedPayload({ hellodata_match_confidence: 0 } as never)).toBe(true);
+    // null = never evaluated, which is not the same as rejected.
+    expect(isQuarantinedPayload({ hellodata_match_confidence: null } as never)).toBe(false);
+    expect(isQuarantinedPayload({ hellodata_status: "fetched", hellodata_match_confidence: 100 } as never)).toBe(false);
+  });
+});

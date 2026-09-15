@@ -33,6 +33,22 @@ export interface ScoreableDeal {
 
   // HelloData cache
   hellodata_payload?: HelloDataPayload | null;
+  // Match-gate outcome. 0 = evaluated and rejected, null = never evaluated.
+  hellodata_status?: string | null;
+  hellodata_match_confidence?: number | null;
+}
+
+/**
+ * A payload from a rejected match describes a different building, so none of it
+ * may reach a score. The quarantine clears the derived COLUMNS, but seven
+ * scoring inputs read hellodata_payload directly — market rent, occupancy,
+ * quality_score, expense_ratio, egr, renovation premium. Those keys happen to be
+ * absent from every payload today (0/28), which is the only reason the columns
+ * alone were sufficient. That inertness is load-bearing on HelloData never
+ * adding them; this guard removes the dependency on that assumption.
+ */
+export function isQuarantinedPayload(deal: ScoreableDeal): boolean {
+  return deal.hellodata_status === "unmatched" || deal.hellodata_match_confidence === 0;
 }
 
 export interface HelloDataPayload {
@@ -367,6 +383,10 @@ function computeUpside(deal: ScoreableDeal): number | null {
 
 export function scoreDeal(deal: ScoreableDeal, benchmarks: ScoreBenchmarks = DEFAULT_BENCHMARKS): ScoreResult {
   const scored_at = new Date().toISOString();
+  // Suppress a rejected match's payload before anything reads it.
+  if (isQuarantinedPayload(deal) && deal.hellodata_payload) {
+    deal = { ...deal, hellodata_payload: null };
+  }
   const { passes, failures } = evaluateHardFilters(deal, benchmarks);
 
   const emptyFactors: FactorScores = {

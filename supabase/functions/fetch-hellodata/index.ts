@@ -10,6 +10,7 @@ import {
   hdPropertyResilient,
   buildAddressQuery,
   pickBestMatch,
+  scoreCandidate,
 } from "../_shared/hellodataClient.ts";
 import { requireApprovedUser } from "../_shared/auth.ts";
 
@@ -121,6 +122,37 @@ Deno.serve(async (req) => {
       payload = await hdPropertyResilient(hdId);
       try { await logApiRequest(supabase, { function_name: "fetch-hellodata", service: "hellodata", provider: "HelloData", deal_id: dealId }); } catch { /* noop */ }
     }
+
+    // --- Verify the payload actually describes THIS building ----------------
+    // A stored hellodata_id is an unverified claim, not a verified match. The
+    // gate originally ran only inside the `if (!hdId)` search branch, so any deal
+    // that already had an id refetched straight through — 41 of 54 pending deals
+    // and all 28 enriched ones, including those whose ids point at the wrong
+    // building. Scoring the fetched payload here covers the cached path, the
+    // stored-id path and the freshly-searched path alike.
+    const verdict = scoreCandidate(deal, payload);
+    if (!verdict.accepted) {
+      // Do NOT write the payload — it belongs to a different property. Clearing
+      // hellodata_id stops the bad id being reused by the next refresh.
+      await supabase.from("deals").update({
+        hellodata_status: "unmatched",
+        hellodata_id: null,
+        hellodata_match_confidence: verdict.confidence,
+        hellodata_match_evidence: {
+          ...verdict,
+          verified_payload: true,
+          path: hasCache && !force ? "cached" : (deal.hellodata_id ? "stored_id" : "searched"),
+          at: new Date().toISOString(),
+        },
+        hellodata_error: `No confident HelloData match: ${verdict.reason}`,
+      }).eq("id", dealId);
+      return new Response(JSON.stringify({
+        deal_id: dealId, status: "unmatched",
+        reason: verdict.reason, confidence: verdict.confidence,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    matchConfidence = verdict.confidence;
+    matchEvidence = { ...verdict, verified_payload: true, at: new Date().toISOString() };
 
     // --- Map raw payload → flat deal columns used by the UI -----------------
     // The inline mapper that used to live here read payload.floor_plans ??
