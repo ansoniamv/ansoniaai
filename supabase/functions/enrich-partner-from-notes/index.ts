@@ -120,6 +120,14 @@ Deno.serve(async (req) => {
       .single();
     if (pErr) throw pErr;
     if (!partner) throw new Error("partner not found");
+    // An internal (Ansonia) record has no investment criteria to enrich. Running
+    // the LLM over its notes burns tokens and writes garbage into our own record,
+    // so refuse before any note is read.
+    if (partner.is_internal === true) {
+      return new Response(JSON.stringify({ skipped: "internal_partner" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // Notes linked to this partner: primary owner OR via note_links
     const { data: links } = await sb

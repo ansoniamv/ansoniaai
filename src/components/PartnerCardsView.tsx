@@ -14,6 +14,7 @@ import { useAllPartnerNotes } from "@/hooks/useAllPartnerNotes";
 import { useAllPartnerContactCounts } from "@/hooks/useAllPartnerContactCounts";
 import { PartnerDetailSheet } from "@/components/PartnerDetailSheet";
 import { MultiSelectFilter } from "@/components/MultiSelectFilter";
+import { isInternalPartner } from "@/lib/partnerScope";
 
 import {
   CheckSizeFilter,
@@ -291,8 +292,12 @@ export function PartnerCardsView({
     });
   };
 
+  // Internal partners are not outside capital sources, so they are never listed
+  // and never counted in the "N of M firms" total.
+  const scoped = useMemo(() => partners.filter((p) => !isInternalPartner(p)), [partners]);
+
   const filtered = useMemo(() => {
-    let result = partners;
+    let result = scoped;
 
     if (search) {
       const q = search.toLowerCase();
@@ -323,7 +328,7 @@ export function PartnerCardsView({
     }
 
     return result;
-  }, [partners, search, warmthFilter, firmTypeFilter, checkSize]);
+  }, [scoped, search, warmthFilter, firmTypeFilter, checkSize]);
 
   const grouped = useMemo(() => {
     const buckets = new Map<string, Partner[]>();
@@ -383,7 +388,7 @@ export function PartnerCardsView({
           </Button>
         )}
         <span className="ml-auto text-xs text-muted-foreground tabular-nums">
-          {filtered.length} of {partners.length} firms
+          {filtered.length} of {scoped.length} firms
         </span>
       </div>
 

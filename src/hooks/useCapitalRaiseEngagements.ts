@@ -62,16 +62,21 @@ export function useEngagementsByDeal(dealId: string | undefined, opts?: { includ
     queryFn: async () => {
       let query = (supabase as any)
         .from("capital_raise_engagements")
-        .select("*, partners(name, ansonia_poc)")
+        .select("*, partners(name, ansonia_poc, is_internal)")
         .eq("deal_id", dealId!);
       if (!includeRemoved) query = query.is("removed_at", null);
       const { data, error } = await query.order("created_at");
       if (error) throw error;
-      return (data as any[]).map((e) => ({
-        ...e,
-        partner_name: e.partners?.name,
-        partner_contact: e.partners?.ansonia_poc,
-      })) as Engagement[];
+      return (data as any[])
+        // Ansonia's own record is not an outside capital source, so it can never
+        // be an engagement on our own raise. partner_id is NOT NULL on this
+        // table, so this drops exactly the internal-partner rows and nothing else.
+        .filter((e) => e.partners?.is_internal !== true)
+        .map((e) => ({
+          ...e,
+          partner_name: e.partners?.name,
+          partner_contact: e.partners?.ansonia_poc,
+        })) as Engagement[];
     },
   });
 }

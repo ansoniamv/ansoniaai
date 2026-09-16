@@ -29,6 +29,7 @@ import { WarmthBadge } from "@/components/WarmthBadge";
 import { usePartners, useUpdatePartner, useRestorePartner } from "@/hooks/usePartners";
 import { useAuth } from "@/hooks/useAuth";
 import type { Partner } from "@/hooks/usePartners";
+import { isInternalPartner } from "@/lib/partnerScope";
 
 const warmthLevels = ["Existing Partner", "Very Warm", "Warm", "Tepid", "Cold"];
 const warmthRank: Record<string, number> = { "Existing Partner": 1, "Very Warm": 2, "Warm": 3, "Tepid": 4, "Cold": 5 };
@@ -353,7 +354,14 @@ export default function PartnersPage() {
   useEffect(() => {
     try { localStorage.setItem("partners-show-archived", showArchived ? "1" : "0"); } catch {}
   }, [showArchived]);
-  const { data: partners, isLoading } = usePartners({ includeArchived: showArchived });
+  const { data: allPartners, isLoading } = usePartners({ includeArchived: showArchived });
+  // Internal partners (Ansonia itself) are not outside capital sources. They are
+  // dropped once here so every surface on this page -- table rows, card rows, the
+  // duplicate-name counter, the header counts and the merge dialog -- excludes them.
+  const partners = useMemo(
+    () => allPartners?.filter((p) => !isInternalPartner(p)),
+    [allPartners],
+  );
   const updatePartner = useUpdatePartner();
   const restorePartner = useRestorePartner();
   const navigate = useNavigate();

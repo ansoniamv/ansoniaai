@@ -30,6 +30,27 @@ export type PartnerSuggestion = {
 const TABLE = "partner_suggestions" as any;
 
 /**
+ * Ansonia's own record is not an outside capital partner. Suggestions describe
+ * an external firm's criteria, contacts and warmth, so applying one to the
+ * internal record writes another firm's data into our house record.
+ *
+ * The four functions that produce suggestions already refuse internal partners,
+ * so the queue should never contain one. This is the enforcement at the point of
+ * write: one helper called from each apply entry point, rather than a check on
+ * each of the eight individual writes.
+ */
+export const INTERNAL_PARTNER_REFUSAL =
+  "This is an internal Ansonia record, not an outside capital partner — suggestions are never applied to it.";
+
+/** Returns a refusal message when `partnerId` is our own record, else null. */
+async function refuseIfInternalPartner(partnerId: string | null | undefined): Promise<string | null> {
+  if (!partnerId) return null;
+  const { data } = await (supabase as any)
+    .from("partners").select("is_internal").eq("id", partnerId).maybeSingle();
+  return data?.is_internal === true ? INTERNAL_PARTNER_REFUSAL : null;
+}
+
+/**
  * Shared helper for the "create new record" and "attach email" suggestion types.
  * Used by both useApplySuggestion (interactive) and the bulk applyOne path.
  */
@@ -44,7 +65,9 @@ async function applyCreateOrAttach(
     if (!pv.name || typeof pv.name !== "string" || !pv.name.trim()) {
       return { ok: false, message: "partner name required" };
     }
-    const row: Record<string, any> = { name: pv.name.trim() };
+    // A partner created from an inbound suggestion is by definition an outside
+    // firm. Set it explicitly rather than leaning on the column default.
+    const row: Record<string, any> = { name: pv.name.trim(), is_internal: false };
     const strFields = ["firm_type", "ansonia_poc", "website", "headquarters", "relationship_strength"];
     for (const f of strFields) {
       if (typeof pv[f] === "string" && pv[f].trim()) row[f] = pv[f].trim();
@@ -85,8 +108,11 @@ async function applyCreateOrAttach(
 
     // Fallback: resolve by name (covers directive flow where partner_add/deal_add was approved first).
     if (!partnerId && typeof pv.partner_name === "string" && pv.partner_name.trim()) {
+      // Excludes our own record: an inbound firm named "Ansonia <anything>" must
+      // never resolve onto it and have external firm data attached.
       const { data } = await (supabase as any)
-        .from("partners").select("id").ilike("name", pv.partner_name.trim()).is("archived_at", null).limit(1);
+        .from("partners").select("id").ilike("name", pv.partner_name.trim())
+        .eq("is_internal", false).is("archived_at", null).limit(1);
       if (data && data[0]) partnerId = data[0].id;
     }
     if (!dealId && typeof pv.deal_name === "string" && pv.deal_name.trim()) {
@@ -94,6 +120,11 @@ async function applyCreateOrAttach(
         .from("deals").select("id").ilike("property_name", pv.deal_name.trim()).limit(1);
       if (data && data[0]) dealId = data[0].id;
     }
+
+    // A partner_id supplied directly on the suggestion bypasses the name lookup
+    // above, so it is checked here too.
+    const attachRefusal = await refuseIfInternalPartner(partnerId);
+    if (attachRefusal) return { ok: false, message: attachRefusal };
 
     if (!partnerId && !dealId) {
       return { ok: false, message: "Attach requires a partner or deal — approve the create suggestion first, or link one manually." };
@@ -293,6 +324,10 @@ export function useApplySuggestion() {
     }): Promise<ApplyResult> => {
       const proposedValue = editedValue !== undefined ? editedValue : suggestion.proposed_value;
       const reviewer = profile?.email || null;
+
+      // One guard covering every write below, instead of eight.
+      const refusal = await refuseIfInternalPartner(suggestion.partner_id);
+      if (refusal) return { ok: false, reason: "error", message: refusal };
 
       // Create/attach types don't require an existing partner — handle before partner lookup.
       if (suggestion.type === "partner_add" || suggestion.type === "deal_add" || suggestion.type === "attach_email") {
@@ -584,6 +619,11 @@ export function useBulkApproveHighConfidence() {
 
 // Standalone apply-one helper used by bulk approve — mirrors useApplySuggestion's logic (no override, no edit).
 async function applyOne(suggestion: PartnerSuggestion, reviewer: string | null): Promise<{ ok: boolean; message?: string }> {
+  // Same single guard as useApplySuggestion — this is the other apply entry
+  // point (bulk approve), and it must refuse on the same terms.
+  const refusal = await refuseIfInternalPartner(suggestion.partner_id);
+  if (refusal) return { ok: false, message: refusal };
+
   if (suggestion.type === "partner_add" || suggestion.type === "deal_add" || suggestion.type === "attach_email") {
     const res = await applyCreateOrAttach(suggestion, suggestion.proposed_value, reviewer);
     if (res.ok) {

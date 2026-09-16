@@ -481,7 +481,9 @@ Deno.serve(async (req) => {
       let partnerMatch: { id: string; name: string } | null = null;
       let dealMatch: { id: string; property_name: string } | null = null;
       if (parsed.partner_name) {
-        const { data: prs } = await supabase.from("partners").select("id, name").is("archived_at", null).limit(1000);
+        // Internal (Ansonia) records are not outside capital sources, so an email
+        // naming one must never fuzzy-match onto it.
+        const { data: prs } = await supabase.from("partners").select("id, name").eq("is_internal", false).is("archived_at", null).limit(1000);
         const hit = fuzzyMatchByName<any>((prs || []) as any[], "name", parsed.partner_name);
         if (hit) partnerMatch = { id: hit.id, name: hit.name };
       }
@@ -616,6 +618,13 @@ Deno.serve(async (req) => {
       ]);
       if (pRes.error || !pRes.data) continue;
       const partner = pRes.data;
+      // An internal (Ansonia) record has no investment criteria to enrich and no
+      // relationship to score. Running the LLM over its mail would burn tokens and
+      // write suggestions back onto our own house record.
+      if (partner.is_internal === true) {
+        console.log(`[analyze-partner-emails] skipping internal partner ${partner.id} (${partner.name})`);
+        continue;
+      }
       const engagements = (eRes.data || []).filter((e: any) => e.stage !== "passed" && e.stage !== "committed");
       const manualFields: string[] = partner.manual_fields || [];
       const partnerContacts: ContactRow[] = (cRes.data || []) as ContactRow[];

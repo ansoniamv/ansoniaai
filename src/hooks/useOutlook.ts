@@ -7,7 +7,7 @@ export type OutlookMessage = Tables<"outlook_messages">;
 // Lightweight columns for the list view. Excludes body_html/body_text/raw which
 // can be ~50KB each and cause statement timeouts when selected for 200 rows.
 const LIST_COLUMNS =
-  "id,message_id,conversation_id,subject,preview,from_email,from_name,to_recipients,received_at,sent_at,is_read,has_attachments,importance,web_link,folder,partner_id,partner_contact_id,deal_id";
+  "id,message_id,conversation_id,subject,preview,from_email,from_name,to_recipients,received_at,sent_at,is_read,has_attachments,importance,web_link,folder,partner_id,partner_contact_id,deal_id,pinned_at";
 
 export function useOutlookMessages(filters?: { partnerId?: string; dealId?: string; unreadOnly?: boolean }) {
   return useQuery({
@@ -25,6 +25,78 @@ export function useOutlookMessages(filters?: { partnerId?: string; dealId?: stri
       if (error) throw error;
       return (data || []) as unknown as OutlookMessage[];
     },
+  });
+}
+
+/**
+ * Everything sitting in the atlas@ mailbox, newest first.
+ *
+ * Deliberately filtered by `mailbox`, NOT by `partner_id`: outlook-sync strips
+ * every @ansoniaproperties.com address before it matches a message to a partner
+ * (see supabase/functions/outlook-sync/index.ts, "ignore internal
+ * @ansoniaproperties.com addresses"), so our own forwards to atlas@ always land
+ * with partner_id = null. Filtering this feed by partner_id would show an empty
+ * list forever.
+ */
+export function useAtlasMessages(limit = 25) {
+  return useQuery({
+    queryKey: ["outlook_messages", "atlas", limit],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("outlook_messages")
+        .select(LIST_COLUMNS)
+        .eq("mailbox", "atlas")
+        .order("received_at", { ascending: false })
+        .limit(limit);
+      if (error) throw error;
+      return (data || []) as unknown as OutlookMessage[];
+    },
+  });
+}
+
+/**
+ * When the atlas@ mailbox last successfully synced, as an ISO string (null if it
+ * never has).
+ *
+ * Deliberately `synced_at`, not `received_at`: a quiet mailbox is not a broken
+ * one, and conflating the two would cry wolf every slow week. This is the
+ * measure that separates "nothing was forwarded" from "the connector stopped" —
+ * a distinction the feed's zero-row empty state cannot make, because a mailbox
+ * that synced once and was then blocked still renders a full page of history.
+ */
+export function useAtlasSyncStatus() {
+  return useQuery({
+    queryKey: ["outlook_messages", "atlas", "sync_status"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("outlook_messages")
+        .select("synced_at")
+        .eq("mailbox", "atlas")
+        .order("synced_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data?.synced_at ?? null;
+    },
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * Pin / unpin a message. `pinned_at` doubles as the flag and the ordering key,
+ * so the most recently pinned message sits at the top of the pinned block.
+ */
+export function useSetMessagePinned() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, pinned }: { id: string; pinned: boolean }) => {
+      const { error } = await supabase
+        .from("outlook_messages")
+        .update({ pinned_at: pinned ? new Date().toISOString() : null })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["outlook_messages"] }),
   });
 }
 

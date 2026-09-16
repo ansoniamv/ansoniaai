@@ -26,6 +26,7 @@ import {
   type StrategyKey,
 } from "@/lib/partnerMatching";
 import type { Deal } from "@/hooks/useDeals";
+import { isInternalPartner } from "@/lib/partnerScope";
 
 export interface DealFit {
   deal: Deal;
@@ -222,6 +223,10 @@ export function rankDealsForPartner(
   notesByDeal: Record<string, { content: string }[]>,
 ): PartnerPipeline {
   const out: PartnerPipeline = { strong: [], moderate: [], weak: [], outside: [], unrated: [] };
+
+  // An internal (Ansonia) record is not an outside capital source: it has no
+  // deal pipeline of its own, so every band stays empty.
+  if (isInternalPartner(partner)) return out;
 
   for (const deal of deals) {
     const notesText = [

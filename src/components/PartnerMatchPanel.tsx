@@ -29,6 +29,7 @@ import { useEngagementsByDeal } from "@/hooks/useCapitalRaiseEngagements";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNotes } from "@/hooks/useNotes";
 import { supabase } from "@/integrations/supabase/client";
+import { isInternalPartner } from "@/lib/partnerScope";
 import type { Deal } from "@/hooks/useDeals";
 import type { Partner } from "@/hooks/usePartners";
 import {
@@ -286,7 +287,13 @@ function MatchRow({
 
 
 export function PartnerMatchPanel({ deal }: { deal: Deal }) {
-  const { data: partners } = usePartners();
+  const { data: allPartners } = usePartners();
+  // An internal (Ansonia) record is never a match candidate for a deal, so it is
+  // dropped before ranking and before the geography filter options are built.
+  const partners = useMemo(
+    () => allPartners?.filter((p) => !isInternalPartner(p)),
+    [allPartners],
+  );
   const { data: engagements } = useEngagementsByDeal(deal.id);
   const { data: dealNotes } = useNotes("deal", deal.id);
   const { data: contactsByPartner } = useAllPartnerContacts();

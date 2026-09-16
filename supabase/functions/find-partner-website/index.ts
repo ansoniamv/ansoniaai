@@ -50,10 +50,17 @@ Deno.serve(async (req) => {
 
     const { data: partner, error: pErr } = await supabase
       .from("partners")
-      .select("id, name, website")
+      .select("id, name, website, is_internal")
       .eq("id", partner_id)
       .single();
     if (pErr || !partner) throw new Error(pErr?.message || "Partner not found");
+    // An internal (Ansonia) record is not an outside firm with a website to find.
+    // Bail before spending a Firecrawl search on it.
+    if (partner.is_internal === true) {
+      return new Response(JSON.stringify({ skipped: "internal_partner" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     if (partner.website) {
       return new Response(JSON.stringify({ skipped: "already_has_website", website: partner.website }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -97,7 +104,9 @@ Deno.serve(async (req) => {
     const { error: uErr } = await supabase
       .from("partners")
       .update({ website: picked })
-      .eq("id", partner_id);
+      .eq("id", partner_id)
+      // Belt-and-braces: the load above already bails on an internal record.
+      .eq("is_internal", false);
     if (uErr) throw uErr;
 
     return new Response(JSON.stringify({ website: picked }), {

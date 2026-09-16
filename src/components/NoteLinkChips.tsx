@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Building2, Users, X, Plus, Check } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/command";
 import { useDeals } from "@/hooks/useDeals";
 import { usePartners } from "@/hooks/usePartners";
+import { isInternalPartner } from "@/lib/partnerScope";
 import { useAddNoteLink, useRemoveNoteLink } from "@/hooks/useNoteLinks";
 import type { NoteLinkLite } from "@/hooks/useNotes";
 import { cn } from "@/lib/utils";
@@ -30,13 +31,22 @@ export interface NoteLinkChipsProps {
 
 export function NoteLinkChips({ noteId, ownerType, ownerId, links, hideEntity }: NoteLinkChipsProps) {
   const { data: deals } = useDeals();
-  const { data: partners } = usePartners();
+  // Two different jobs, two different lists. Resolving the NAME of an already
+  // linked partner must include the internal record — notes on the internal desk
+  // are stored as entity_type 'partner', and without it an existing link renders
+  // as "Deleted partner". OFFERING a partner to link is a different question:
+  // that list stays filtered, so the internal record can never be newly linked.
+  const { data: allPartners } = usePartners({ includeInternal: true });
+  const partners = useMemo(
+    () => (allPartners ?? []).filter((p) => !isInternalPartner(p)),
+    [allPartners],
+  );
   const addLink = useAddNoteLink();
   const removeLink = useRemoveNoteLink();
   const [open, setOpen] = useState(false);
 
   const dealMap = new Map((deals ?? []).map((d) => [d.id, d.property_name ?? "Untitled deal"]));
-  const partnerMap = new Map((partners ?? []).map((p) => [p.id, p.name ?? "Unnamed partner"]));
+  const partnerMap = new Map((allPartners ?? []).map((p) => [p.id, p.name ?? "Unnamed partner"]));
 
   // Build display list: owner + secondary links, deduped, minus hideEntity
   type Chip = {

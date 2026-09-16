@@ -64,7 +64,12 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const partnerFilter: string | undefined = body.partner_id;
 
-    let pQ = supabase.from("partners").select("id,name,relationship_strength,manual_fields");
+    // Warmth measures a relationship with an outside capital source. An internal
+    // (Ansonia) record has none, so it is never scored -- including when a caller
+    // passes its id explicitly.
+    let pQ = supabase.from("partners")
+      .select("id,name,relationship_strength,manual_fields")
+      .eq("is_internal", false);
     if (partnerFilter) pQ = pQ.eq("id", partnerFilter);
     const { data: partners, error: pErr } = await pQ;
     if (pErr) throw pErr;

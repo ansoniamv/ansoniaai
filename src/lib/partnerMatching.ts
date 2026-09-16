@@ -20,6 +20,8 @@
  *    sentence cannot max out the swing.
  */
 
+import { isInternalPartner } from "@/lib/partnerScope";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Structural inputs — intentionally not the app's Deal/Partner types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -53,6 +55,8 @@ export interface MatchablePartner {
   product_types?: string[] | null;
   hold_period?: string[] | null;
   profile_summary?: string | null;
+  /** Internal (Ansonia) records are never match candidates. */
+  is_internal?: boolean | null;
 }
 
 export interface PartnerContactLite {
@@ -787,7 +791,12 @@ export function rankPartnerMatches(
   options: RankOptions = {},
 ): RankedMatches {
   const minScore = options.minScore ?? 0;
-  const scored = partners.map((p) => scorePartnerMatch(deal, p, dealNotesText, dealStrategies));
+  // Internal (Ansonia) records are not outside capital sources, so they are never
+  // match candidates. They are dropped before scoring rather than hard-gated:
+  // `gated` is surfaced with a count in the UI, and an internal partner should be
+  // invisible there too.
+  const candidates = partners.filter((p) => !isInternalPartner(p));
+  const scored = candidates.map((p) => scorePartnerMatch(deal, p, dealNotesText, dealStrategies));
 
   const gated: PartnerMatch[] = [];
   const belowThreshold: PartnerMatch[] = [];

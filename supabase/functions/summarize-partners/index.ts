@@ -180,7 +180,10 @@ Deno.serve(async (req) => {
 
     const sb = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    let query = sb.from("partners").select(PARTNER_FIELDS);
+    // A profile summary describes a firm as an outside capital source. An internal
+    // (Ansonia) record has no investment criteria to summarize, so it is excluded
+    // from the bulk run and from an explicit partner_ids list alike.
+    let query = sb.from("partners").select(PARTNER_FIELDS).eq("is_internal", false);
     if (partnerIds && partnerIds.length > 0) query = query.in("id", partnerIds);
     else query = query.is("archived_at", null);
     const { data: partners, error: pErr } = await query.returns<PartnerRow[]>();
@@ -235,7 +238,10 @@ Deno.serve(async (req) => {
               profile_summary_hash: hash,
               profile_summary_updated_at: new Date().toISOString(),
             })
-            .eq("id", partner.id);
+            .eq("id", partner.id)
+            // Belt-and-braces: the load above already excludes internal records,
+            // so this write can never land on one.
+            .eq("is_internal", false);
           if (uErr) throw uErr;
           processed++;
         } catch (e) {

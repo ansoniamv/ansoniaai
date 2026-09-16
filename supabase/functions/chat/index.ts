@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage } from "../_shared/logUsage.ts";
 import { requireApprovedUser } from "../_shared/auth.ts";
+import { runQueryTable } from "../_shared/chatQueryTable.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -93,31 +94,11 @@ async function runTool(supabase: any, name: string, args: any) {
     return { columns: row && row[0] ? Object.keys(row[0]) : [] };
   }
   if (name === "query_table") {
-    const { table, select = "*", filters = {}, order_by, ascending = false, limit = 25 } = args;
-    if (!ALLOWED_TABLES.includes(table)) return { error: "table not allowed" };
-    let q = supabase.from(table).select(select).limit(Math.min(Number(limit) || 25, 200));
-    for (const [col, val] of Object.entries(filters || {})) {
-      if (val && typeof val === "object" && !Array.isArray(val)) {
-        const v = val as any;
-        if ("ilike" in v) q = q.ilike(col, v.ilike);
-        else if ("eq" in v) q = q.eq(col, v.eq);
-        else if ("neq" in v) q = q.neq(col, v.neq);
-        else if ("gt" in v) q = q.gt(col, v.gt);
-        else if ("gte" in v) q = q.gte(col, v.gte);
-        else if ("lt" in v) q = q.lt(col, v.lt);
-        else if ("lte" in v) q = q.lte(col, v.lte);
-        else if ("in" in v) q = q.in(col, v.in);
-      } else {
-        q = q.eq(col, val);
-      }
-    }
-    if (order_by) q = q.order(order_by, { ascending });
-    const { data, error } = await q;
-    if (error) {
-      console.error("[chat] query_table", error);
-      return { error: "query failed" };
-    }
-    return { rows: data, count: data?.length ?? 0 };
+    // Ansonia's own record lives in `partners` and is not a capital source.
+    // Surfacing it to chat produces answers that describe us as an outside
+    // investor. runQueryTable always filters it out of `partners` reads and
+    // rejects `partners(...)` embeds on other tables. See _shared/chatQueryTable.
+    return await runQueryTable(supabase, args, ALLOWED_TABLES);
   }
   return { error: "unknown tool" };
 }

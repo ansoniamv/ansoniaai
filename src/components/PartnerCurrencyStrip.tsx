@@ -1,6 +1,7 @@
 import { useSearchParams } from "react-router-dom";
 import { usePartnerCurrency, PROFILE_COMPLETENESS_FIELDS } from "@/hooks/usePartners";
 import { countStale, readProvenance, isStale } from "@/lib/fieldProvenance";
+import { isInternalPartner } from "@/lib/partnerScope";
 
 /** Which `?highlight=` token owns a given profile field (see PartnerSummaryCards). */
 const FIELD_TO_HIGHLIGHT: Record<string, string> = {
@@ -34,12 +35,20 @@ function shortDate(iso: string): string {
 export function PartnerCurrencyStrip({
   partnerId,
   enrichedFields,
+  partner,
 }: {
   partnerId: string;
   enrichedFields?: any;
+  /** Passed so the strip can tell an internal record from an outside partner. */
+  partner?: { is_internal?: boolean | null };
 }) {
-  const { data } = usePartnerCurrency(partnerId);
+  // Disables the query for an internal record rather than fetching and discarding.
+  const { data } = usePartnerCurrency(partnerId, { isInternal: isInternalPartner(partner ?? {}) });
   const [, setSearchParams] = useSearchParams();
+  // Last-contact, stale-field and profile-completeness nudges all assume an
+  // outside capital source we are courting. An internal (Ansonia) record has
+  // nobody to reach out to and no criteria to keep current.
+  if (partner && isInternalPartner(partner)) return null;
   if (!data) return null;
 
   const staleCount = enrichedFields ? countStale(enrichedFields, PROFILE_COMPLETENESS_FIELDS) : 0;

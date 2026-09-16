@@ -1583,6 +1583,7 @@ export type Database = {
           message_id: string
           partner_contact_id: string | null
           partner_id: string | null
+          pinned_at: string | null
           preview: string | null
           raw: Json | null
           received_at: string | null
@@ -1613,6 +1614,7 @@ export type Database = {
           message_id: string
           partner_contact_id?: string | null
           partner_id?: string | null
+          pinned_at?: string | null
           preview?: string | null
           raw?: Json | null
           received_at?: string | null
@@ -1643,6 +1645,7 @@ export type Database = {
           message_id?: string
           partner_contact_id?: string | null
           partner_id?: string | null
+          pinned_at?: string | null
           preview?: string | null
           raw?: Json | null
           received_at?: string | null
@@ -2076,6 +2079,7 @@ export type Database = {
           hold_period: string[] | null
           id: string
           investor_type: string[] | null
+          is_internal: boolean
           last_edited_at: string
           manual_fields: string[]
           max_equity_m: number | null
@@ -2117,6 +2121,7 @@ export type Database = {
           hold_period?: string[] | null
           id?: string
           investor_type?: string[] | null
+          is_internal?: boolean
           last_edited_at?: string
           manual_fields?: string[]
           max_equity_m?: number | null
@@ -2158,6 +2163,7 @@ export type Database = {
           hold_period?: string[] | null
           id?: string
           investor_type?: string[] | null
+          is_internal?: boolean
           last_edited_at?: string
           manual_fields?: string[]
           max_equity_m?: number | null

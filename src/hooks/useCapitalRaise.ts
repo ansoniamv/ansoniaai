@@ -38,15 +38,20 @@ export function useCapitalRaiseByDeal(dealId: string | undefined) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("capital_raise_entries")
-        .select("*, partners(name), deals(property_name)")
+        .select("*, partners(name, is_internal), deals(property_name)")
         .eq("deal_id", dealId!)
         .order("created_at");
       if (error) throw error;
-      return data.map((d: any) => ({
-        ...d,
-        partner_name: d.partners?.name,
-        deal_name: d.deals?.property_name,
-      })) as CapitalRaiseEntry[];
+      return data
+        // Ansonia's own record is not an outside capital source, so it can never
+        // be a participant in our own raise. partner_id is NOT NULL on this
+        // table, so this drops exactly the internal-partner rows and nothing else.
+        .filter((d: any) => d.partners?.is_internal !== true)
+        .map((d: any) => ({
+          ...d,
+          partner_name: d.partners?.name,
+          deal_name: d.deals?.property_name,
+        })) as CapitalRaiseEntry[];
     },
   });
 }
@@ -58,15 +63,20 @@ export function useCapitalRaiseByPartner(partnerId: string | undefined) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("capital_raise_entries")
-        .select("*, partners(name), deals(property_name)")
+        .select("*, partners(name, is_internal), deals(property_name)")
         .eq("partner_id", partnerId!)
         .order("created_at");
       if (error) throw error;
-      return data.map((d: any) => ({
-        ...d,
-        partner_name: d.partners?.name,
-        deal_name: d.deals?.property_name,
-      })) as CapitalRaiseEntry[];
+      return data
+        // Ansonia's own record is not an outside capital source, so it can never
+        // be a participant in our own raise. partner_id is NOT NULL on this
+        // table, so this drops exactly the internal-partner rows and nothing else.
+        .filter((d: any) => d.partners?.is_internal !== true)
+        .map((d: any) => ({
+          ...d,
+          partner_name: d.partners?.name,
+          deal_name: d.deals?.property_name,
+        })) as CapitalRaiseEntry[];
     },
   });
 }
@@ -77,14 +87,19 @@ export function useAllCapitalRaise() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("capital_raise_entries")
-        .select("*, partners(name), deals(property_name)")
+        .select("*, partners(name, is_internal), deals(property_name)")
         .order("created_at");
       if (error) throw error;
-      return data.map((d: any) => ({
-        ...d,
-        partner_name: d.partners?.name,
-        deal_name: d.deals?.property_name,
-      })) as CapitalRaiseEntry[];
+      return data
+        // Ansonia's own record is not an outside capital source, so it can never
+        // be a participant in our own raise. partner_id is NOT NULL on this
+        // table, so this drops exactly the internal-partner rows and nothing else.
+        .filter((d: any) => d.partners?.is_internal !== true)
+        .map((d: any) => ({
+          ...d,
+          partner_name: d.partners?.name,
+          deal_name: d.deals?.property_name,
+        })) as CapitalRaiseEntry[];
     },
   });
 }

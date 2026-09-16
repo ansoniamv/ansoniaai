@@ -26,6 +26,7 @@ export type Partner = {
   organized_notes: string | null;
   data_source: string | null;
   status: string | null;
+  is_internal: boolean;
   manual_fields: string[];
   enriched_fields: Record<string, any> | null;
   profile_summary: string | null;
@@ -83,11 +84,22 @@ export type PartnerCurrency = {
   fieldsTotal: number;
 };
 
-/** All four profile-currency figures in one round trip. */
-export function usePartnerCurrency(partnerId: string | undefined) {
+/**
+ * All four profile-currency figures in one round trip.
+ *
+ * `isInternal` disables the query outright rather than letting it run and
+ * having the caller discard the result: an internal (Ansonia) record has no
+ * outreach cadence and no investment criteria to keep current, so the four
+ * round trips are pure waste.
+ */
+export function usePartnerCurrency(
+  partnerId: string | undefined,
+  options?: { isInternal?: boolean },
+) {
+  const isInternal = !!options?.isInternal;
   return useQuery({
     queryKey: ["partner_currency", partnerId],
-    enabled: !!partnerId,
+    enabled: !!partnerId && !isInternal,
     queryFn: async (): Promise<PartnerCurrency> => {
       const [partnerRes, interRes, mailRes, sugRes] = await Promise.all([
         (supabase as any).from("partners")
@@ -131,13 +143,23 @@ export function usePartnerCurrency(partnerId: string | undefined) {
   });
 }
 
-export function usePartners(options?: { includeArchived?: boolean }) {
+/**
+ * The capital-partner list.
+ *
+ * Excludes internal (Ansonia) records by default — safe by default, so a new
+ * consumer that forgets to filter cannot show us as an outside capital source.
+ * Pass `includeInternal: true` only where the internal record is genuinely part
+ * of the answer. `includeArchived` is independent of it; the two compose.
+ */
+export function usePartners(options?: { includeArchived?: boolean; includeInternal?: boolean }) {
   const includeArchived = !!options?.includeArchived;
+  const includeInternal = !!options?.includeInternal;
   return useQuery({
-    queryKey: ["partners", { includeArchived }],
+    queryKey: ["partners", { includeArchived, includeInternal }],
     queryFn: async () => {
       let query = supabase.from("partners").select("*").order("name", { ascending: true });
       if (!includeArchived) query = query.is("archived_at", null);
+      if (!includeInternal) query = query.eq("is_internal", false);
       const { data, error } = await query;
       if (error) throw error;
       return data as Partner[];
@@ -158,6 +180,34 @@ export function usePartner(id: string | undefined) {
       if (error) throw error;
       return data as Partner;
     },
+  });
+}
+
+/**
+ * The internal (Ansonia) partner record, if there is one.
+ *
+ * Resolved at runtime rather than hardcoded: the row is created by the
+ * `is_internal` backfill migration, so its UUID differs per environment.
+ * Returns null when no internal record exists, which is how the sidebar entry
+ * hides itself. Archived records are excluded, matching every other surface.
+ */
+export function useInternalPartner() {
+  return useQuery({
+    queryKey: ["partners", "internal"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("partners")
+        .select("id, name")
+        .eq("is_internal", true)
+        .is("archived_at", null)
+        // Deterministic pick if more than one record is ever flagged internal.
+        .order("name", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data ?? null;
+    },
+    staleTime: 5 * 60_000,
   });
 }
 

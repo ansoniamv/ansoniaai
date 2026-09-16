@@ -64,9 +64,12 @@ const CHECKS: Record<CheckKey, (min: number) => Promise<CheckResult>> = {
     return { passed: n > 0, detail: `Auto-completed: inbox sync active (${n} emails in last 24h)` };
   },
   partners_exist: async () => {
+    // Counts outside capital sources only -- an internal (Ansonia) record does not
+    // prove the partner list has been populated.
     const { count } = await supabase
       .from("partners")
-      .select("*", { count: "exact", head: true });
+      .select("*", { count: "exact", head: true })
+      .eq("is_internal", false);
     const n = count ?? 0;
     return { passed: n > 0, detail: `Auto-completed: ${n} capital partners on file` };
   },
