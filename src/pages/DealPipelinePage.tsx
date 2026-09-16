@@ -233,19 +233,17 @@ export default function DealPipelinePage() {
     const visible: InboxDeal[] = [];
     const lowerFit: InboxDeal[] = [];
     const filteredOut: InboxDeal[] = [];
-    let received = 0, passed = 0, review = 0, filteredCount = 0, lowerFitCount = 0;
+    // Tier chips hide cards from the board but must not vanish from the counts,
+    // so they are tracked separately rather than dropped mid-loop.
+    let tierHidden = 0;
+
+    // ONE pass, ONE predicate. Previously `received` was incremented before
+    // passesCommonFilters while `visible` was built after it, so the header
+    // mixed a pre-filter total with a post-filter one and the four numbers could
+    // not reconcile whenever a state/MSA/reviewed filter was active.
     for (const d of deals ?? []) {
-      if (!d.denied && !d.accepted_deal_id) {
-        received++;
-        if (d.gate_status === "passed") passed++;
-        else if (d.gate_status === "review") review++;
-        else if (d.gate_status === "filtered") filteredCount++;
-        if (d.fit_tier != null) {
-          const t = tierKey(d.fit_tier);
-          if (t === "maybe" || t === "skip") lowerFitCount++;
-        }
-      }
       if (!passesCommonFilters(d)) continue;
+
       if (d.gate_status === "filtered") {
         filteredOut.push(d);
         continue;
@@ -256,15 +254,27 @@ export default function DealPipelinePage() {
           lowerFit.push(d);
           continue;
         }
-        if (!tierFilter[t]) continue;
+        if (!tierFilter[t]) {
+          tierHidden++;
+          continue;
+        }
       }
       visible.push(d);
     }
+
+    // received is the sum of the buckets by construction, so
+    // received = strong/medium + lower fit + filtered always holds.
+    const strongMedium = visible.length + tierHidden;
     return {
       visible,
       lowerFit,
       filteredOut,
-      funnel: { received, passed, review, filtered: filteredCount, lowerFit: lowerFitCount },
+      funnel: {
+        received: strongMedium + lowerFit.length + filteredOut.length,
+        strongMedium,
+        lowerFit: lowerFit.length,
+        filtered: filteredOut.length,
+      },
     };
   }, [deals, tierFilter, stateFilter, msaFilter, showReviewed]);
 
@@ -272,17 +282,18 @@ export default function DealPipelinePage() {
   // Group by day for both buckets
   const grouped = useMemo(() => {
     const visMap = new Map<string, InboxDeal[]>();
+    const lowMap = new Map<string, InboxDeal[]>();
     const filtMap = new Map<string, InboxDeal[]>();
-    for (const d of visible) {
+    const push = (m: Map<string, InboxDeal[]>, d: InboxDeal) => {
       const k = dayKey(d.email_received_at);
-      if (!visMap.has(k)) visMap.set(k, []);
-      visMap.get(k)!.push(d);
-    }
-    for (const d of filteredOut) {
-      const k = dayKey(d.email_received_at);
-      if (!filtMap.has(k)) filtMap.set(k, []);
-      filtMap.get(k)!.push(d);
-    }
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(d);
+    };
+    for (const d of visible) push(visMap, d);
+    // lowerFit was previously not grouped by day at all, so a day's "N total"
+    // silently omitted every maybe/skip deal — 24 rows on Sep 15 rendering as 15.
+    for (const d of lowerFit) push(lowMap, d);
+    for (const d of filteredOut) push(filtMap, d);
     for (const arr of visMap.values()) {
       arr.sort((a, b) => {
         const ta = TIER_ORDER[tierKey(a.fit_tier)];
@@ -291,7 +302,7 @@ export default function DealPipelinePage() {
         return (b.fit_score ?? -1) - (a.fit_score ?? -1);
       });
     }
-    const allKeys = new Set<string>([...visMap.keys(), ...filtMap.keys()]);
+    const allKeys = new Set<string>([...visMap.keys(), ...lowMap.keys(), ...filtMap.keys()]);
     const keys = Array.from(allKeys).sort((a, b) => {
       if (a === "undated") return 1;
       if (b === "undated") return -1;
@@ -300,9 +311,10 @@ export default function DealPipelinePage() {
     return keys.map((k) => ({
       key: k,
       deals: visMap.get(k) ?? [],
+      lowerFit: lowMap.get(k) ?? [],
       filtered: filtMap.get(k) ?? [],
     }));
-  }, [visible, filteredOut]);
+  }, [visible, lowerFit, filteredOut]);
 
   // ---- Pagination: render 100 deal cards at a time, scroll-to-load ----
   const PAGE_SIZE = 100;
@@ -501,7 +513,7 @@ export default function DealPipelinePage() {
           <div>
             <h1 className="font-display text-2xl font-semibold text-foreground">Deal Inbox</h1>
             <p className="text-xs text-muted-foreground mt-1 uppercase tracking-[0.12em] font-medium tabular-nums">
-              {funnel.received} received · {visible.length} strong/medium · {funnel.lowerFit} lower fit · {funnel.filtered} filtered
+              {funnel.received} received · {funnel.strongMedium} strong/medium · {funnel.lowerFit} lower fit · {funnel.filtered} filtered
             </p>
             <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">
               {visible.length} visible · {grouped.length} day{grouped.length === 1 ? "" : "s"}
@@ -593,7 +605,7 @@ export default function DealPipelinePage() {
             <Inbox className="h-8 w-8 mx-auto text-muted-foreground mb-3" strokeWidth={1.5} />
             <p className="text-sm text-muted-foreground">No deals match your filters.</p>
           </div>
-        ) : pagedGroups.map(({ key, deals, filtered }) => {
+        ) : pagedGroups.map(({ key, deals, lowerFit: dayLowerFit, filtered }) => {
           const counts = tierCounts(deals);
           const open = isDayOpen(key);
           return (
@@ -613,8 +625,13 @@ export default function DealPipelinePage() {
                         <span className="tabular-nums font-semibold">{counts[t]}</span> {TIER_LABEL[t]}
                       </span>
                     ))}
+                    {/* Every bucket for this day, so the per-day total matches
+                        what actually arrived rather than only the board cards. */}
                     <span className="text-xs text-muted-foreground tabular-nums ml-1">
-                      {deals.length} total
+                      {deals.length + dayLowerFit.length + filtered.length} total
+                      {dayLowerFit.length > 0 && (
+                        <span className="text-muted-foreground/70"> · {dayLowerFit.length} lower fit</span>
+                      )}
                     </span>
                     <Tooltip>
                       <TooltipTrigger asChild>
