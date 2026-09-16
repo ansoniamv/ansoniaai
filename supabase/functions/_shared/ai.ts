@@ -13,6 +13,13 @@ const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 const USE_ANTHROPIC = Deno.env.get("USE_ANTHROPIC") !== "0";
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const FALLBACK_MODEL = Deno.env.get("FALLBACK_MODEL") ?? "google/gemini-2.5-flash";
+/**
+ * The Lovable gateway is dead, so the fallback cannot succeed — all it does is
+ * replace a diagnosable Anthropic error (status + body) with a misleading
+ * gateway one, which is how the real failure stayed invisible for a week.
+ * OFF unless explicitly enabled.
+ */
+const ALLOW_GATEWAY_FALLBACK = Deno.env.get("ALLOW_GATEWAY_FALLBACK") === "1";
 
 export interface CompleteOptions {
   system?: string;
@@ -90,7 +97,7 @@ export async function completeText(prompt: string, opts: CompleteOptions = {}): 
       return { text: res.text, model: res.model, provider: "anthropic", usage: res.usage };
     } catch (e: any) {
       if (e instanceof AnthropicRefusalError) throw e;
-      if (!allowFallback || !LOVABLE_API_KEY) throw e;
+      if (!ALLOW_GATEWAY_FALLBACK || !allowFallback || !LOVABLE_API_KEY) throw e;
       const reason = String(e?.message ?? e);
       console.warn("Claude failed, falling back to gateway:", reason);
       const res = await callGateway(prompt, opts);
@@ -136,7 +143,7 @@ export async function completeVision(
       return { text: res.text, model: res.model, provider: "anthropic", usage: res.usage };
     } catch (e: any) {
       if (e instanceof AnthropicRefusalError) throw e;
-      if (!allowFallback || !LOVABLE_API_KEY) throw e;
+      if (!ALLOW_GATEWAY_FALLBACK || !allowFallback || !LOVABLE_API_KEY) throw e;
       console.warn("Claude vision failed, falling back to gateway:", String(e?.message ?? e));
     }
   }

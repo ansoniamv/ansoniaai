@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { completeText, completeVision } from "../_shared/ai.ts";
-import { logAiUsage } from "../_shared/logUsage.ts";
+import { logAiUsage, logAiFailure } from "../_shared/logUsage.ts";
 import { requireUserOrService } from "../_shared/auth.ts";
 // The extractable-field contract, the write-boundary guards and the
 // deterministic fallbacks live in _shared/dealFields so they can be unit tested
@@ -47,9 +47,23 @@ async function callLLM(
   maxTokens = 400,
   ctx?: { supabase: any; deal_id?: string | null },
 ): Promise<string> {
-  // Routing and retries live in _shared/ai.ts — Claude Opus 5 primary, gateway fallback.
-  // Floor the budget: Opus 5 thinking tokens share max_tokens.
-  const res = await completeText(prompt, { maxTokens: Math.max(maxTokens, 8000) });
+  // Routing and retries live in _shared/ai.ts. Floor the budget: Opus 5 thinking
+  // tokens share max_tokens.
+  let res;
+  try {
+    res = await completeText(prompt, { maxTokens: Math.max(maxTokens, 8000) });
+  } catch (e) {
+    // A failed model call now leaves a row with the provider's HTTP status, so
+    // the failure is visible from SQL instead of only in the function logs.
+    if (ctx?.supabase) {
+      await logAiFailure(ctx.supabase, {
+        function_name: "summarize-emails",
+        error: e,
+        deal_id: ctx.deal_id ?? null,
+      });
+    }
+    throw e;
+  }
   if (ctx?.supabase) {
     await logAiUsage(ctx.supabase, {
       function_name: "summarize-emails",

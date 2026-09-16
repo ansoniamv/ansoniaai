@@ -110,6 +110,8 @@ export async function logAiUsage(
       cached_tokens,
       cost_usd,
       success: args.success !== false,
+      http_status: (args as any).http_status ?? null,
+      error_text: (args as any).error_text ? String((args as any).error_text).slice(0, 2000) : null,
       deal_id: args.deal_id ?? null,
       partner_id: args.partner_id ?? null,
     });
@@ -178,5 +180,46 @@ export async function logApiRequest(
     });
   } catch (e) {
     console.error("[logApiRequest] failed:", (e as Error)?.message);
+  }
+}
+
+/**
+ * Record a FAILED model call.
+ *
+ * logAiUsage only ever ran after a successful completeText return, so a failed
+ * call left no row at all — which made "nothing was invoked" and "everything
+ * failed" indistinguishable from SQL, and cost three rounds of guessing. Every
+ * LLM catch site should call this. Never throws: an observability failure must
+ * not become a second outage.
+ */
+export async function logAiFailure(
+  supabase: SupabaseLike,
+  args: {
+    function_name: string;
+    model?: string | null;
+    provider?: string | null;
+    error: unknown;
+    deal_id?: string | null;
+    partner_id?: string | null;
+  },
+): Promise<void> {
+  try {
+    const e = args.error as { status?: number; body?: string; message?: string } | undefined;
+    await supabase.from("ai_usage_log").insert({
+      function_name: args.function_name,
+      model: args.model ?? null,
+      provider: args.provider ?? "anthropic",
+      input_tokens: 0,
+      output_tokens: 0,
+      cached_tokens: 0,
+      cost_usd: 0,
+      success: false,
+      http_status: typeof e?.status === "number" ? e.status : null,
+      error_text: String(e?.body ?? e?.message ?? args.error).slice(0, 2000),
+      deal_id: args.deal_id ?? null,
+      partner_id: args.partner_id ?? null,
+    });
+  } catch (err) {
+    console.error("[logAiFailure] failed:", (err as Error)?.message);
   }
 }

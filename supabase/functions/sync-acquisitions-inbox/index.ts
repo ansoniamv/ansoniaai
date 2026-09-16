@@ -319,18 +319,36 @@ Deno.serve(async (req) => {
     // batch never reaches this caller. Watch ai_usage_log and the function logs,
     // not this function's response. Batch size is owned by summarize-emails
     // (SUMMARIZE_BATCH_SIZE), so no limit is passed here.
+    // Awaited, not fire-and-forget. The old form sent the only report of a
+    // failed summarisation to console.error, where it reached neither this
+    // caller nor the database — one of three independent mechanisms that made
+    // the pipeline's most important failure unobservable.
+    let summarizeError: string | null = null;
     if (touchedDealIds.size > 0) {
-      supabase.functions
-        .invoke("summarize-emails", { body: {} })
-        .then(({ error }) => {
-          if (error) console.error("summarize-emails invoke returned error", error);
-        })
-        .catch((e) => console.error("summarize-emails invoke threw", e));
+      try {
+        const { error } = await supabase.functions.invoke("summarize-emails", { body: {} });
+        if (error) summarizeError = error.message ?? String(error);
+      } catch (e) {
+        summarizeError = e instanceof Error ? e.message : String(e);
+      }
+      if (summarizeError) {
+        console.error("summarize-emails invoke failed", summarizeError);
+        // Persisted on the touched rows so it is visible from SQL and in the UI,
+        // not just in the function logs.
+        await supabase
+          .from("inbox_deals")
+          .update({
+            summary_error: `summarize-emails invoke failed: ${summarizeError}`.slice(0, 2000),
+            summary_attempted_at: new Date().toISOString(),
+          })
+          .in("id", Array.from(touchedDealIds));
+      }
     }
 
     return new Response(
       JSON.stringify({
         ok: true,
+        summarize_error: summarizeError,
         scanned: messages.length,
         skipped,
         createdDeals,

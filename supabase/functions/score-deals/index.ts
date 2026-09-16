@@ -3,7 +3,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { completeText } from "../_shared/ai.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { logAiUsage } from "../_shared/logUsage.ts";
+import { logAiUsage, logAiFailure } from "../_shared/logUsage.ts";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 import { computeDealScore } from "../_shared/dealScoreEngine.ts";
 
@@ -78,6 +78,13 @@ async function generateRationale(
     // renders as nothing at all on the card, so the failure was invisible.
     const message = e instanceof Error ? e.message : String(e);
     console.error("Rationale model call failed", message);
+    if (ctx?.supabase) {
+      await logAiFailure(ctx.supabase, {
+        function_name: "score-deals",
+        error: e,
+        deal_id: deal?.id ?? null,
+      });
+    }
     return { text: null, error: message };
   }
 }

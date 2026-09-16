@@ -20,6 +20,21 @@ export class AnthropicNotConfiguredError extends Error {
   }
 }
 
+/**
+ * A non-2xx from Anthropic, carrying the status and verbatim body.
+ *
+ * The status is the single fact that separates "no credit" (400 with a
+ * credit-balance body) from "bad key" (401) from "bad model id" (404/400) —
+ * previously it existed only inside a message string, and the gateway fallback
+ * usually replaced that string before anyone saw it.
+ */
+export class AnthropicHttpError extends Error {
+  constructor(readonly status: number, readonly body: string, message: string) {
+    super(message);
+    this.name = "AnthropicHttpError";
+  }
+}
+
 export class AnthropicRefusalError extends Error {
   category: string | null;
   constructor(category: string | null, explanation?: string) {
@@ -105,6 +120,7 @@ export async function callClaudeRaw(req: ClaudeRequest): Promise<ClaudeResponse>
   }
 
   let lastErr: unknown = null;
+  let lastHttp: { status: number; body: string } | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const controller = new AbortController();
@@ -147,14 +163,18 @@ export async function callClaudeRaw(req: ClaudeRequest): Promise<ClaudeResponse>
 
     const txt = await resp.text();
     const msg = `anthropic ${resp.status}: ${txt.slice(0, 400)}`;
+    // Status and verbatim body travel ON the error, not just inside its message,
+    // so callers can log them as structured columns instead of regexing prose.
+    lastHttp = { status: resp.status, body: txt.slice(0, 2000) };
     const retriable = resp.status === 429 || resp.status === 529 || (resp.status >= 500 && resp.status < 600);
-    if (!retriable || attempt === maxRetries) throw new Error(msg);
+    if (!retriable || attempt === maxRetries) throw new AnthropicHttpError(resp.status, txt.slice(0, 2000), msg);
     lastErr = new Error(msg);
     const retryAfter = Number(resp.headers.get("retry-after"));
     const delay = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 2 ** attempt * 1000;
     await new Promise((r) => setTimeout(r, delay));
   }
 
+  if (lastHttp) throw new AnthropicHttpError(lastHttp.status, lastHttp.body, `anthropic ${lastHttp.status}: ${lastHttp.body.slice(0, 400)}`);
   throw lastErr ?? new Error("anthropic call failed");
 }
 
