@@ -14,9 +14,9 @@
 INSERT INTO public.ai_model_pricing
   (model, provider, input_per_mtok, output_per_mtok, cached_input_per_mtok, currency, notes)
 VALUES
-  ('claude-opus-5',   'anthropic', 5.00, 25.00, 0.50,
+  ('claude-opus-5',   'anthropic', 5.00, 25.00, 0.50, 'USD',
    'List price. cached_input assumes the standard 10% cache-read rate — confirm against Anthropic pricing.'),
-  ('claude-sonnet-5', 'anthropic', 2.00, 10.00, 0.20,
+  ('claude-sonnet-5', 'anthropic', 2.00, 10.00, 0.20, 'USD',
    'List price. cached_input assumes the standard 10% cache-read rate — confirm against Anthropic pricing.')
 ON CONFLICT (model) DO UPDATE SET
   provider              = EXCLUDED.provider,
