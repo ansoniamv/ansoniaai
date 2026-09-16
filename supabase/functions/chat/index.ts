@@ -10,13 +10,14 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-// Anthropic (Claude Opus 5) is the primary model for all AI calls.
-// Set USE_ANTHROPIC=0 to fall back to the Lovable gateway (e.g. during an outage).
-const USE_ANTHROPIC = Deno.env.get("USE_ANTHROPIC") !== "0";
+
+// Atlas runs natively on the Anthropic API. There is exactly one provider.
+// `claude-sonnet-5` is the only other model we intend to run; select it by
+// changing the ANTHROPIC_MODEL secret, not by changing this code.
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const ANTHROPIC_MODEL = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-opus-5";
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-const FALLBACK_MODEL = Deno.env.get("FALLBACK_MODEL") ?? "google/gemini-3-flash-preview";
+const ANTHROPIC_EFFORT = Deno.env.get("ANTHROPIC_EFFORT") ?? "medium";
+const MAX_TOOL_STEPS = 8;
 
 const ALLOWED_TABLES = [
   "deals", "deal_enrichment", "partners", "partner_contacts", "partner_interactions",
@@ -182,130 +183,134 @@ function toAnthropicMessages(incoming: any[]) {
     .map((m) => ({ role: m.role, content: m.content }));
 }
 
-async function runAnthropic(supabase: any, serviceClient: any, initialMessages: any[]): Promise<{ text: string }> {
-  const messages = [...initialMessages];
-  for (let step = 0; step < 8; step++) {
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY!,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
-        // Thinking is on by default on Opus 5 and shares this budget, so keep it
-        // generous — a small ceiling can be consumed entirely by thinking.
-        max_tokens: 16000,
-        system: systemPrompt,
-        tools,
-        messages,
-      }),
-    });
-    if (!resp.ok) {
-      const txt = await resp.text();
-      throw new Error(`anthropic ${resp.status}: ${txt.slice(0, 300)}`);
-    }
-    const data = await resp.json();
-    if (data.stop_reason === "refusal") {
-      throw new Error(`anthropic refusal: ${data?.stop_details?.category ?? "unspecified"}`);
-    }
-    const content = data.content ?? [];
-    await logAiUsage(serviceClient, { function_name: "chat", model: ANTHROPIC_MODEL, provider: "anthropic", usage: data?.usage });
-    messages.push({ role: "assistant", content });
-
-    if (data.stop_reason === "tool_use") {
-      const toolResults: any[] = [];
-      for (const block of content) {
-        if (block.type === "tool_use") {
-          const result = await runTool(supabase, block.name, block.input ?? {});
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: block.id,
-            content: JSON.stringify(result).slice(0, 20000),
-          });
-        }
-      }
-      messages.push({ role: "user", content: toolResults });
-      continue;
-    }
-    const text = content
-      .filter((b: any) => b.type === "text")
-      .map((b: any) => b.text)
-      .join("\n");
-    return { text };
+/** Every failure reaches the client as {error:{code,message}} with a usable status. */
+class AtlasError extends Error {
+  constructor(readonly status: number, readonly code: string, message: string) {
+    super(message);
   }
-  return { text: "(no response — max tool steps reached)" };
 }
 
-// OpenAI-compatible tool schema for the Lovable AI Gateway
-const openaiTools = tools.map((t) => ({
-  type: "function",
-  function: { name: t.name, description: t.description, parameters: t.input_schema },
-}));
+const trunc = (s: string) => s.slice(0, 300);
 
-async function runGemini(supabase: any, serviceClient: any, incoming: any[]): Promise<{ text: string }> {
-  const convo: any[] = [
-    { role: "system", content: systemPrompt },
-    ...incoming.map((m: any) => ({ role: m.role, content: m.content })),
-  ];
-  for (let step = 0; step < 8; step++) {
-    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Lovable-API-Key": LOVABLE_API_KEY!,
-        "X-Lovable-AIG-SDK": "vercel-ai-sdk",
-      },
-      body: JSON.stringify({ model: FALLBACK_MODEL, messages: convo, tools: openaiTools }),
-    });
-    if (!resp.ok) {
-      const txt = await resp.text();
-      throw new Error(`gemini ${resp.status}: ${txt.slice(0, 300)}`);
-    }
-    const data = await resp.json();
-    await logAiUsage(serviceClient, { function_name: "chat", model: FALLBACK_MODEL, provider: "lovable-gateway", usage: data?.usage });
-    const msg = data.choices?.[0]?.message;
-    if (!msg) return { text: "" };
-    convo.push(msg);
-    const calls = msg.tool_calls;
-    if (calls && calls.length > 0) {
-      for (const call of calls) {
-        let args: any = {};
-        try { args = JSON.parse(call.function.arguments || "{}"); } catch {}
-        const result = await runTool(supabase, call.function.name, args);
-        convo.push({
-          role: "tool",
-          tool_call_id: call.id,
-          content: JSON.stringify(result).slice(0, 20000),
-        });
-      }
-      continue;
-    }
-    return { text: msg.content || "" };
+/** Anthropic errors are {error:{type,message}}; fall back to the raw body. */
+function upstreamMessage(body: string): string {
+  try {
+    const parsed = JSON.parse(body);
+    return parsed?.error?.message ?? body;
+  } catch {
+    return body;
   }
-  return { text: "(no response — max tool steps reached)" };
 }
 
+function errorResponse(status: number, code: string, message: string) {
+  return new Response(JSON.stringify({ error: { code, message } }), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+/** Maps an Anthropic HTTP failure onto our error contract. */
+function anthropicError(status: number, body: string): AtlasError {
+  console.error(`[chat] anthropic ${status}: ${body}`);
+  if (status === 401 || status === 403) {
+    return new AtlasError(
+      502,
+      "auth_failed",
+      "Atlas could not authenticate with Anthropic. The API key is invalid or revoked.",
+    );
+  }
+  if (status === 429) {
+    return new AtlasError(429, "rate_limited", "Atlas is rate limited right now. Try again in a moment.");
+  }
+  if (status === 400) return new AtlasError(502, "bad_request", trunc(upstreamMessage(body)));
+  return new AtlasError(502, "upstream_error", trunc(upstreamMessage(body)));
+}
+
+/**
+ * The request body is identical for tool rounds and the final streamed turn —
+ * only `stream` differs. Keeping it in one place means the cached system prefix
+ * is byte-identical across both, so the final turn still hits the prompt cache.
+ */
+function requestBody(messages: any[], stream: boolean) {
+  return JSON.stringify({
+    model: ANTHROPIC_MODEL,
+    // Streaming removes the HTTP-timeout ceiling that forced a small cap.
+    max_tokens: 32000,
+    system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+    tools,
+    messages,
+    thinking: { type: "adaptive" },
+    output_config: { effort: ANTHROPIC_EFFORT },
+    fallbacks: "default",
+    ...(stream ? { stream: true } : {}),
+  });
+}
+
+const anthropicHeaders = {
+  "content-type": "application/json",
+  "x-api-key": ANTHROPIC_API_KEY!,
+  "anthropic-version": "2023-06-01",
+  "anthropic-beta": "server-side-fallback-2026-07-01",
+};
+
+async function callAnthropic(messages: any[], stream: boolean): Promise<Response> {
+  let resp: Response;
+  try {
+    resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: anthropicHeaders,
+      body: requestBody(messages, stream),
+    });
+  } catch (e: any) {
+    console.error("[chat] anthropic network error", e);
+    throw new AtlasError(502, "upstream_error", trunc(String(e?.message ?? e)));
+  }
+  if (!resp.ok) throw anthropicError(resp.status, await resp.text());
+  return resp;
+}
+
+/** Human-readable status for the tool the model just asked for. */
+function statusEvent(name: string, input: any) {
+  if (name === "query_table") return { type: "status", tool: name, table: input?.table ?? null };
+  if (name === "describe_table") return { type: "status", tool: name, table: input?.table ?? null };
+  return { type: "status", tool: name, table: null };
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  // Everything before the stream opens can still fail as plain JSON, which is
+  // what the client's non-OK path reads.
+  let auth: any;
+  let thread_id: string;
+  let incoming: any[];
+  let supabase: any;
+  let supabaseUser: any;
+
   try {
-    const auth = await requireApprovedUser(req);
+    auth = await requireApprovedUser(req);
     if (!auth.ok) return auth.response;
 
-    const { thread_id, messages: incoming } = await req.json();
+    const body = await req.json();
+    thread_id = body?.thread_id;
+    incoming = body?.messages;
     if (!thread_id || !Array.isArray(incoming)) {
-      return new Response(JSON.stringify({ error: "thread_id and messages required" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return errorResponse(400, "bad_request", "thread_id and messages are required.");
+    }
+
+    if (!ANTHROPIC_API_KEY) {
+      console.error("[chat] ANTHROPIC_API_KEY is not set");
+      return errorResponse(
+        503,
+        "no_api_key",
+        "Atlas is not configured — ANTHROPIC_API_KEY is not set on this project.",
+      );
     }
 
     // Service client used only for logging chat_messages/threads (still owned by app, not user).
-    const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+    supabase = createClient(SUPABASE_URL, SERVICE_KEY);
     // User-scoped client — tool queries execute under the caller's RLS.
-    const supabaseUser = auth.userClient;
+    supabaseUser = auth.userClient;
 
     // The bookkeeping writes below use the service client, which bypasses RLS, so
     // thread ownership has to be proven here. Without this an approved user can
@@ -315,79 +320,166 @@ Deno.serve(async (req) => {
       .select("id")
       .eq("id", thread_id)
       .maybeSingle();
-    if (!ownedThread) {
-      return new Response(JSON.stringify({ error: "Thread not found" }), {
-        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const lastUser = [...incoming].reverse().find((m: any) => m.role === "user");
-    if (lastUser) {
-      await supabase.from("chat_messages").insert({
-        thread_id, role: "user", message: lastUser,
-      });
-    }
-
-    let finalText = "";
-    let providerUsed: "anthropic" | "gemini" | "none" = "none";
-    let fallbackReason: string | null = null;
-
-    // ---- Try Anthropic first (only if explicitly enabled) ----
-    if (USE_ANTHROPIC && ANTHROPIC_API_KEY) {
-      try {
-        const result = await runAnthropic(supabaseUser, supabase, toAnthropicMessages(incoming));
-        finalText = result.text;
-        providerUsed = "anthropic";
-      } catch (e: any) {
-        fallbackReason = e?.message ?? "anthropic failed";
-        console.warn("Anthropic failed, falling back to Lovable AI Gateway:", fallbackReason);
-      }
-    }
-
-    // ---- Lovable AI Gateway (Gemini) — default path ----
-    if (providerUsed === "none") {
-      if (!LOVABLE_API_KEY) {
-        return new Response(
-          JSON.stringify({ error: `Primary model failed (${fallbackReason}) and no fallback model is configured.` }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-      try {
-        const result = await runGemini(supabaseUser, supabase, incoming);
-        finalText = result.text;
-        providerUsed = "gemini";
-      } catch (e: any) {
-        return new Response(
-          JSON.stringify({ error: `All models failed. Primary: ${fallbackReason}. Fallback: ${e?.message ?? e}` }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-    }
-
-    // Note which model produced the answer when we had to fall back
-    // (fallback-notice footer removed — Lovable AI is the default path)
-
-
-
-
-    const assistantMsg = { role: "assistant", content: finalText };
-    await supabase.from("chat_messages").insert({
-      thread_id, role: "assistant", message: assistantMsg,
-    });
-    await supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", thread_id);
-
-    const { data: thread } = await supabase.from("chat_threads").select("title").eq("id", thread_id).maybeSingle();
-    if (thread?.title === "New conversation" && lastUser?.content) {
-      const title = String(lastUser.content).slice(0, 60).replace(/\n/g, " ");
-      await supabase.from("chat_threads").update({ title }).eq("id", thread_id);
-    }
-
-    return new Response(JSON.stringify({ message: assistantMsg }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    if (!ownedThread) return errorResponse(404, "not_found", "Thread not found.");
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: e.message }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.error("[chat] pre-stream failure", e);
+    if (e instanceof AtlasError) return errorResponse(e.status, e.code, e.message);
+    return errorResponse(500, "internal_error", String(e?.message ?? e));
   }
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const emit = (obj: unknown) =>
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+
+      let fullText = "";
+      try {
+        const messages = [...toAnthropicMessages(incoming)];
+
+        // ---- Tool rounds: non-streaming, because a tool_use block has to be
+        // complete before the query can run. ----
+        let finalTurn: any = null;
+        for (let step = 0; step < MAX_TOOL_STEPS; step++) {
+          const resp = await callAnthropic(messages, false);
+          const data = await resp.json();
+          await logAiUsage(supabase, {
+            function_name: "chat",
+            model: ANTHROPIC_MODEL,
+            provider: "anthropic",
+            usage: data?.usage,
+          });
+
+          // stop_details is populated ONLY for a refusal and is null otherwise.
+          if (data.stop_reason === "refusal") {
+            const text = data.stop_details?.explanation ?? "Atlas declined to answer that request.";
+            emit({ type: "delta", text });
+            fullText = text;
+            finalTurn = "refusal";
+            break;
+          }
+
+          if (data.stop_reason !== "tool_use") {
+            // This turn is the prose answer. Discard it and re-issue the SAME
+            // request with stream:true so the user sees tokens as they arrive.
+            finalTurn = "stream";
+            break;
+          }
+
+          const content = data.content ?? [];
+          messages.push({ role: "assistant", content });
+
+          const toolResults: any[] = [];
+          for (const block of content) {
+            if (block.type === "tool_use") {
+              emit(statusEvent(block.name, block.input ?? {}));
+              const result = await runTool(supabaseUser, block.name, block.input ?? {});
+              toolResults.push({
+                type: "tool_result",
+                tool_use_id: block.id,
+                content: JSON.stringify(result).slice(0, 20000),
+              });
+            }
+          }
+          // All results in ONE user message — splitting them trains the model
+          // out of parallel calls.
+          messages.push({ role: "user", content: toolResults });
+        }
+
+        let usage: any = null;
+
+        if (finalTurn === "stream") {
+          const resp = await callAnthropic(messages, true);
+          const reader = resp.body!.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          // Anthropic's SSE: accumulate, split on blank lines, forward only the
+          // text deltas. message_delta carries the terminating usage.
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const frames = buffer.split("\n\n");
+            buffer = frames.pop() ?? "";
+            for (const frame of frames) {
+              for (const line of frame.split("\n")) {
+                if (!line.startsWith("data:")) continue;
+                const payload = line.slice(5).trim();
+                if (!payload || payload === "[DONE]") continue;
+                let evt: any;
+                try {
+                  evt = JSON.parse(payload);
+                } catch {
+                  continue;
+                }
+                if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
+                  fullText += evt.delta.text;
+                  emit({ type: "delta", text: evt.delta.text });
+                } else if (evt.type === "message_delta") {
+                  if (evt.usage) usage = evt.usage;
+                } else if (evt.type === "error") {
+                  throw new AtlasError(
+                    502,
+                    "upstream_error",
+                    trunc(evt.error?.message ?? "stream error"),
+                  );
+                }
+              }
+            }
+          }
+
+          await logAiUsage(supabase, {
+            function_name: "chat",
+            model: ANTHROPIC_MODEL,
+            provider: "anthropic",
+            usage,
+          });
+        }
+
+        if (!finalTurn) {
+          fullText = "(no response — max tool steps reached)";
+          emit({ type: "delta", text: fullText });
+        }
+
+        // ---- Persist only after a clean stream. Same rule as before: a failed
+        // turn leaves the thread untouched. ----
+        const lastUser = [...incoming].reverse().find((m: any) => m.role === "user");
+        const assistantMsg = { role: "assistant", content: fullText };
+
+        if (lastUser) {
+          await supabase.from("chat_messages").insert({ thread_id, role: "user", message: lastUser });
+        }
+        await supabase.from("chat_messages").insert({
+          thread_id, role: "assistant", message: assistantMsg,
+        });
+        await supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", thread_id);
+
+        const { data: thread } = await supabase.from("chat_threads").select("title").eq("id", thread_id).maybeSingle();
+        if (thread?.title === "New conversation" && lastUser?.content) {
+          const title = String(lastUser.content).slice(0, 60).replace(/\n/g, " ");
+          await supabase.from("chat_threads").update({ title }).eq("id", thread_id);
+        }
+
+        emit({ type: "done", model: ANTHROPIC_MODEL, usage });
+      } catch (e: any) {
+        // Never leave the client hanging: emit a typed error, then close.
+        console.error("[chat] stream failure", e);
+        const code = e instanceof AtlasError ? e.code : "internal_error";
+        const message = e instanceof AtlasError ? e.message : String(e?.message ?? e);
+        emit({ type: "error", code, message });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+    },
+  });
 });

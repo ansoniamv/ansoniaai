@@ -100,7 +100,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </header>
           <main ref={mainRef} className="flex-1 overflow-auto">
-            <div className="max-w-[1280px] mx-auto px-6 py-8">
+            {/* flex column + min-h-full so a page can opt into filling the
+                viewport with `flex-1 min-h-0` (Ask Atlas does). Block-level
+                pages are unaffected: a single stretched column lays out
+                identically, and min-h-full lets taller content still scroll. */}
+            <div className="max-w-[1280px] mx-auto px-6 py-8 flex flex-col min-h-full">
               {children}
             </div>
           </main>

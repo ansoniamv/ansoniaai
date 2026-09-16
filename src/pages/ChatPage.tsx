@@ -1,19 +1,32 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { Plus, Send, Trash2, MessageSquare, Bot, User as UserIcon, Loader2 } from "lucide-react";
+import { Plus, Trash2, PanelLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { AtlasMessageList } from "@/components/atlas/AtlasMessageList";
+import { AtlasComposer, type AtlasComposerHandle } from "@/components/atlas/AtlasComposer";
+import { relativeTime, threadBucket, THREAD_BUCKET_ORDER } from "@/components/atlas/relativeTime";
 import {
   useThreads,
   useThreadMessages,
   useCreateThread,
   useDeleteThread,
   useSendMessage,
-  type ChatMessage,
+  formatModelName,
+  type AtlasMessage,
 } from "@/hooks/useChat";
 
 export default function ChatPage() {
@@ -24,229 +37,272 @@ export default function ChatPage() {
   const createThread = useCreateThread();
   const deleteThread = useDeleteThread();
   const { data: storedMessages = [] } = useThreadMessages(threadId);
-  const send = useSendMessage();
+  const { send, stop, isStreaming, streamingText, streamingStatus, error, setError, model } =
+    useSendMessage();
 
   const [draft, setDraft] = useState("");
-  const [pending, setPending] = useState<ChatMessage[]>([]);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [pending, setPending] = useState<AtlasMessage[]>([]);
+  const [lastAttempt, setLastAttempt] = useState<string | null>(null);
+  const [stoppedText, setStoppedText] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; title: string } | null>(null);
+  const [railOpen, setRailOpen] = useState(false);
+  const composerRef = useRef<AtlasComposerHandle>(null);
+  // Captured at the moment Stop is pressed, before the hook clears its state.
+  const streamingTextRef = useRef("");
 
-  // Bootstrap: if no thread in URL, pick most recent or create
   useEffect(() => {
     if (threadId) return;
-    if (threads.length > 0) {
-      navigate(`/chat/${threads[0].id}`, { replace: true });
-    }
+    if (threads.length > 0) navigate(`/chat/${threads[0].id}`, { replace: true });
   }, [threadId, threads, navigate]);
 
-  // Clear pending when stored messages arrive
   useEffect(() => {
     setPending([]);
   }, [storedMessages.length, threadId]);
 
-  // Auto-scroll
   useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [storedMessages, pending, send.isPending]);
+    setError(null);
+  }, [threadId, setError]);
 
   useEffect(() => {
-    textareaRef.current?.focus();
-  }, [threadId, send.isPending]);
+    composerRef.current?.focus();
+  }, [threadId, isStreaming]);
 
   // Consume a prefill from navigation state (e.g. "Ask Atlas" launcher on the Pipeline).
   useEffect(() => {
     const prefill = (location.state as { prefill?: string } | null)?.prefill;
     if (prefill) {
       setDraft(prefill);
-      textareaRef.current?.focus();
+      composerRef.current?.focus();
       navigate(location.pathname, { replace: true, state: null });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
 
-  const allMessages: ChatMessage[] = [...storedMessages, ...pending];
+  const allMessages: AtlasMessage[] = [...storedMessages, ...pending];
+
+  // A thread still called "New conversation" with nothing in it is noise.
+  const visibleThreads = useMemo(
+    () => threads.filter((t: any) => !(t.title === "New conversation" && !t.updated_at)),
+    [threads],
+  );
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const t of visibleThreads) {
+      const bucket = threadBucket((t as any).updated_at);
+      if (!map.has(bucket)) map.set(bucket, []);
+      map.get(bucket)!.push(t);
+    }
+    return THREAD_BUCKET_ORDER.filter((b) => map.has(b)).map((b) => ({
+      bucket: b,
+      items: map.get(b)!,
+    }));
+  }, [visibleThreads]);
 
   const handleNewThread = async () => {
     const t = await createThread.mutateAsync();
+    setRailOpen(false);
     navigate(`/chat/${t.id}`);
   };
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const doDelete = async () => {
+    if (!confirmDelete) return;
+    const id = confirmDelete.id;
+    setConfirmDelete(null);
     await deleteThread.mutateAsync(id);
     if (id === threadId) navigate("/chat", { replace: true });
   };
 
-  const handleSend = async () => {
-    const text = draft.trim();
-    if (!text || send.isPending) return;
+  const submit = async (text: string) => {
+    const content = text.trim();
+    if (!content || isStreaming) return;
     let activeId = threadId;
     if (!activeId) {
       const t = await createThread.mutateAsync();
       activeId = t.id;
       navigate(`/chat/${t.id}`, { replace: true });
     }
-    const userMsg: ChatMessage = { role: "user", content: text };
+    const userMsg: AtlasMessage = { role: "user", content, created_at: new Date().toISOString() };
     setDraft("");
+    setError(null);
+    setStoppedText(null);
+    setLastAttempt(content);
     setPending([userMsg]);
-    await send.mutateAsync({ threadId: activeId!, messages: [...allMessages, userMsg] });
+    try {
+      const res = await send({ threadId: activeId!, messages: [...allMessages, userMsg] });
+      // A stopped stream keeps its partial text on screen but persists nothing.
+      if (res?.aborted) setStoppedText(streamingTextRef.current);
+    } catch {
+      // Nothing was persisted server-side, so drop the optimistic row. The
+      // reason is already in `error` and renders inline; Retry re-sends.
+      setPending([]);
+    }
   };
 
-  return (
-    <div className="flex h-[calc(100vh-6rem)] gap-4">
-      {/* Thread sidebar */}
-      <div className="w-64 flex flex-col border border-border rounded-lg bg-card">
-        <div className="p-3 border-b border-border">
-          <Button onClick={handleNewThread} className="w-full" size="sm">
-            <Plus className="h-4 w-4" /> New chat
-          </Button>
-        </div>
-        <ScrollArea className="flex-1">
-          <div className="p-2 space-y-1">
-            {threads.map((t) => (
-              <div
-                key={t.id}
-                onClick={() => navigate(`/chat/${t.id}`)}
-                className={cn(
-                  "group flex items-center gap-2 px-2 py-2 rounded-md cursor-pointer text-sm hover:bg-accent",
-                  t.id === threadId && "bg-accent text-accent-foreground",
-                )}
-              >
-                <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="flex-1 truncate">{t.title}</span>
-                <button
-                  onClick={(e) => handleDelete(t.id, e)}
-                  className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
-                  aria-label="Delete chat"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-            {threads.length === 0 && (
-              <p className="text-xs text-muted-foreground px-2 py-4 text-center">No chats yet.</p>
-            )}
-          </div>
-        </ScrollArea>
+  const handleStop = () => {
+    streamingTextRef.current = streamingText;
+    stop();
+  };
+
+  const modelLabel = formatModelName(model);
+
+  const rail = (
+    <div className="flex flex-col h-full">
+      <div className="px-3 py-3 border-b border-border">
+        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Conversations
+        </span>
       </div>
-
-      {/* Chat area */}
-      <div className="flex-1 flex flex-col border border-border rounded-lg bg-card min-w-0">
-        <div className="px-4 py-3 border-b border-border">
-          <h2 className="font-display text-base tracking-tight">Ask Atlas</h2>
-          <p className="text-xs text-muted-foreground">
-            Ask about deals, partners, the buy box, market data — or anything else.
-          </p>
-        </div>
-
-        <ScrollArea className="flex-1" ref={scrollRef as any}>
-          <div className="p-4 space-y-6 max-w-3xl mx-auto">
-            {allMessages.length === 0 && !send.isPending && (
-              <div className="text-center py-24">
-                <Bot className="h-8 w-8 mx-auto mb-3 opacity-50" />
-                <p className="font-display text-lg text-foreground">Meet Atlas</p>
-                <p className="text-sm text-muted-foreground mt-2 max-w-sm mx-auto leading-relaxed">
-                  Your guide to the acquisitions platform. Ask how something works, or ask about your deals, partners, and pipeline.
-                </p>
-                <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-lg mx-auto">
-                  {[
-                    "How does deal scoring work?",
-                    "Give me a tour of the platform",
-                    "What deals are in LOI right now?",
-                    "How do I add a capital partner?",
-                  ].map((p) => (
+      <div className="px-3 py-3">
+        <Button onClick={handleNewThread} className="w-full" size="sm">
+          <Plus className="h-4 w-4" /> New chat
+        </Button>
+      </div>
+      <ScrollArea className="flex-1 min-h-0">
+        <div className="px-2 pb-2">
+          {grouped.map(({ bucket, items }) => (
+            <div key={bucket}>
+              <div className="sticky top-0 z-10 bg-card px-1 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground/70">
+                {bucket}
+              </div>
+              <div className="space-y-1 pb-2">
+                {items.map((t: any) => (
+                  <div
+                    key={t.id}
+                    onClick={() => {
+                      setRailOpen(false);
+                      navigate(`/chat/${t.id}`);
+                    }}
+                    className={cn(
+                      "group relative flex items-start gap-2 px-3 py-2 rounded-md cursor-pointer hover:bg-accent/40 transition-colors",
+                      // A 2px left rule instead of a full-bleed fill, which
+                      // swamped the rail.
+                      t.id === threadId && "bg-accent/40 border-l-2 border-primary",
+                    )}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm" title={t.title}>
+                        {t.title}
+                      </div>
+                      {t.updated_at && (
+                        <div className="text-xs text-muted-foreground">
+                          {relativeTime(t.updated_at)}
+                        </div>
+                      )}
+                    </div>
                     <button
-                      key={p}
-                      onClick={() => setDraft(p)}
-                      className="text-left text-sm px-4 py-2.5 rounded-md border border-border/60 hover:border-primary/40 hover:bg-accent transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmDelete({ id: t.id, title: t.title });
+                      }}
+                      className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-destructive transition-opacity mt-0.5"
+                      aria-label={`Delete ${t.title}`}
                     >
-                      {p}
+                      <Trash2 className="h-3.5 w-3.5" />
                     </button>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
-            )}
-            {allMessages.map((m, i) => (
-              <MessageBubble key={i} message={m} />
-            ))}
-            {send.isPending && (
-              <div className="flex gap-3 items-start">
-                <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <Bot className="h-4 w-4 text-primary" />
-                </div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground pt-1">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking…
-                </div>
-              </div>
-            )}
-          </div>
-        </ScrollArea>
-
-        <div className="p-3 border-t border-border">
-          <div className="max-w-3xl mx-auto flex gap-2 items-end">
-            <Textarea
-              ref={textareaRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              placeholder="Ask anything…"
-              rows={1}
-              className="min-h-[44px] max-h-40 resize-none"
-              disabled={send.isPending}
-            />
-            <Button onClick={handleSend} disabled={!draft.trim() || send.isPending} size="icon">
-              {send.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            </Button>
-          </div>
+            </div>
+          ))}
+          {visibleThreads.length === 0 && (
+            <p className="text-xs text-muted-foreground px-2 py-4 text-center">No chats yet.</p>
+          )}
         </div>
-      </div>
+      </ScrollArea>
     </div>
   );
-}
 
-function MessageBubble({ message }: { message: ChatMessage }) {
-  const isUser = message.role === "user";
   return (
-    <div className={cn("flex gap-3 items-start", isUser && "flex-row-reverse")}>
-      <div
-        className={cn(
-          "h-7 w-7 rounded-full flex items-center justify-center shrink-0",
-          isUser ? "bg-primary text-primary-foreground" : "bg-primary/10",
-        )}
-      >
-        {isUser ? <UserIcon className="h-4 w-4" /> : <Bot className="h-4 w-4 text-primary" />}
+    <div className="flex flex-1 min-h-0 gap-4">
+      {/* Thread rail — hidden below sm, where it moves behind the header trigger. */}
+      <div className="hidden sm:flex w-72 shrink-0 flex-col border border-border rounded-lg bg-card overflow-hidden">
+        {rail}
       </div>
-      <div
-        className={cn(
-          "rounded-lg text-sm max-w-[85%]",
-          isUser ? "bg-primary text-primary-foreground px-3 py-2" : "bg-muted/40 px-4 py-3 leading-relaxed",
-        )}
-      >
-        {isUser ? (
-          <p className="whitespace-pre-wrap">{message.content}</p>
-        ) : (
-          <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1.5 prose-p:leading-relaxed prose-pre:my-2 [&_code]:tabular-nums prose-table:my-3 prose-table:border-collapse prose-table:w-auto prose-th:border prose-th:border-border prose-th:bg-muted prose-th:px-3 prose-th:py-1.5 prose-th:text-left prose-th:font-semibold prose-td:border prose-td:border-border prose-td:px-3 prose-td:py-1.5 prose-td:align-top">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                table: ({ node, ...props }) => (
-                  <div className="overflow-x-auto my-3">
-                    <table {...props} />
-                  </div>
-                ),
-              }}
-            >
-              {message.content}
-            </ReactMarkdown>
+
+      <div className="flex-1 flex flex-col min-w-0 border border-border rounded-lg bg-card overflow-hidden">
+        <div className="px-4 py-3 border-b border-border">
+          {/* Same max-w-3xl wrapper as the messages and the composer, so the
+              header text starts on the shared left spine rather than the panel edge. */}
+          {/* pl-10 matches the message gutter (w-7 + gap-3) so the header text,
+              every message body, and the composer share one left edge. */}
+          <div className="max-w-3xl mx-auto pl-10 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <Sheet open={railOpen} onOpenChange={setRailOpen}>
+                <SheetTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 sm:hidden shrink-0">
+                    <PanelLeft className="h-4 w-4" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="left" className="w-72 p-0 bg-card">
+                  {rail}
+                </SheetContent>
+              </Sheet>
+              <div className="min-w-0">
+                <h2 className="font-display text-sm font-semibold tracking-tight">Ask Atlas</h2>
+                <p className="text-xs text-muted-foreground truncate">
+                  Deals, partners, buy box, and market data
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {modelLabel && (
+                <Badge variant="secondary" className="font-normal text-xs">
+                  {modelLabel}
+                </Badge>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={handleNewThread}
+                title="New chat"
+                aria-label="New chat"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
-        )}
+        </div>
+
+        <AtlasMessageList
+          messages={allMessages}
+          isPending={isStreaming}
+          error={error}
+          onRetry={() => lastAttempt && submit(lastAttempt)}
+          onSuggestion={(p) => submit(p)}
+          streamingText={streamingText}
+          streamingStatus={streamingStatus}
+          stoppedText={stoppedText}
+        />
+
+        <AtlasComposer
+          ref={composerRef}
+          value={draft}
+          onChange={setDraft}
+          onSend={() => submit(draft)}
+          isPending={isStreaming}
+          onStop={handleStop}
+          showFollowUps={allMessages.length > 0}
+          onSuggestion={(p) => submit(p)}
+        />
       </div>
+
+      <AlertDialog open={!!confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this conversation?</AlertDialogTitle>
+            <AlertDialogDescription>
+              “{confirmDelete?.title}” and all of its messages will be permanently removed. This
+              cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={doDelete}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
