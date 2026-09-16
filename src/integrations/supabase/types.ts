@@ -1267,9 +1267,13 @@ export type Database = {
           other_details: string | null
           property_name: string | null
           reviewed: boolean
+          rationale_attempted_at: string | null
+          rationale_error: string | null
           reviewed_at: string | null
           source: string | null
           strategy: string | null
+          summary_attempted_at: string | null
+          summary_error: string | null
           units: number | null
           updated_at: string
           year_built: number | null
@@ -1312,9 +1316,13 @@ export type Database = {
           other_details?: string | null
           property_name?: string | null
           reviewed?: boolean
+          rationale_attempted_at?: string | null
+          rationale_error?: string | null
           reviewed_at?: string | null
           source?: string | null
           strategy?: string | null
+          summary_attempted_at?: string | null
+          summary_error?: string | null
           units?: number | null
           updated_at?: string
           year_built?: number | null
@@ -1357,9 +1365,13 @@ export type Database = {
           other_details?: string | null
           property_name?: string | null
           reviewed?: boolean
+          rationale_attempted_at?: string | null
+          rationale_error?: string | null
           reviewed_at?: string | null
           source?: string | null
           strategy?: string | null
+          summary_attempted_at?: string | null
+          summary_error?: string | null
           units?: number | null
           updated_at?: string
           year_built?: number | null

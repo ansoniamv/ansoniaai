@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { graphFetch, resolveMailbox } from "../_shared/graphMail.ts";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
+import { preExtractFacts, firmFromEmailDomain } from "../_shared/dealFields.ts";
 
 const SKIP_SUBJECT_TERMS = [
   "quarantine", "out of office", "microsoft alert",
@@ -45,33 +46,6 @@ function stripHtml(s: string): string {
 }
 
 /** Fast regex pre-extraction of units + year_built from subject + body. */
-function preExtractFacts(subject: string, body: string | null): {
-  units: number | null;
-  year_built: number | null;
-} {
-  const blob = `${subject}\n${body ? stripHtml(body) : ""}`;
-
-  let units: number | null = null;
-  const unitMatch =
-    blob.match(/(\d[\d,]{0,4})\s*\+?\s*units?\b/i) ||
-    blob.match(/unit\s*count[:\s]+(\d[\d,]{0,4})/i);
-  if (unitMatch) {
-    const n = parseInt(unitMatch[1].replace(/,/g, ""), 10);
-    if (Number.isFinite(n) && n >= 5 && n <= 10000) units = n;
-  }
-
-  let year_built: number | null = null;
-  const yearMatch = blob.match(
-    /\b(?:year\s*built|built(?:\s*in)?|vintage|constructed(?:\s*in)?|circa|c\.)\s*[:\-]?\s*((?:19|20)\d{2})\b/i,
-  );
-  if (yearMatch) {
-    const y = parseInt(yearMatch[1], 10);
-    const currentYear = new Date().getFullYear();
-    if (y >= 1900 && y <= currentYear) year_built = y;
-  }
-
-  return { units, year_built };
-}
 
 /** Find a likely matching existing inbox_deal by fuzzy property name. */
 async function findMatchingDeal(
@@ -275,7 +249,17 @@ Deno.serve(async (req) => {
       }
 
       if (!dealId) {
-        const { units, year_built } = preExtractFacts(subject, fullBody);
+        const { units, year_built, rejected } = preExtractFacts(subject, fullBody);
+        for (const r of rejected) {
+          console.warn(
+            `[sync-acquisitions-inbox] rejected ${r.field}=${JSON.stringify(r.value)}: ${r.reason}`,
+          );
+        }
+        // broker_firm was only ever written by the model, while contact name and
+        // email are written here from the headers — which is why the contact
+        // survives an LLM outage and the firm does not. The domain is already in
+        // hand, so derive a firm now; the model can refine it later.
+        const brokerFirm = firmFromEmailDomain(brokerEmail);
         // Create new inbox_deal (do NOT set email_message_id — that lives on deal_emails now)
         const { data: newDeal, error: insErr } = await supabase
           .from("inbox_deals")
@@ -285,6 +269,7 @@ Deno.serve(async (req) => {
             email_received_at: receivedAt,
             broker_contact_email: brokerEmail,
             broker_contact_name: brokerName,
+            broker_firm: brokerFirm,
             property_name: guessedName || subject || null,
             source: "email",
             email_count: 1,

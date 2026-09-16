@@ -74,6 +74,10 @@ type InboxDeal = {
   fit_tier: string | null;
   fit_score: number | null;
   fit_rationale: string | null;
+  summary_error: string | null;
+  summary_attempted_at: string | null;
+  rationale_error: string | null;
+  rationale_attempted_at: string | null;
   email_received_at: string | null;
   reviewed: boolean | null;
   denied: boolean | null;
@@ -159,7 +163,7 @@ export default function DealPipelinePage() {
       const { data, error } = await supabase
         .from("inbox_deals")
         .select(
-          "id, property_name, address, location_city, location_state, msa, broker_firm, broker_contact_name, broker_contact_email, units, year_built, avg_sf, occupancy_pct, asset_class, strategy, offers_due, fit_tier, fit_score, fit_rationale, email_received_at, reviewed, denied, accepted_deal_id, email_thread_summary, email_count, gate_status, gate_reason, assigned_to",
+          "id, property_name, address, location_city, location_state, msa, broker_firm, broker_contact_name, broker_contact_email, units, year_built, avg_sf, occupancy_pct, asset_class, strategy, offers_due, fit_tier, fit_score, fit_rationale, summary_error, summary_attempted_at, rationale_error, rationale_attempted_at, email_received_at, reviewed, denied, accepted_deal_id, email_thread_summary, email_count, gate_status, gate_reason, assigned_to",
         )
         .order("email_received_at", { ascending: false, nullsFirst: false })
         .limit(1000);
@@ -1260,11 +1264,21 @@ function DealCard({
                 </div>
               )}
 
-              {d.fit_rationale && (
+              {/*
+                A failed rationale used to render as nothing at all — the line
+                simply vanished, which is indistinguishable from "not generated
+                yet" and from "generated, empty".
+              */}
+              {d.fit_rationale ? (
                 <p className="text-xs text-muted-foreground border-t border-hairline pt-2.5 mt-2.5 italic">
                   Buybox: {d.fit_rationale}
                 </p>
-              )}
+              ) : d.rationale_error ? (
+                <p className="text-xs border-t border-hairline pt-2.5 mt-2.5">
+                  <span className="font-medium text-destructive">Buybox rationale failed.</span>{" "}
+                  <span className="text-muted-foreground italic">{d.rationale_error}</span>
+                </p>
+              ) : null}
             </div>
 
             {/* Fit rating block */}
@@ -1313,7 +1327,13 @@ function DealCard({
           </div>
 
           {(d.email_thread_summary || (d.email_count ?? 0) > 0) && (
-            <EmailSummaryBlock dealId={d.id} summary={d.email_thread_summary} count={d.email_count ?? 1} />
+            <EmailSummaryBlock
+              dealId={d.id}
+              summary={d.email_thread_summary}
+              summaryError={d.summary_error}
+              summaryAttemptedAt={d.summary_attempted_at}
+              count={d.email_count ?? 1}
+            />
           )}
         </div>
       </div>
@@ -1324,14 +1344,40 @@ function DealCard({
 function EmailSummaryBlock({
   dealId,
   summary,
+  summaryError,
+  summaryAttemptedAt,
   count,
 }: {
   dealId: string;
   summary: string | null;
+  summaryError?: string | null;
+  summaryAttemptedAt?: string | null;
   count: number;
 }) {
   const [open, setOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const qc = useQueryClient();
+
+  /**
+   * Re-runs the summariser for this one deal. Self-contained rather than
+   * threaded down from the page: the block already has the deal id, and the two
+   * DealCard call sites sit under different parents.
+   */
+  const retrySummary = async () => {
+    setRetrying(true);
+    try {
+      const { error } = await supabase.functions.invoke("summarize-emails", {
+        body: { deal_id: dealId, force: true },
+      });
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["inbox_deals_pipeline"] });
+    } catch (e) {
+      toast.error(`Retry failed: ${(e as Error).message}`);
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   const { data: threadEmails } = useQuery({
     queryKey: ["deal_emails_thread", dealId],
@@ -1378,16 +1424,42 @@ function EmailSummaryBlock({
             </button>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => setSheetOpen(true)}
-          title="View full email thread"
-          className="block w-full text-left -mx-1 px-1 py-0.5 rounded cursor-pointer hover:bg-muted/60 transition-colors"
-        >
-          <p className="text-xs text-foreground/80 leading-relaxed">
-            {summary ?? <span className="italic text-muted-foreground">Summary pending…</span>}
+        {/*
+          Three distinct states. "Pending" now means genuinely not yet attempted;
+          a recorded failure shows the reason and a retry instead of sitting on
+          "pending" indefinitely, which is how a dead model looked like a slow one.
+        */}
+        {summary ? (
+          <button
+            type="button"
+            onClick={() => setSheetOpen(true)}
+            title="View full email thread"
+            className="block w-full text-left -mx-1 px-1 py-0.5 rounded cursor-pointer hover:bg-muted/60 transition-colors"
+          >
+            <p className="text-xs text-foreground/80 leading-relaxed">{summary}</p>
+          </button>
+        ) : summaryError ? (
+          <div className="rounded border border-destructive/30 bg-destructive/5 px-2.5 py-2 space-y-1.5">
+            <p className="text-xs text-foreground/80 leading-relaxed">
+              <span className="font-medium text-destructive">Summary failed.</span>{" "}
+              <span className="text-muted-foreground">{summaryError}</span>
+            </p>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); retrySummary(); }}
+              disabled={retrying}
+              className="text-[11px] font-medium px-2 py-0.5 rounded bg-card border border-hairline hover:bg-muted transition-colors disabled:opacity-50"
+            >
+              {retrying ? "Retrying…" : "Retry"}
+            </button>
+          </div>
+        ) : (
+          <p className="text-xs leading-relaxed">
+            <span className="italic text-muted-foreground">
+              {summaryAttemptedAt ? "No summary produced." : "Summary pending…"}
+            </span>
           </p>
-        </button>
+        )}
 
         {open && count > 1 && (
           <Accordion type="multiple" className="bg-card rounded border border-hairline">
