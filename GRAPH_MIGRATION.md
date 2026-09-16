@@ -238,8 +238,28 @@ Each step is deliberate. Do not collapse them.
    That is the kind of quiet failure that stays broken for a week. Do it in the same
    sitting as step 8.
 
-10. **Only then, Atlas.** The mailbox has not synced since 2026-08-17, so the first
-    pass pulls roughly a month (bounded by the 120-day lookback cap in `outlook-sync`):
+10. **Atlas — done.** ~~The mailbox has not synced since 2026-08-17~~. No longer
+    true: verified against Main Ansonia on **2026-09-16**, the Atlas mailbox is
+    live and current. `[RAOP]` is resolved for **both** mailboxes, not just atlas:
+    acquisitions last synced 2026-09-16 13:17:56Z with its newest mail 95 minutes
+    old and 272 messages in the trailing 7 days (2,048 total). No drain or
+    re-test is needed for either mailbox. Still unmeasured: the `via` transport
+    (Graph app-only vs a residual gateway path), which affects the Lovable-exit
+    dependency but nothing about sync health.
+
+    | measure | value at 2026-09-16 14:41Z |
+    | --- | --- |
+    | `max(synced_at)` | 2026-09-16 13:18Z (83 min earlier) |
+    | `max(received_at)` | 2026-09-15 00:07Z |
+    | received in last 7d | 10 |
+    | total rows, `mailbox='atlas'` | 284 |
+
+    The backlog described here was drained, and weekly counts run continuously
+    across the claimed 2026-08-17 gap (2 · 42 · 93 · 16 · 5 for the weeks from
+    08-17 to 09-14). Nothing to do; the drain procedure below is kept only in
+    case the mailbox is re-blocked and has to be restarted.
+
+    <details><summary>Original drain procedure</summary>
 
     1. Leave `atlas_automation` disabled.
     2. Run `outlook-sync` with `{"mailbox":"atlas","since":"<48h ago>"}` to confirm the path.
@@ -248,6 +268,14 @@ Each step is deliberate. Do not collapse them.
 
     `outlook-sync` is not gated by the flag — it takes `mailbox` and `since`
     directly — so the whole drain runs with automation still off.
+
+    </details>
+
+    **Row count alone does not prove this.** 284 rows is equally consistent with a
+    mailbox that died months ago; freshness is `max(received_at)` / `max(synced_at)`,
+    and key collision is a separate question again — it surfaces as the Atlas key
+    resolving identical to the acquisitions key (`keysCollide` in `outlook-sync`),
+    never as an empty table.
 
 ## Cleanup once Graph is live
 
