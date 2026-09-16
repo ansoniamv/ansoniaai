@@ -90,11 +90,18 @@ export function useSetMessagePinned() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, pinned }: { id: string; pinned: boolean }) => {
-      const { error } = await supabase
+      // .select() is load-bearing, not decoration: an update filtered out by RLS
+      // comes back 200 with an empty result and error === null, so an error-only
+      // check reports success, the refetch returns the unchanged row, and the pin
+      // silently springs back with nothing in the console. Ask for the affected
+      // row and treat "none" as the failure it is.
+      const { data, error } = await supabase
         .from("outlook_messages")
         .update({ pinned_at: pinned ? new Date().toISOString() : null })
-        .eq("id", id);
+        .eq("id", id)
+        .select("id");
       if (error) throw error;
+      if (!data?.length) throw new Error("Pin was not saved — the row was not writable.");
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["outlook_messages"] }),
   });

@@ -11,6 +11,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
+import { toast } from "sonner";
 import { Mail, Pin, PinOff, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -115,7 +116,15 @@ function AtlasRow({
 
         <button
           type="button"
-          onClick={() => setPinned.mutate({ id: message.id, pinned: !pinned })}
+          onClick={() =>
+            setPinned.mutate(
+              { id: message.id, pinned: !pinned },
+              // There is no global mutation error handler, so without this the
+              // guard in useSetMessagePinned would throw into a state nothing
+              // renders — detectable in devtools, still silent on screen.
+              { onError: (e: Error) => toast.error(e.message) },
+            )
+          }
           disabled={setPinned.isPending}
           aria-label={pinned ? "Unpin message" : "Pin message"}
           aria-pressed={pinned}
