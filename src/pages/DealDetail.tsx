@@ -114,6 +114,22 @@ function Stat({
   );
 }
 
+/** Marks a buy-box figure that came from a HelloData prediction rather than a
+ *  filed value. Null in, null out, so an empty gate still renders as empty. */
+function withEstimateMark(value: React.ReactNode, estimated: boolean | null | undefined) {
+  if (value === null || value === undefined || value === "") return value;
+  return estimated ? `${value} (est.)` : value;
+}
+
+/** Trailing rent change, tinted by direction. Flat reads as neither. */
+function RentTrend({ pct }: { pct: number | null | undefined }) {
+  if (!isNum(pct)) return null;
+  const tone = pct > 0.5 ? "text-emerald-600" : pct < -0.5 ? "text-destructive" : "";
+  return (
+    <span className={tone}>{`${pct > 0 ? "+" : ""}${pct.toFixed(1)}%`}</span>
+  );
+}
+
 function KV({
   label,
   value,
@@ -478,6 +494,31 @@ export default function DealDetail() {
     isNum(d.hold_period_years) ||
     isNum(d.exit_cap);
 
+  // Asset types the buy box does not buy. A true flag here is either a deal out
+  // of strategy or, on a 150+ unit deal flagged single-family, a bad match.
+  const subtypeFlags = (
+    [
+      [d.is_student_housing, "student housing"],
+      [d.is_senior_housing, "senior housing"],
+      [d.is_affordable_housing, "affordable"],
+      [d.is_condo, "condo"],
+      [d.is_single_family, "single-family"],
+      [d.is_build_to_rent, "build-to-rent"],
+    ] as Array<[boolean | null, string]>
+  )
+    .filter(([on]) => on === true)
+    .map(([, label]) => label);
+
+  const buildingAmenities: string[] = Array.isArray(d.building_amenities) ? d.building_amenities : [];
+  const unitAmenities: string[] = Array.isArray(d.unit_amenities) ? d.unit_amenities : [];
+  const feeSchedule: Array<{ label: string; amount: number; frequency: string }> =
+    Array.isArray(d.fee_schedule) ? d.fee_schedule : [];
+  const qualityDetail: Array<[string, number]> = Object.entries(
+    (d.building_quality_detail ?? {}) as Record<string, number>,
+  )
+    .filter(([k, v]) => isNum(v) && k !== "property_overall_quality")
+    .sort((a, b) => a[1] - b[1]); // worst first: that is where the capex goes
+
   const rentComps: any[] = Array.isArray(d.rent_comps) ? d.rent_comps : [];
   const salesComps: any[] = Array.isArray(d.sales_comps) ? d.sales_comps : [];
   const documents: any[] = Array.isArray(d.documents) ? d.documents : [];
@@ -682,15 +723,18 @@ export default function DealDetail() {
         <Card className="surface-card border-hairline">
           <CardContent className="pt-4">
             <ul>
+              {/* Both of these gates can be clearing on a HelloData model
+                  output rather than a filed number — say so where the gate is
+                  read, not three sections further down. */}
               <CriterionRow
                 label="150+ units"
                 pass={meetsUnits}
-                actual={fmtInt(deal.unit_count)}
+                actual={withEstimateMark(fmtInt(deal.unit_count), d.unit_count_is_estimated)}
               />
               <CriterionRow
                 label="1990s–2010s vintage"
                 pass={meetsVintage}
-                actual={deal.vintage_year}
+                actual={withEstimateMark(deal.vintage_year, d.vintage_is_estimated)}
               />
               <CriterionRow
                 label="Rents 10%+ below market"
@@ -982,6 +1026,65 @@ export default function DealDetail() {
                 />
               </div>
 
+              {/* Leasing signals — all of this was already in the cached
+                  payload; none of it costs a HelloData call. */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <Stat
+                  label="Rent Trend 3mo"
+                  value={<RentTrend pct={d.rent_trend_3mo_pct} />}
+                  hint="Same-unit median"
+                />
+                <Stat
+                  label="Rent Trend 12mo"
+                  value={<RentTrend pct={d.rent_trend_12mo_pct} />}
+                  hint="Same-unit median"
+                />
+                <Stat
+                  label="Exposure"
+                  value={fmtPct(d.exposure_pct)}
+                  hint={
+                    isNum(d.units_available)
+                      ? `${fmtInt(d.units_available)} unit${d.units_available === 1 ? "" : "s"} available`
+                      : undefined
+                  }
+                />
+                <Stat
+                  label="Median DOM"
+                  value={isNum(d.median_days_on_market) ? `${d.median_days_on_market}d` : null}
+                />
+                <Stat
+                  label="Concession"
+                  value={
+                    isNum(d.concession_weeks_free)
+                      ? `${d.concession_weeks_free} wk free`
+                      : fmtPct(d.concession_pct_of_rent)
+                  }
+                  hint={
+                    isNum(d.concession_weeks_free) && isNum(d.concession_pct_of_rent)
+                      ? `${d.concession_pct_of_rent.toFixed(1)}% of annual rent`
+                      : undefined
+                  }
+                />
+                <Stat label="Asking vs Effective" value={fmtPct(d.concession_spread_pct)} />
+                <Stat label="Move-In Fees" value={fmtMoney(d.move_in_fees_total)} />
+                <Stat label="Stories" value={fmtInt(d.number_stories)} />
+              </div>
+
+              {subtypeFlags.length > 0 && (
+                <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="text-sm">
+                    <span className="font-medium">
+                      HelloData classifies this as {subtypeFlags.join(", ")}.
+                    </span>{" "}
+                    <span className="text-muted-foreground">
+                      The buy box is conventional value-add multifamily — either this
+                      is out of strategy, or the property matched the wrong building.
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {Array.isArray(d.floor_plans) && d.floor_plans.length > 0 && (
                 <div>
                   <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
@@ -1019,6 +1122,90 @@ export default function DealDetail() {
                       </tbody>
                     </table>
                   </div>
+                </div>
+              )}
+
+              {qualityDetail.length > 0 && (
+                <div>
+                  <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                    Condition by Room
+                    <span className="ml-2 font-normal normal-case tracking-normal">
+                      worst first — where the capex goes
+                    </span>
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6">
+                    {qualityDetail.map(([room, score]) => (
+                      <div key={room} className="flex items-center gap-2 py-1">
+                        <span className="text-xs text-muted-foreground flex-1 truncate capitalize">
+                          {room.replace(/_quality$/, "").replace(/_/g, " ")}
+                        </span>
+                        <div className="h-1 w-16 rounded-full bg-muted overflow-hidden shrink-0">
+                          <div
+                            className={cn(
+                              "h-full rounded-full",
+                              score < 40 ? "bg-destructive" : score < 65 ? "bg-amber-500" : "bg-emerald-600",
+                            )}
+                            style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
+                          />
+                        </div>
+                        <span className="text-xs tabular-nums w-7 text-right">{score}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {feeSchedule.length > 0 && (
+                <div>
+                  <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                    Posted Fees
+                    <span className="ml-2 font-normal normal-case tracking-normal">
+                      rate card, not an other-income estimate
+                    </span>
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                    {feeSchedule.map((f, i) => (
+                      <KV
+                        key={i}
+                        label={`${f.label}${f.frequency === "monthly" ? " / mo" : f.frequency === "deposit" ? " (deposit)" : ""}`}
+                        value={fmtMoney(f.amount)}
+                        align="right"
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(buildingAmenities.length > 0 || unitAmenities.length > 0) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {buildingAmenities.length > 0 && (
+                    <div>
+                      <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                        Community Amenities ({buildingAmenities.length})
+                      </h4>
+                      <div className="flex flex-wrap gap-1">
+                        {buildingAmenities.map((a) => (
+                          <Badge key={a} variant="outline" className="text-[10px] font-normal">
+                            {a}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {unitAmenities.length > 0 && (
+                    <div>
+                      <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                        In-Unit Amenities ({unitAmenities.length})
+                      </h4>
+                      <div className="flex flex-wrap gap-1">
+                        {unitAmenities.map((a) => (
+                          <Badge key={a} variant="outline" className="text-[10px] font-normal">
+                            {a}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>

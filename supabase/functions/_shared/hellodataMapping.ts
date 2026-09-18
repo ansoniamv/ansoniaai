@@ -34,6 +34,24 @@ export const INTAKE_ONLY_KEYS = new Set([
 export const FILL_IF_NULL_KEYS = new Set([...INTAKE_ONLY_KEYS, "management_company"]);
 
 /**
+ * Flags that describe where a neighbouring value came from, mapped to the column
+ * they annotate.
+ *
+ * unit_count_is_estimated says "the unit count on this row is a HelloData
+ * prediction, not a filed number" — which is only true if HelloData's unit count
+ * is the one on the row. unit_count is fill-if-null, so on a deal where an
+ * analyst typed 212 from the OM the mapper's value is discarded and the flag,
+ * written on its own, would libel a hand-entered figure as a guess. On exactly
+ * the field passes_hard_filters gates at 150 units.
+ *
+ * So the flag goes wherever its value goes, and nowhere else.
+ */
+export const PROVENANCE_OF: Record<string, string> = {
+  unit_count_is_estimated: "unit_count",
+  vintage_is_estimated: "vintage_year",
+};
+
+/**
  * Pick the mapper fields that are safe to write onto a loaded deal row.
  *
  * Two rules, both learned the hard way:
@@ -58,6 +76,11 @@ export function selectWritableFields(
     if (v === null || v === undefined) continue;
     if (fillIfNull.has(k) && dealRow[k] != null) continue;
     out[k] = v;
+  }
+  // Third rule: a provenance flag is dropped unless the value it describes is
+  // being written in the same update. See PROVENANCE_OF.
+  for (const [flag, describes] of Object.entries(PROVENANCE_OF)) {
+    if (flag in out && !(describes in out)) delete out[flag];
   }
   return out;
 }
@@ -84,6 +107,263 @@ const pct = (v: unknown): number | null => {
   if (n === null) return null;
   return n <= 1 ? +(n * 100).toFixed(2) : +n.toFixed(2);
 };
+
+/**
+ * Untyped HelloData JSON. The payload is a third-party shape that has already
+ * changed under this code once (floor_plans / unit_mix, neither of which ever
+ * existed), so every read below goes through a guard rather than a cast.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Raw = any;
+
+const num = (v: unknown): number | null =>
+  typeof v === "number" && Number.isFinite(v) ? v : null;
+
+const median = (xs: number[]): number | null => {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = s.length >> 1;
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+};
+
+/** Strict boolean read. A missing flag is null, not false — "HelloData did not
+ *  say" and "HelloData said no" are different answers to a hard filter. */
+const bool = (v: unknown): boolean | null => {
+  if (typeof v === "boolean") return v;
+  if (v === 1 || v === 0) return v === 1;
+  return null;
+};
+
+const asDate = (v: unknown): number | null => {
+  if (typeof v !== "string" && typeof v !== "number") return null;
+  const t = new Date(v).getTime();
+  return Number.isFinite(t) ? t : null;
+};
+
+const DAY_MS = 86_400_000;
+
+type PricePoint = { at: number; until: number | null; price: number };
+
+/**
+ * Rent history keyed by unit, gathered from wherever HelloData hung it.
+ *
+ * The history array has been seen both at the property root and nested on each
+ * building_availability entry, so both are read. Effective price wins over
+ * asking: a concession that grows month over month is a rent cut, and reading
+ * asking price would miss it entirely.
+ */
+export function collectRentHistory(p: Raw, avail: Raw[]): Map<string, PricePoint[]> {
+  const series = new Map<string, PricePoint[]>();
+
+  const add = (key: string, h: Raw) => {
+    const at = asDate(h?.from_date ?? h?.start_date ?? h?.date ?? h?.as_of);
+    const price = num(h?.effective_price ?? h?.price ?? h?.min_effective_price ?? h?.min_price);
+    if (at === null || price === null || price <= 0) return;
+    const until = asDate(h?.to_date ?? h?.end_date);
+    const list = series.get(key) ?? [];
+    list.push({ at, until, price });
+    series.set(key, list);
+  };
+
+  const keyOf = (u: Raw, fallback: number) =>
+    String(
+      u?.unit_name ?? u?.unit ?? u?.name ?? u?.unit_number ??
+      u?.floorplan_name ?? u?.floorplan ?? u?.id ?? `#${fallback}`,
+    );
+
+  avail.forEach((u, i) => {
+    if (!Array.isArray(u?.history)) return;
+    const key = keyOf(u, i);
+    for (const h of u.history) add(key, h);
+  });
+
+  if (Array.isArray(p?.history)) {
+    p.history.forEach((h: Raw, i: number) => add(keyOf(h, i), h));
+  }
+
+  for (const list of series.values()) list.sort((a, b) => a.at - b.at);
+  return series;
+}
+
+/** Price a unit was carrying on a given date: the last interval covering it,
+ *  else the last price quoted before it. Null when the unit was not yet listed.
+ *  Points are ascending, so both candidates are the last assignment wins. */
+function priceOn(points: PricePoint[], when: number): number | null {
+  let covering: number | null = null;
+  let carried: number | null = null;
+  for (const pt of points) {
+    if (pt.at > when) break;
+    carried = pt.price;
+    if (pt.until === null || pt.until >= when) covering = pt.price;
+  }
+  return covering ?? carried;
+}
+
+/**
+ * Same-unit median rent change over a trailing window, in percent.
+ *
+ * Averaging all listed rents and comparing months would measure the unit mix as
+ * much as the rent — a month that happens to list three penthouses reads as a
+ * rent spike. Only units priced in BOTH windows are compared, each against
+ * itself, and the median of those changes is taken so one renovated unit
+ * returning at +40% cannot carry the number.
+ *
+ * Anchored to the latest date in the data, not to today, so a cached payload
+ * still reports a true trailing window rather than sliding into silence.
+ */
+export function sameUnitRentTrendPct(
+  series: Map<string, PricePoint[]>,
+  monthsBack: number,
+  minUnits = 3,
+): number | null {
+  let anchor = 0;
+  for (const points of series.values()) {
+    for (const pt of points) if (pt.at > anchor) anchor = pt.at;
+  }
+  if (!anchor) return null;
+
+  const then = anchor - monthsBack * 30.44 * DAY_MS;
+  const changes: number[] = [];
+  for (const points of series.values()) {
+    const before = priceOn(points, then);
+    const after = priceOn(points, anchor);
+    if (before === null || after === null || before <= 0) continue;
+    // A unit whose first quote lands after the window opens has no "before" to
+    // compare against; priceOn returns null there, so it drops out on its own.
+    changes.push(((after - before) / before) * 100);
+  }
+  if (changes.length < minUnits) return null;
+  const m = median(changes);
+  return m === null ? null : +m.toFixed(2);
+}
+
+/** Amenity lists arrive as strings or as {name}/{label} objects. */
+function normalizeAmenities(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out = raw
+    .map((a: Raw) =>
+      typeof a === "string" ? a : (a?.name ?? a?.label ?? a?.amenity ?? a?.title ?? null),
+    )
+    .filter((a: Raw): a is string => typeof a === "string" && a.trim() !== "")
+    .map((a) => a.trim());
+  const unique = Array.from(new Set(out)).sort((a, b) => a.localeCompare(b));
+  return unique.length ? unique : null;
+}
+
+const FEE_FIELDS: Array<{ key: string; label: string; frequency: string }> = [
+  { key: "admin_fee", label: "Admin fee", frequency: "one_time" },
+  { key: "application_fee", label: "Application fee", frequency: "one_time" },
+  { key: "amenity_fee", label: "Amenity fee", frequency: "monthly" },
+  { key: "storage_fee", label: "Storage", frequency: "monthly" },
+  { key: "parking_covered", label: "Parking — covered", frequency: "monthly" },
+  { key: "parking_garage", label: "Parking — garage", frequency: "monthly" },
+  { key: "parking_surface_lot", label: "Parking — surface lot", frequency: "monthly" },
+  { key: "cats_monthly_rent", label: "Cat rent", frequency: "monthly" },
+  { key: "dogs_monthly_rent", label: "Dog rent", frequency: "monthly" },
+  { key: "cats_one_time_fee", label: "Cat fee", frequency: "one_time" },
+  { key: "dogs_one_time_fee", label: "Dog fee", frequency: "one_time" },
+  { key: "cats_deposit", label: "Cat deposit", frequency: "deposit" },
+  { key: "dogs_deposit", label: "Dog deposit", frequency: "deposit" },
+  { key: "min_deposit", label: "Deposit (min)", frequency: "deposit" },
+  { key: "max_deposit", label: "Deposit (max)", frequency: "deposit" },
+];
+
+/**
+ * The posted fee schedule, normalized. This is a rate card, NOT an other-income
+ * estimate: pet rent is collected from pet owners and covered parking from
+ * whoever rents a space, so summing the monthly column would invent revenue.
+ * move_in_fees_total stays to admin plus application, the two every new lease pays.
+ */
+export function buildFeeSchedule(p: Raw): {
+  schedule: Array<{ label: string; amount: number; frequency: string }> | null;
+  moveInFeesTotal: number | null;
+} {
+  const rows: Array<{ label: string; amount: number; frequency: string }> = [];
+  for (const f of FEE_FIELDS) {
+    const amount = num(p?.[f.key]);
+    if (amount !== null && amount > 0) rows.push({ label: f.label, amount, frequency: f.frequency });
+  }
+  if (Array.isArray(p?.fees)) {
+    for (const f of p.fees) {
+      const amount = num(f?.amount ?? f?.value ?? f?.price ?? f?.fee);
+      const label = f?.label ?? f?.name ?? f?.type ?? f?.description;
+      if (amount === null || amount <= 0 || typeof label !== "string") continue;
+      if (rows.some((r) => r.label.toLowerCase() === label.trim().toLowerCase())) continue;
+      const freq = String(f?.frequency ?? f?.period ?? "").toLowerCase();
+      rows.push({
+        label: label.trim(),
+        amount,
+        frequency: /month/.test(freq) ? "monthly" : /deposit/.test(freq) ? "deposit" : "one_time",
+      });
+    }
+  }
+
+  const admin = num(p?.admin_fee);
+  const app = num(p?.application_fee);
+  const moveInFeesTotal = admin === null && app === null ? null : (admin ?? 0) + (app ?? 0);
+
+  return { schedule: rows.length ? rows : null, moveInFeesTotal };
+}
+
+const WEEKS_PER_MONTH = 4.345;
+
+/**
+ * What the largest active concession is worth, in weeks of free rent and as a
+ * percentage of one year's rent.
+ *
+ * Distinct from concession_spread_pct above, and the two must not be added:
+ * that one measures asking-minus-effective on units currently listed, this one
+ * reads the advertised offer and survives a property with nothing available.
+ * Where both are populated they should roughly agree.
+ */
+export function concessionValue(
+  activeConcessions: Array<{ description: unknown; items: unknown }>,
+  monthlyRent: number | null,
+): { weeksFree: number | null; pctOfRent: number | null } {
+  let weeksFree: number | null = null;
+  let pctOfRent: number | null = null;
+
+  const bump = (weeks: number | null, pct: number | null) => {
+    if (weeks !== null && (weeksFree === null || weeks > weeksFree)) weeksFree = weeks;
+    if (pct !== null && (pctOfRent === null || pct > pctOfRent)) pctOfRent = pct;
+  };
+
+  for (const c of activeConcessions) {
+    const items = Array.isArray(c.items) ? c.items : [];
+    for (const it of items as Raw[]) {
+      const weeks = num(it?.free_weeks ?? it?.weeks_free ?? it?.weeks);
+      const months = num(it?.free_months ?? it?.months_free ?? it?.months);
+      const totalWeeks = weeks !== null || months !== null
+        ? (weeks ?? 0) + (months ?? 0) * WEEKS_PER_MONTH
+        : null;
+      const pctItem = num(it?.percent_off ?? it?.percentage ?? it?.percent ?? it?.discount_percent);
+      const dollars = num(it?.amount_off ?? it?.dollar_amount ?? it?.amount ?? it?.discount_amount);
+      const fromDollars = dollars !== null && monthlyRent && monthlyRent > 0
+        ? (dollars / (monthlyRent * 12)) * 100
+        : null;
+      bump(
+        totalWeeks,
+        totalWeeks !== null ? (totalWeeks / 52) * 100 : (pctItem ?? fromDollars),
+      );
+    }
+
+    // Fall back to the advertised text when the structured extraction is absent.
+    if (typeof c.description === "string") {
+      const text = c.description.toLowerCase();
+      const wk = text.match(/(\d+(?:\.\d+)?)\s*weeks?\s*(?:of\s*)?free/);
+      const mo = text.match(/(\d+(?:\.\d+)?)\s*months?\s*(?:of\s*)?free/);
+      const half = /half\s*(?:a\s*)?month\s*free/.test(text) ? 0.5 : null;
+      const months = mo ? Number(mo[1]) : half;
+      const totalWeeks = wk ? Number(wk[1]) : (months !== null ? months * WEEKS_PER_MONTH : null);
+      if (totalWeeks !== null) bump(totalWeeks, (totalWeeks / 52) * 100);
+    }
+  }
+
+  return {
+    weeksFree: weeksFree === null ? null : +(weeksFree as number).toFixed(2),
+    pctOfRent: pctOfRent === null ? null : +(pctOfRent as number).toFixed(2),
+  };
+}
 
 export function mapHelloDataProperty(p: any): MappedHelloData {
   const demo = p.demographics || {};
@@ -254,6 +534,53 @@ export function mapHelloDataProperty(p: any): MappedHelloData {
   }
   photoUrls = Array.from(new Set(photoUrls)).slice(0, 12);
 
+  // --- Rent trajectory ------------------------------------------------------
+  const rentHistory = collectRentHistory(p, avail);
+  const rentTrend3mo = sameUnitRentTrendPct(rentHistory, 3);
+  const rentTrend12mo = sameUnitRentTrendPct(rentHistory, 12);
+
+  // --- Leasing velocity -----------------------------------------------------
+  // An empty availability array is a fact (nothing on the market); a missing one
+  // is not. Only the first should read as zero exposure.
+  const hasAvailArray = Array.isArray(p.building_availability) ||
+    Array.isArray(p.availability) || Array.isArray(p.units);
+  const unitsAvailable = hasAvailArray ? avail.length : null;
+  const totalUnits = pickNum(p.number_units, p.unit_count, p.units, p.number_units_prediction);
+  const exposurePct = unitsAvailable !== null && totalUnits && totalUnits > 0
+    ? +((unitsAvailable / totalUnits) * 100).toFixed(2)
+    : null;
+  const medianDom = (() => {
+    const doms = avail.map(unitDom).filter((d: number | null): d is number => typeof d === "number");
+    const m = median(doms);
+    return m === null ? null : Math.round(m);
+  })();
+
+  // --- Fees, amenities, room-level condition --------------------------------
+  const { schedule: feeSchedule, moveInFeesTotal } = buildFeeSchedule(p);
+  const buildingAmenities = normalizeAmenities(p.building_amenities ?? p.amenities);
+  const unitAmenities = normalizeAmenities(p.unit_amenities);
+  const qualityDetail = (() => {
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(quality)) {
+      const n = num(v);
+      if (n !== null) out[k] = Math.round(n * 100);
+    }
+    return Object.keys(out).length ? out : null;
+  })();
+
+  // --- Concession economics -------------------------------------------------
+  const { weeksFree, pctOfRent } = concessionValue(active, inPlaceAvgRent);
+
+  // --- Unit count and vintage, with provenance ------------------------------
+  // The prediction is used only where the filed value is missing, and the deal
+  // carries a flag saying so, because both fields gate the buy box.
+  const filedUnits = pickNum(p.number_units, p.unit_count, p.units);
+  const predictedUnits = pickNum(p.number_units_prediction);
+  const unitCount = filedUnits ?? predictedUnits;
+  const filedVintage = pickNum(p.year_built, p.vintage_year, p.built_year);
+  const predictedVintage = pickNum(p.year_built_prediction);
+  const vintageYear = filedVintage ?? predictedVintage;
+
   const update: Record<string, any> = {
     // Intake-visible fields
     property_name: pick(p.building_name, p.property_name, p.name),
@@ -261,8 +588,10 @@ export function mapHelloDataProperty(p: any): MappedHelloData {
     city: pick(p.city),
     state: pick(p.state, p.state_code),
     zip: pick(p.zip_code, p.zip, p.postal_code),
-    unit_count: pickNum(p.number_units, p.unit_count, p.units),
-    vintage_year: pickNum(p.year_built, p.vintage_year, p.built_year),
+    unit_count: unitCount,
+    vintage_year: vintageYear,
+    unit_count_is_estimated: unitCount === null ? null : filedUnits === null,
+    vintage_is_estimated: vintageYear === null ? null : filedVintage === null,
 
     // Enrichment fields (persisted by hellodata-enrich)
     msa: pick(p.msa, p.metro, p.metropolitan_area),
@@ -304,6 +633,29 @@ export function mapHelloDataProperty(p: any): MappedHelloData {
     property_website: pick(p.building_website, p.website, p.url, p.site_url),
     property_address: pick(composedAddress, p.address, p.full_address),
     photo_urls: photoUrls.length ? photoUrls : null,
+
+    // --- Fields below read the cached payload only. No extra API call. ------
+    rent_trend_3mo_pct: rentTrend3mo,
+    rent_trend_12mo_pct: rentTrend12mo,
+    units_available: unitsAvailable,
+    exposure_pct: exposurePct,
+    median_days_on_market: medianDom,
+    concession_weeks_free: weeksFree,
+    concession_pct_of_rent: pctOfRent,
+    fee_schedule: feeSchedule,
+    move_in_fees_total: moveInFeesTotal,
+    building_amenities: buildingAmenities,
+    unit_amenities: unitAmenities,
+    building_quality_detail: qualityDetail,
+    is_student_housing: bool(p.is_student),
+    is_senior_housing: bool(p.is_senior),
+    is_affordable_housing: bool(p.is_affordable),
+    is_build_to_rent: bool(p.is_build_to_rent),
+    is_condo: bool(p.is_condo),
+    is_single_family: bool(p.is_single_family),
+    number_stories: pickNum(p.number_stories) ?? pickNum(p.number_stories_prediction),
+    census_tract_id: pick(p.census_tract_id, p.census_tract, p.tract_id),
+    street_view_url: pick(p.street_view_url),
   };
 
   const field_coverage: Record<string, boolean> = {};

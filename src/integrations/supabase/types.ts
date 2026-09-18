@@ -900,6 +900,30 @@ export type Database = {
           vintage_year: number | null
           year1_coc: number | null
           zip: string | null
+          rent_trend_3mo_pct: number | null
+          rent_trend_12mo_pct: number | null
+          units_available: number | null
+          exposure_pct: number | null
+          median_days_on_market: number | null
+          concession_weeks_free: number | null
+          concession_pct_of_rent: number | null
+          concession_spread_pct: number | null
+          move_in_fees_total: number | null
+          number_stories: number | null
+          fee_schedule: Json | null
+          building_amenities: Json | null
+          unit_amenities: Json | null
+          building_quality_detail: Json | null
+          is_student_housing: boolean | null
+          is_senior_housing: boolean | null
+          is_affordable_housing: boolean | null
+          is_build_to_rent: boolean | null
+          is_condo: boolean | null
+          is_single_family: boolean | null
+          unit_count_is_estimated: boolean | null
+          vintage_is_estimated: boolean | null
+          census_tract_id: string | null
+          street_view_url: string | null
         }
         Insert: {
           active_concessions_summary?: string | null
@@ -1030,6 +1054,30 @@ export type Database = {
           vintage_year?: number | null
           year1_coc?: number | null
           zip?: string | null
+          rent_trend_3mo_pct?: number | null
+          rent_trend_12mo_pct?: number | null
+          units_available?: number | null
+          exposure_pct?: number | null
+          median_days_on_market?: number | null
+          concession_weeks_free?: number | null
+          concession_pct_of_rent?: number | null
+          concession_spread_pct?: number | null
+          move_in_fees_total?: number | null
+          number_stories?: number | null
+          fee_schedule?: Json | null
+          building_amenities?: Json | null
+          unit_amenities?: Json | null
+          building_quality_detail?: Json | null
+          is_student_housing?: boolean | null
+          is_senior_housing?: boolean | null
+          is_affordable_housing?: boolean | null
+          is_build_to_rent?: boolean | null
+          is_condo?: boolean | null
+          is_single_family?: boolean | null
+          unit_count_is_estimated?: boolean | null
+          vintage_is_estimated?: boolean | null
+          census_tract_id?: string | null
+          street_view_url?: string | null
         }
         Update: {
           active_concessions_summary?: string | null
@@ -1160,6 +1208,30 @@ export type Database = {
           vintage_year?: number | null
           year1_coc?: number | null
           zip?: string | null
+          rent_trend_3mo_pct?: number | null
+          rent_trend_12mo_pct?: number | null
+          units_available?: number | null
+          exposure_pct?: number | null
+          median_days_on_market?: number | null
+          concession_weeks_free?: number | null
+          concession_pct_of_rent?: number | null
+          concession_spread_pct?: number | null
+          move_in_fees_total?: number | null
+          number_stories?: number | null
+          fee_schedule?: Json | null
+          building_amenities?: Json | null
+          unit_amenities?: Json | null
+          building_quality_detail?: Json | null
+          is_student_housing?: boolean | null
+          is_senior_housing?: boolean | null
+          is_affordable_housing?: boolean | null
+          is_build_to_rent?: boolean | null
+          is_condo?: boolean | null
+          is_single_family?: boolean | null
+          unit_count_is_estimated?: boolean | null
+          vintage_is_estimated?: boolean | null
+          census_tract_id?: string | null
+          street_view_url?: string | null
         }
         Relationships: [
           {

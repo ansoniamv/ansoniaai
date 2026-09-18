@@ -20,6 +20,16 @@ const REPORT = [
   "management_company", "uses_rev_management", "property_phone", "photo_urls",
   "vacancy_rate_tract", "bachelors_pct_tract", "owner_occupied_pct_tract",
   "race_breakdown_tract", "review_avg_rating", "building_quality_score", "ami_limits",
+  // Added 2026-09-18 with the payload-derived fields. Same zero-API-call path:
+  // every one of these is read out of the payload already cached on the row.
+  "rent_trend_3mo_pct", "rent_trend_12mo_pct", "units_available", "exposure_pct",
+  "median_days_on_market", "concession_weeks_free", "concession_pct_of_rent",
+  "concession_spread_pct", "fee_schedule", "move_in_fees_total",
+  "building_amenities", "unit_amenities", "building_quality_detail",
+  "is_student_housing", "is_senior_housing", "is_affordable_housing",
+  "is_build_to_rent", "is_condo", "is_single_family",
+  "unit_count", "unit_count_is_estimated", "vintage_year", "vintage_is_estimated",
+  "number_stories", "census_tract_id", "street_view_url",
 ];
 
 const H = { apikey: KEY, Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" };

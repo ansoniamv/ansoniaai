@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { mapHelloDataProperty, INTAKE_ONLY_KEYS } from "../_shared/hellodataMapping.ts";
+import { mapHelloDataProperty, INTAKE_ONLY_KEYS, PROVENANCE_OF } from "../_shared/hellodataMapping.ts";
 import { logApiRequest } from "../_shared/logUsage.ts";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 import { errorResponse } from "../_shared/errors.ts";
@@ -65,17 +65,22 @@ Deno.serve(async (req) => {
 
     // Shared mapper produces the full field set; strip intake-only keys so we
     // never overwrite manually-entered property_name / address / units / etc.
+    // Provenance flags go with them: this path never writes unit_count or
+    // vintage_year, so a flag calling either one estimated would be describing a
+    // value it did not supply. See PROVENANCE_OF in the shared mapper.
+    const skip = (k: string) =>
+      INTAKE_ONLY_KEYS.has(k) || INTAKE_ONLY_KEYS.has(PROVENANCE_OF[k] ?? "");
     const { update: mapped, photoUrls, field_coverage: mappedCoverage } = mapHelloDataProperty(p);
     const update: Record<string, any> = { hellodata_last_synced_at: new Date().toISOString() };
     for (const [k, v] of Object.entries(mapped)) {
-      if (INTAKE_ONLY_KEYS.has(k)) continue;
+      if (skip(k)) continue;
       update[k] = v;
     }
 
     // Field coverage audit (intake-only fields excluded from the count)
     const field_coverage: Record<string, boolean> = {};
     for (const [k, v] of Object.entries(mappedCoverage)) {
-      if (INTAKE_ONLY_KEYS.has(k)) continue;
+      if (skip(k)) continue;
       field_coverage[k] = v;
     }
     const totalFields = Object.keys(field_coverage).length;
