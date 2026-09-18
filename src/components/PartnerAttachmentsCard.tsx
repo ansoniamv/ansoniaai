@@ -1,9 +1,8 @@
 /**
  * Partner attachments card.
  *
- * Extracted verbatim from PartnerDetail.tsx so the internal-partner desk
- * (InternalPartnerDetail) can reuse it without importing the page module.
- * Behaviour is unchanged.
+ * Extracted verbatim from PartnerDetail.tsx so it can be reused without
+ * importing the page module. Behaviour is unchanged.
  */
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";

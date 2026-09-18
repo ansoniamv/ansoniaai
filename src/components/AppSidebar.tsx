@@ -3,7 +3,6 @@ import logoAsset from "@/assets/ansonia-logo.png.asset.json";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/useAuth";
 import { usePendingSuggestionCount } from "@/hooks/usePartnerSuggestions";
-import { useInternalPartner } from "@/hooks/usePartners";
 import { Button } from "@/components/ui/button";
 import {
   Sidebar,
@@ -67,9 +66,6 @@ export function AppSidebar() {
   const collapsed = state === "collapsed";
   const { isAdmin, signOut, profile } = useAuth();
   const { data: pendingCount } = usePendingSuggestionCount();
-  // Id resolved at runtime; the entry is omitted entirely when there is no
-  // internal record (and while the query is still in flight).
-  const { data: internalPartner } = useInternalPartner();
 
   const renderCapitalItem = (item: typeof capitalNav[number]) => {
     if (item.url !== "/suggestions") return navItem(item, collapsed);
@@ -139,15 +135,6 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.5">
               {capitalNav.map(renderCapitalItem)}
-              {internalPartner &&
-                navItem(
-                  {
-                    title: "Ansonia (Internal)",
-                    url: `/partners/${internalPartner.id}`,
-                    icon: Building2,
-                  },
-                  collapsed,
-                )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

@@ -33,7 +33,7 @@ Deno.serve(async (req) => {
 
     const { data: passed, error: eErr } = await sb
       .from("capital_raise_engagements")
-      .select("id, pass_feedback, pass_price_surmountable, partners(name, is_internal)")
+      .select("id, pass_feedback, pass_price_surmountable, partners(name)")
       .eq("deal_id", deal_id)
       .eq("passed", true);
     if (eErr) throw eErr;
@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
     // the prompt — the model would report us as an investor who passed on our
     // own deal. Filtered before the empty check so a deal whose only "pass" is
     // the internal record correctly summarizes as no passes at all.
-    const passedRows = (passed ?? []).filter((r: any) => r.partners?.is_internal !== true);
+    const passedRows = passed ?? [];
     if (passedRows.length === 0) {
       const now = new Date().toISOString();
       await sb

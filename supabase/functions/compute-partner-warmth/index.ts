@@ -69,7 +69,6 @@ Deno.serve(async (req) => {
     // passes its id explicitly.
     let pQ = supabase.from("partners")
       .select("id,name,relationship_strength,manual_fields")
-      .eq("is_internal", false);
     if (partnerFilter) pQ = pQ.eq("id", partnerFilter);
     const { data: partners, error: pErr } = await pQ;
     if (pErr) throw pErr;

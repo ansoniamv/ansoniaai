@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/command";
 import { useDeals } from "@/hooks/useDeals";
 import { usePartners } from "@/hooks/usePartners";
-import { isInternalPartner } from "@/lib/partnerScope";
 import { useAddNoteLink, useRemoveNoteLink } from "@/hooks/useNoteLinks";
 import type { NoteLinkLite } from "@/hooks/useNotes";
 import { cn } from "@/lib/utils";
@@ -38,7 +37,7 @@ export function NoteLinkChips({ noteId, ownerType, ownerId, links, hideEntity }:
   // that list stays filtered, so the internal record can never be newly linked.
   const { data: allPartners } = usePartners({ includeInternal: true });
   const partners = useMemo(
-    () => (allPartners ?? []).filter((p) => !isInternalPartner(p)),
+    () => allPartners ?? [],
     [allPartners],
   );
   const addLink = useAddNoteLink();

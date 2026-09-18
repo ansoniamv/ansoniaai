@@ -69,7 +69,6 @@ const CHECKS: Record<CheckKey, (min: number) => Promise<CheckResult>> = {
     const { count } = await supabase
       .from("partners")
       .select("*", { count: "exact", head: true })
-      .eq("is_internal", false);
     const n = count ?? 0;
     return { passed: n > 0, detail: `Auto-completed: ${n} capital partners on file` };
   },

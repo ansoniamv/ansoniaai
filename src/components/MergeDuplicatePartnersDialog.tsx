@@ -15,7 +15,6 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { ArrowRight, AlertTriangle, Merge, Users } from "lucide-react";
 import type { Partner } from "@/hooks/usePartners";
-import { isInternalPartner } from "@/lib/partnerScope";
 
 type Props = {
   open: boolean;
@@ -115,7 +114,6 @@ function PartnerPicker({
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
     return partners
-      .filter((p) => !isInternalPartner(p))
       .filter((p) => p.id !== excludeId)
       .filter((p) => !query || p.name.toLowerCase().includes(query))
       .slice(0, 20);
@@ -171,7 +169,7 @@ export function MergeDuplicatePartnersDialog({
   // An internal (Ansonia) record is never offered as a merge candidate, on either
   // side, and never counts toward a duplicate-name group.
   const partners = useMemo(
-    () => allPartners.filter((p) => !isInternalPartner(p)),
+    () => allPartners,
     [allPartners],
   );
   const queryClient = useQueryClient();

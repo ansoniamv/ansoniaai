@@ -48,7 +48,6 @@ import { CapitalStatusCard } from "@/components/CapitalStatusCard";
 import { PartnerCurrencyStrip } from "@/components/PartnerCurrencyStrip";
 import { PartnerAttachmentsCard } from "@/components/PartnerAttachmentsCard";
 import { EmailReaderDialog } from "@/components/EmailReaderDialog";
-import InternalPartnerDetail from "@/pages/InternalPartnerDetail";
 import { PipelineSharedLine } from "@/components/PipelineSharedLine";
 import { useNotes } from "@/hooks/useNotes";
 import { supabase } from "@/integrations/supabase/client";
@@ -136,9 +135,6 @@ export default function PartnerDetail() {
   // the notes haven't changed since last run.
   useEffect(() => {
     if (!id || !partner) return;
-    // Never auto-enrich an internal record. The edge function refuses these
-    // anyway; skipping here avoids the pointless round trip on every load.
-    if (partner.is_internal) return;
     if (enrichedOnceRef.current === id) return;
     enrichedOnceRef.current = id;
     supabase.functions
@@ -190,7 +186,6 @@ export default function PartnerDetail() {
 
   // An internal (Ansonia) record is not an outside capital source. It gets the
   // internal desk instead of the capital-partner profile below.
-  if (partner.is_internal) return <InternalPartnerDetail partner={partner} />;
 
   return (
     <div className="mx-auto w-full max-w-6xl px-6 py-6 space-y-6">

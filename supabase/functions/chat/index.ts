@@ -95,10 +95,6 @@ async function runTool(supabase: any, name: string, args: any) {
     return { columns: row && row[0] ? Object.keys(row[0]) : [] };
   }
   if (name === "query_table") {
-    // Ansonia's own record lives in `partners` and is not a capital source.
-    // Surfacing it to chat produces answers that describe us as an outside
-    // investor. runQueryTable always filters it out of `partners` reads and
-    // rejects `partners(...)` embeds on other tables. See _shared/chatQueryTable.
     return await runQueryTable(supabase, args, ALLOWED_TABLES);
   }
   return { error: "unknown tool" };

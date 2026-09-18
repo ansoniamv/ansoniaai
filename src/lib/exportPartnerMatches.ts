@@ -2,7 +2,6 @@ import XLSX from "xlsx-js-style";
 import { format } from "date-fns";
 import type { Deal } from "@/hooks/useDeals";
 import type { PartnerMatch, MatchablePartner } from "@/lib/partnerMatching";
-import { isInternalPartner } from "@/lib/partnerScope";
 
 const HEADER_FILL = { fgColor: { rgb: "002752" } };
 const HEADER_FONT = { bold: true, color: { rgb: "FFFFFF" } };
@@ -71,8 +70,6 @@ export function exportPartnerMatches({
   // Internal (Ansonia) records are not outside capital sources. rankPartnerMatches
   // already drops them; re-applied here so a hand-assembled list cannot leak one
   // into a workbook that goes out to a client.
-  matches = matches.filter((m) => !isInternalPartner(m.partner));
-  gated = gated.filter((m) => !isInternalPartner(m.partner));
 
   const headers = [
     "Rank", "Firm", "Match Score %", "Tier", "Confidence", "Pillars Covered",

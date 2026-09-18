@@ -1,9 +1,8 @@
 /**
  * One partner task row.
  *
- * Extracted verbatim from PartnerDetailSheet.tsx so the internal-partner desk
- * (InternalPartnerDetail) shows tasks exactly the way the sheet does, from one
- * implementation. Behaviour is unchanged.
+ * Extracted verbatim from PartnerDetailSheet.tsx so tasks render from one
+ * implementation wherever they appear. Behaviour is unchanged.
  */
 import { format, isPast, isToday } from "date-fns";
 import { CheckCircle2, Circle, CalendarClock, Trash2 } from "lucide-react";

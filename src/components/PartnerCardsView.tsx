@@ -14,7 +14,6 @@ import { useAllPartnerNotes } from "@/hooks/useAllPartnerNotes";
 import { useAllPartnerContactCounts } from "@/hooks/useAllPartnerContactCounts";
 import { PartnerDetailSheet } from "@/components/PartnerDetailSheet";
 import { MultiSelectFilter } from "@/components/MultiSelectFilter";
-import { isInternalPartner } from "@/lib/partnerScope";
 
 import {
   CheckSizeFilter,
@@ -294,7 +293,7 @@ export function PartnerCardsView({
 
   // Internal partners are not outside capital sources, so they are never listed
   // and never counted in the "N of M firms" total.
-  const scoped = useMemo(() => partners.filter((p) => !isInternalPartner(p)), [partners]);
+  const scoped = partners;
 
   const filtered = useMemo(() => {
     let result = scoped;

@@ -17,12 +17,6 @@ type Hit = {
   title: string;
   subtitle?: string;
   route: string;
-  /**
-   * Ansonia's own record. Deliberately still searchable — now that it is out of
-   * the partner list, search is the main way to reach the internal desk — but
-   * never dressed as a capital partner.
-   */
-  internal?: boolean;
 };
 
 function useDebounced<T>(value: T, ms = 200): T {
@@ -70,7 +64,7 @@ export function GlobalSearchPalette() {
 
     Promise.all([
       supabase.from("deals").select("id, property_name, city, state").ilike("property_name", like).limit(6),
-      supabase.from("partners").select("id, name, firm_type, is_internal").ilike("name", like).limit(6),
+      supabase.from("partners").select("id, name, firm_type").ilike("name", like).limit(6),
       supabase.from("notes").select("id, content, content_format, entity_type, entity_id").ilike("content", like).limit(6),
       (supabase as any)
         .from("outlook_messages")
@@ -91,17 +85,12 @@ export function GlobalSearchPalette() {
           })
         );
         (partners.data ?? []).forEach((p: any) => {
-          const internal = p.is_internal === true;
           results.push({
             id: p.id,
             kind: "partner",
             title: p.name,
-            // firm_type is a capital-partner attribute and means nothing for our
-            // own record, so it is suppressed rather than shown as "—".
-            subtitle: internal ? undefined : p.firm_type ?? undefined,
-            // Same route: /partners/:id renders the internal desk for this record.
+            subtitle: p.firm_type ?? undefined,
             route: `/partners/${p.id}`,
-            internal,
           });
         });
         (notes.data ?? []).forEach((n: any) => {
@@ -195,19 +184,10 @@ export function GlobalSearchPalette() {
               <CommandGroup heading="Partners">
                 {grouped.partner.map((h) => (
                   <CommandItem key={`p-${h.id}`} value={`partner-${h.id}-${h.title}`} onSelect={() => go(h)}>
-                    {h.internal ? (
-                      <Building2 className="h-4 w-4 mr-2 text-[#002752]" />
-                    ) : (
-                      <Users className="h-4 w-4 mr-2 text-muted-foreground" />
-                    )}
+                    <Users className="h-4 w-4 mr-2 text-muted-foreground" />
                     <div className="flex-1 min-w-0">
                       <div className="truncate flex items-center gap-2">
                         <span className="truncate">{h.title}</span>
-                        {h.internal && (
-                          <span className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] bg-[#6aa3d8] text-[#002752]">
-                            Internal
-                          </span>
-                        )}
                       </div>
                       {h.subtitle && <div className="text-[10px] text-muted-foreground truncate">{h.subtitle}</div>}
                     </div>

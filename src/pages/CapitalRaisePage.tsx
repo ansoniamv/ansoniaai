@@ -193,13 +193,13 @@ export default function CapitalRaisePage() {
       const { data, error } = await (supabase as any)
         .from("capital_raise_engagements")
         .select(
-          "id, deal_id, partner_id, stage, serious_interest, passed, pass_price_surmountable, pass_feedback, indicated_amount, committed_amount, initial_reachout_date, last_contact_date, partners(name, is_internal), deals(property_name)"
+          "id, deal_id, partner_id, stage, serious_interest, passed, pass_price_surmountable, pass_feedback, indicated_amount, committed_amount, initial_reachout_date, last_contact_date, partners(name), deals(property_name)"
         );
       if (error) throw error;
       // Ansonia's own record is not an outside capital source and can never be a
       // participant in our own raise. Matches the filter in useCapitalRaise /
       // useCapitalRaiseEngagements, so every raise surface agrees.
-      return (data as any[]).filter((e) => e.partners?.is_internal !== true);
+      return data as any[];
     },
   });
 

@@ -15,7 +15,6 @@ import { EnrichedBadge, ProvenanceChip, type EnrichedFieldsMap } from "@/compone
 import { useUpdatePartner, type Partner } from "@/hooks/usePartners";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
-import { isInternalPartner } from "@/lib/partnerScope";
 
 /**
  * Map of highlight tokens (from `?highlight=` on the URL) → which card owns them.
@@ -76,10 +75,6 @@ export function PartnerSummaryCards({
 }) {
   const update = useUpdatePartner();
   const { profile } = useAuth();
-  // These cards are the outside-capital-source profile: check size, hold period,
-  // target geography and strategy. An internal (Ansonia) record has no investment
-  // criteria to show or edit, so the cards are not rendered for one.
-  const internal = isInternalPartner(partner);
   const manualSet = new Set<string>(partner.manual_fields ?? []);
   const enriched = ((partner.enriched_fields ?? {}) as EnrichedFieldsMap);
 
@@ -204,7 +199,6 @@ export function PartnerSummaryCards({
   );
 
   // Placed after every hook so the hook order is unchanged.
-  if (internal) return null;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">

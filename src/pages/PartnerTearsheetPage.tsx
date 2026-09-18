@@ -15,7 +15,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { useDeals } from "@/hooks/useDeals";
 import { useAllDealNotes } from "@/hooks/useAllDealNotes";
 import { usePartner, usePartnerContacts } from "@/hooks/usePartners";
-import { isInternalPartner } from "@/lib/partnerScope";
 import { useLogPipelineExport } from "@/hooks/usePipelineExports";
 import { getStatus } from "@/lib/dealStatus";
 import { criteriaRows } from "@/lib/partnerCriteria";
@@ -248,17 +247,6 @@ export default function PartnerTearsheetPage() {
 
   if (partnerLoading || dealsLoading) {
     return <div className="p-10 text-sm" style={{ color: SLATE }}>Preparing tearsheet…</div>;
-  }
-
-  // A tearsheet presents a firm as an outside capital source. An internal
-  // (Ansonia) record is not one, so it never gets a tearsheet.
-  if (partner && isInternalPartner(partner)) {
-    return (
-      <div className="p-10 text-sm" style={{ color: SLATE }}>
-        {partner.name} is an internal Ansonia record, not an outside capital partner. Tearsheets are
-        only produced for external partners.
-      </div>
-    );
   }
 
   if (!partner || !pipeline) {

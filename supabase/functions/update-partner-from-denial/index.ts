@@ -60,12 +60,6 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (pErr) throw pErr;
     if (!partner) return json({ error: "Partner not found." }, 400);
-    // An internal (Ansonia) record has no investment criteria to learn from a pass
-    // reason, so the LLM never runs against it.
-    if (partner.is_internal === true) {
-      return json({ error: "This is an internal Ansonia record, not an outside capital partner. There is no partner profile to update." }, 400);
-    }
-
     const dealLabel = deal.property_name || "this deal";
     const marketLabel = [deal.city, deal.state].filter(Boolean).join(", ") || deal.msa || "unknown market";
     const assetLabel = [

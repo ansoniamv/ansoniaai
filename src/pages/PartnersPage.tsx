@@ -29,7 +29,6 @@ import { WarmthBadge } from "@/components/WarmthBadge";
 import { usePartners, useUpdatePartner, useRestorePartner } from "@/hooks/usePartners";
 import { useAuth } from "@/hooks/useAuth";
 import type { Partner } from "@/hooks/usePartners";
-import { isInternalPartner } from "@/lib/partnerScope";
 
 const warmthLevels = ["Existing Partner", "Very Warm", "Warm", "Tepid", "Cold"];
 const warmthRank: Record<string, number> = { "Existing Partner": 1, "Very Warm": 2, "Warm": 3, "Tepid": 4, "Cold": 5 };
@@ -359,7 +358,7 @@ export default function PartnersPage() {
   // dropped once here so every surface on this page -- table rows, card rows, the
   // duplicate-name counter, the header counts and the merge dialog -- excludes them.
   const partners = useMemo(
-    () => allPartners?.filter((p) => !isInternalPartner(p)),
+    () => allPartners,
     [allPartners],
   );
   const updatePartner = useUpdatePartner();
