@@ -50,6 +50,8 @@ export function useLogPipelineExport() {
       deal_ids: string[];
       included_outside: boolean;
       included_score: boolean;
+      /** Which file the recipient actually got. Constrained to pdf|xlsx|docx. */
+      format?: "pdf" | "xlsx" | "docx";
     }) => {
       const { data: auth } = await supabase.auth.getUser();
       const { error } = await (supabase as any).from("partner_pipeline_exports").insert({
@@ -57,7 +59,7 @@ export function useLogPipelineExport() {
         exported_by: auth.user?.id ?? null,
         deal_ids: input.deal_ids,
         deal_count: input.deal_ids.length,
-        format: "pdf",
+        format: input.format ?? "pdf",
         included_outside: input.included_outside,
         included_score: input.included_score,
       });

@@ -92,7 +92,9 @@ export function ExportPipelineDialog({
   const handlePreview = () => {
     if (!partnerId) return toast.error("Pick a capital partner first");
     if (!capped.length) return toast.error("Select at least one deal");
-    // Client-side navigation only — a hard GET on this deep route can 500 before the app loads.
+    // The selection lives in localStorage under the `s` token, not in the URL,
+    // so this link only resolves in the browser that created it. Navigating
+    // client-side keeps that store warm; pasting the URL elsewhere will not work.
     const token = saveTearsheetPayload({
       partnerId,
       dealIds: capped.map((d) => d.id),

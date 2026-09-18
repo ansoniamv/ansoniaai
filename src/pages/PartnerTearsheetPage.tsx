@@ -5,10 +5,11 @@
  * Field allow-list only. Nothing internal (warmth, AI scores, notes, broker,
  * underwriting, other partners) may be rendered here.
  */
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { format } from "date-fns";
-import { ArrowLeft, Printer } from "lucide-react";
+import { ArrowLeft, Printer, Download, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useDeals } from "@/hooks/useDeals";
@@ -61,20 +62,16 @@ function Lockup() {
   );
 }
 
-/** Short band label for the Fit column — the full sentence lives in the Why column. */
-const FIT_CHIP_LABEL: Record<BandKey, string> = {
-  strong: "Strong",
-  moderate: "Worth a look",
-  weak: "Worth a look",
-  outside: "Outside",
-  unrated: "Not yet sized",
+/** Client-facing stage wording. Internal statuses stay as they are in dealStatus.ts. */
+const STAGE_LABEL: Record<string, string> = {
+  "New": "New",
+  "Screening": "Screening",
+  "On Hold/Tracking": "On hold",
+  "Underwriting": "Underwriting",
+  "B&F": "B&F",
+  "Under Contract": "Under contract",
+  "Pass": "Passed",
 };
-
-function chipStyle(band: BandKey): React.CSSProperties {
-  if (band === "strong") return { background: NAVY, color: "#FFFFFF" };
-  if (band === "moderate") return { background: LIGHT_TINT, color: NAVY };
-  return { background: QUIET, color: SLATE };
-}
 
 function bandHeaderLabel(band: BandKey, n: number) {
   return `${BAND_TITLES[band]} — ${n} deal${n === 1 ? "" : "s"}`;
@@ -88,9 +85,9 @@ function FooterBar({ partnerName, page }: { partnerName: string; page: number })
         style={{ borderColor: HAIRLINE, color: SLATE }}
       >
         <span>Ansonia Properties · Confidential — prepared for {partnerName}</span>
-        <span>Not an offer to sell securities · Page {page} of 2</span>
+        <span>Not an offer to sell securities · {page === 1 ? "Pipeline" : "Investor criteria"}</span>
       </div>
-      <div className="mt-2 -mx-[0.55in]" style={{ height: 9, background: LIGHT }} />
+      <div className="mt-2 -mx-[0.45in]" style={{ height: 9, background: LIGHT }} />
     </div>
   );
 }
@@ -165,20 +162,73 @@ export default function PartnerTearsheetPage() {
     };
   }, [shown, pipeline]);
 
-  // Log the share exactly once per opened tearsheet.
-  const logged = useRef(false);
+  // Chrome uses document.title as the default "Save as PDF" filename, so this
+  // names the file as well as the tab. Restored on unmount so navigating away
+  // does not leave the partner's name in the tab.
   useEffect(() => {
-    if (logged.current || expired || !partnerId || !shown.length) return;
-    logged.current = true;
-    logExport.mutate({
-      partner_id: partnerId,
-      deal_ids: shown.map((f) => f.deal.id),
-      
-      included_outside: includeOutside,
-      included_score: includeScore,
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [partnerId, shown.length, expired]);
+    if (!partner) return;
+    const prev = document.title;
+    document.title = `Ansonia — ${partner.name} — Investment Pipeline — ${format(new Date(), "yyyy-MM-dd")}`;
+    return () => { document.title = prev; };
+  }, [partner]);
+
+  /**
+   * Download the tearsheet as a PDF, and log the export.
+   *
+   * The log used to fire from a mount effect, which recorded a share every time
+   * anyone merely opened the preview — including previews that were closed and
+   * never sent. It now fires only once a file has actually been produced, so
+   * the export history means "a document left the building".
+   *
+   * @react-pdf/renderer is imported inside the handler: it is a large
+   * dependency and must not land in the entry chunk.
+   */
+  const [downloading, setDownloading] = useState(false);
+  const handleDownloadPdf = async () => {
+    if (!partner || !partnerId || downloading) return;
+    setDownloading(true);
+    try {
+      const [{ pdf }, { TearsheetDocument }] = await Promise.all([
+        import("@react-pdf/renderer"),
+        import("@/lib/tearsheetPdf"),
+      ]);
+      const blob = await pdf(
+        <TearsheetDocument
+          partner={partner}
+          bands={bands}
+          criteria={criteria}
+          contacts={(contacts ?? []) as never}
+          totals={totals}
+          preparedBy={preparedBy}
+          includeOutside={includeOutside}
+        />,
+      ).toBlob();
+
+      const filename = `Ansonia — ${partner.name} — Investment Pipeline — ${format(new Date(), "yyyy-MM-dd")}.pdf`;
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(href);
+
+      if (shown.length) {
+        logExport.mutate({
+          partner_id: partnerId,
+          deal_ids: shown.map((f) => f.deal.id),
+          included_outside: includeOutside,
+          included_score: includeScore,
+          format: "pdf",
+        });
+      }
+    } catch (e) {
+      toast.error(`Could not build the PDF: ${(e as Error).message}`);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   if (expired) {
     return (
@@ -240,7 +290,17 @@ export default function PartnerTearsheetPage() {
           <ArrowLeft className="mr-1.5 h-4 w-4" /> Back
         </Button>
         <div className="flex-1" />
-        <Button size="sm" onClick={() => window.print()}>
+        {/* Primary: a real PDF, with no browser print chrome and nothing the
+            recipient can accidentally re-flow. Print stays as the fallback. */}
+        <Button size="sm" onClick={handleDownloadPdf} disabled={downloading}>
+          {downloading ? (
+            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="mr-1.5 h-4 w-4" />
+          )}
+          {downloading ? "Building PDF…" : "Download PDF"}
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => window.print()}>
           <Printer className="mr-1.5 h-4 w-4" /> Print / Save as PDF
         </Button>
       </div>
@@ -248,11 +308,11 @@ export default function PartnerTearsheetPage() {
       <div className="tearsheet mx-auto max-w-[8.5in] px-4 py-6 print:p-0">
         {/* ───────────────────────── Page 1 ───────────────────────── */}
         <section
-          className="bg-white px-[0.55in] pt-[0.5in] shadow-sm print:shadow-none"
+          className="bg-white px-[0.45in] pt-[0.5in] shadow-sm print:shadow-none"
           style={{ color: INK }}
         >
           {/* Masthead */}
-          <div className="flex items-end justify-between" style={{ gap: 28, paddingBottom: 14 }}>
+          <div className="masthead flex items-end justify-between" style={{ gap: 28, paddingBottom: 14 }}>
             <Lockup />
             <div className="text-right">
               <div
@@ -276,7 +336,7 @@ export default function PartnerTearsheetPage() {
 
           {/* Summary strip */}
           <div
-            className="mt-4 grid grid-cols-4"
+            className="summary-strip mt-4 grid grid-cols-4"
             style={{ borderBottom: `1px solid ${HAIRLINE}` }}
           >
             {[
@@ -317,15 +377,14 @@ export default function PartnerTearsheetPage() {
           {/* Table */}
           <table className="pipeline mt-5">
             <colgroup>
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "6%" }} />
-              <col style={{ width: "6.5%" }} />
-              <col style={{ width: "11%" }} />
-              <col style={{ width: "9%" }} />
-              <col style={{ width: "9%" }} />
-              <col style={{ width: "8.5%" }} />
-              <col style={{ width: "8%" }} />
-              <col style={{ width: "20%" }} />
+              <col style={{ width: "24%" }} />   {/* Property & market */}
+              <col style={{ width: "5.5%" }} />  {/* Units */}
+              <col style={{ width: "7.5%" }} />  {/* Vintage */}
+              <col style={{ width: "9%" }} />    {/* Business plan */}
+              <col style={{ width: "10%" }} />   {/* Total cap. */}
+              <col style={{ width: "10%" }} />   {/* Equity req. */}
+              <col style={{ width: "12%" }} />   {/* Stage */}
+              <col style={{ width: "22%" }} />   {/* Why this fits you */}
             </colgroup>
             <thead>
               <tr>
@@ -337,7 +396,7 @@ export default function PartnerTearsheetPage() {
                   ["Total cap.", true],
                   ["Equity req.", true],
                   ["Stage", false],
-                  ["Fit", false],
+
                   ["Why this fits you", false],
                 ].map(([label, num]) => (
                   <th key={label as string} className={num ? "num" : undefined}>
@@ -358,7 +417,7 @@ export default function PartnerTearsheetPage() {
               ))}
               {!shown.length && (
                 <tr>
-                  <td colSpan={9} className="py-6 text-center text-[11px]" style={{ color: SLATE }}>
+                  <td colSpan={8} className="py-6 text-center text-[11px]" style={{ color: SLATE }}>
                     No deals selected.
                   </td>
                 </tr>
@@ -373,7 +432,7 @@ export default function PartnerTearsheetPage() {
             </div>
           )}
           <div className="mt-1 text-[8.5px]" style={{ color: SLATE }}>
-            Where a criterion is missing from your profile, it is flagged on page 2.
+            Where a criterion is missing from your profile, it is flagged on the investor criteria page.
           </div>
 
 
@@ -382,10 +441,10 @@ export default function PartnerTearsheetPage() {
 
         {/* ───────────────────────── Page 2 ───────────────────────── */}
         <section
-          className="page-break mt-6 bg-white px-[0.55in] pt-[0.5in] shadow-sm print:mt-0 print:shadow-none"
+          className="page-break mt-6 bg-white px-[0.45in] pt-[0.5in] shadow-sm print:mt-0 print:shadow-none"
           style={{ color: INK }}
         >
-          <div className="flex items-end justify-between" style={{ gap: 28, paddingBottom: 14 }}>
+          <div className="masthead flex items-end justify-between" style={{ gap: 28, paddingBottom: 14 }}>
             <Lockup />
             <div className="text-right">
               <div
@@ -598,16 +657,6 @@ export default function PartnerTearsheetPage() {
             </tbody>
           </table>
 
-          <div
-            className="mt-6 pt-3 text-[10.5px]"
-            style={{ color: INK, borderTop: `1px solid ${HAIRLINE}` }}
-          >
-            Your Ansonia contact: {partner.ansonia_poc || "—"}
-          </div>
-          <div className="mt-1 text-[9.5px]" style={{ color: SLATE }}>
-            Send corrections to your Ansonia contact and we will update our records the same day.
-          </div>
-
           <FooterBar partnerName={partner.name} page={2} />
         </section>
       </div>
@@ -629,7 +678,7 @@ function BandGroup({
     <>
       <tr className="band-group">
         <td
-          colSpan={9}
+          colSpan={8}
           className="uppercase"
           style={{
             color: quiet ? SLATE : NAVY,
@@ -666,25 +715,11 @@ function BandGroup({
             <td className="num">{fmtMoneyM(d.estimated_equity as number | null)}</td>
             <td
               className="uppercase"
-              style={{ color: SLATE, fontSize: 8.5, letterSpacing: "0.08em" }}
+              style={{ color: SLATE, fontSize: 8.5, letterSpacing: "0.04em" }}
             >
-              {getStatus(d)}
+              {STAGE_LABEL[getStatus(d)] ?? getStatus(d)}
             </td>
-            <td>
-              <span
-                className="chip"
-                style={{
-                  ...chipStyle(band),
-                  fontSize: 8.5,
-                  fontWeight: 600,
-                  padding: "2px 5px",
-                  borderRadius: 2,
-                }}
-              >
-                {FIT_CHIP_LABEL[band]}
-                {includeScore ? ` ${f.score}` : ""}
-              </span>
-            </td>
+
             <td className="why">
               <b>{head}</b>
               {tail}

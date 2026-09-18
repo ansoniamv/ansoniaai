@@ -281,10 +281,29 @@ mark.__page-search-hit.__page-search-hit-active {
 
 @media print {
   .no-print { display: none !important; }
-  @page { size: letter portrait; margin: 0.5in; }
+  /* Chrome draws its date/title/URL/page-number chrome only inside the @page
+     margin area. With no margin there is nowhere for it to go, so it is
+     suppressed — the 0.5in it used to occupy now lives on the sheet itself. */
+  @page { size: letter portrait; margin: 0; }
+  .tearsheet section { padding: 0.5in 0.45in 0.4in; }
   html, body { background: #fff; }
   .tearsheet { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   .tearsheet thead { display: table-header-group; }
   .tearsheet tr, .tearsheet .band-group { break-inside: avoid; }
   .tearsheet .page-break { break-before: page; }
+
+  /* Reclaimed width: normal wrapping, so UNDERWRITING is no longer split
+     mid-word, and the chip is free to keep its label on one line. */
+  .tearsheet table.pipeline td {
+    padding: 7px 5px;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: none;
+  }
+  .tearsheet table.pipeline thead th { padding: 10px 5px 7px; letter-spacing: 0.06em; }
+  .tearsheet table.pipeline .chip { white-space: nowrap; max-width: none; }
+
+  /* A sheet break inside either of these leaves an orphaned half-block. */
+  .tearsheet .masthead,
+  .tearsheet .summary-strip { break-inside: avoid; }
 }
