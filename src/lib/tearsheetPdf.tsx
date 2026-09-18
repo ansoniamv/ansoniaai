@@ -122,14 +122,14 @@ const s = StyleSheet.create({
   // The HTML sheet asks for 500 here, but only 400 and 600 are registered for
   // Inter. Naming 600 beats writing 500 and letting react-pdf pick for us.
   eyebrow: { fontSize: 6.5, color: SLATE, letterSpacing: 1.4, textTransform: "uppercase", fontWeight: 600 },
-  partnerName: { fontSize: 17, color: NAVY, marginTop: 3, fontFamily: "Inter Tight", fontWeight: 500 },
+  partnerName: { fontSize: 15.75, color: NAVY, marginTop: 3, fontFamily: "Inter Tight", fontWeight: 500 },
   mastMeta: { fontSize: 7.5, color: SLATE, marginTop: 3 },
   navyRule: { borderTopWidth: 2, borderTopColor: NAVY, borderTopStyle: "solid" },
 
   strip: { flexDirection: "row", marginTop: 12, borderBottomWidth: 1, borderBottomColor: HAIRLINE, borderBottomStyle: "solid" },
   stripCell: { flex: 1, paddingHorizontal: 8, paddingVertical: 6 },
   stripLabel: { fontSize: 6, color: SLATE, letterSpacing: 1, textTransform: "uppercase" },
-  stripValue: { fontSize: 13, color: NAVY, marginTop: 2, fontFamily: "Inter Tight", fontWeight: 500 },
+  stripValue: { fontSize: 16.5, color: NAVY, marginTop: 2, fontFamily: "Inter Tight", fontWeight: 500 },
 
   intro: { fontSize: 8, color: SLATE, marginTop: 10, lineHeight: 1.45 },
 
@@ -161,7 +161,7 @@ const s = StyleSheet.create({
   stage: { fontSize: 6.5, color: SLATE, letterSpacing: 0.35, textTransform: "uppercase", paddingHorizontal: 5 },
   whyHead: { fontSize: 7.5, fontWeight: 600 },
 
-  h2: { fontSize: 13, color: NAVY, marginTop: 14, fontFamily: "Inter Tight", fontWeight: 500 },
+  h2: { fontSize: 12, color: NAVY, marginTop: 14, fontFamily: "Inter Tight", fontWeight: 500 },
   callout: {
     marginTop: 8,
     paddingVertical: 9,
