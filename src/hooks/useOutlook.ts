@@ -7,7 +7,7 @@ export type OutlookMessage = Tables<"outlook_messages">;
 // Lightweight columns for the list view. Excludes body_html/body_text/raw which
 // can be ~50KB each and cause statement timeouts when selected for 200 rows.
 const LIST_COLUMNS =
-  "id,message_id,conversation_id,subject,preview,from_email,from_name,to_recipients,received_at,sent_at,is_read,has_attachments,importance,web_link,folder,partner_id,partner_contact_id,deal_id,pinned_at";
+  "id,message_id,conversation_id,subject,preview,from_email,from_name,to_recipients,received_at,sent_at,is_read,has_attachments,importance,web_link,folder,partner_id,partner_contact_id,deal_id";
 
 export function useOutlookMessages(filters?: { partnerId?: string; dealId?: string; unreadOnly?: boolean }) {
   return useQuery({
@@ -79,31 +79,6 @@ export function useAtlasSyncStatus() {
       return data?.synced_at ?? null;
     },
     staleTime: 60_000,
-  });
-}
-
-/**
- * Pin / unpin a message. `pinned_at` doubles as the flag and the ordering key,
- * so the most recently pinned message sits at the top of the pinned block.
- */
-export function useSetMessagePinned() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, pinned }: { id: string; pinned: boolean }) => {
-      // .select() is load-bearing, not decoration: an update filtered out by RLS
-      // comes back 200 with an empty result and error === null, so an error-only
-      // check reports success, the refetch returns the unchanged row, and the pin
-      // silently springs back with nothing in the console. Ask for the affected
-      // row and treat "none" as the failure it is.
-      const { data, error } = await supabase
-        .from("outlook_messages")
-        .update({ pinned_at: pinned ? new Date().toISOString() : null })
-        .eq("id", id)
-        .select("id");
-      if (error) throw error;
-      if (!data?.length) throw new Error("Pin was not saved — the row was not writable.");
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["outlook_messages"] }),
   });
 }
 

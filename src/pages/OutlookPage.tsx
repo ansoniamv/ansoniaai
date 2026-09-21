@@ -28,7 +28,7 @@ export default function OutlookPage() {
   const [dealFilter, setDealFilter] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const { data: messages, isLoading } = useOutlookMessages({ unreadOnly: filter === "unread" });
+  const { data: messages, isLoading, isError, error } = useOutlookMessages({ unreadOnly: filter === "unread" });
   const sync = useSyncOutlook();
   const link = useLinkMessage();
   const { data: partners } = usePartners();
@@ -153,6 +153,8 @@ export default function OutlookPage() {
               <div className="p-4 space-y-3">
                 {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-16" />)}
               </div>
+            ) : isError ? (
+              <LoadFailed error={error as Error} />
             ) : filtered.length === 0 ? (
               <EmptyList onSync={handleSync} syncing={sync.isPending} />
             ) : (
@@ -373,6 +375,32 @@ function LinkCombobox({
           <X className="h-3.5 w-3.5" />
         </Button>
       )}
+    </div>
+  );
+}
+
+/**
+ * The list query failed outright — a distinct state from "the mailbox is quiet".
+ *
+ * Load-bearing, not decoration: a failed query leaves `messages` undefined, which
+ * is indistinguishable from an empty inbox by length alone. Falling through to
+ * EmptyList told the reader "Sync to pull the latest emails" while the sync was
+ * working perfectly and the *read* was broken — which is how a column dropped
+ * by a migration read as a mailbox outage.
+ */
+function LoadFailed({ error }: { error: Error }) {
+  return (
+    <div className="p-10 text-center space-y-4">
+      <div className="mx-auto w-12 h-12 rounded-xl bg-destructive/10 flex items-center justify-center">
+        <X className="h-6 w-6 text-destructive" />
+      </div>
+      <div>
+        <h3 className="font-semibold">Couldn't load messages</h3>
+        <p className="text-sm text-muted-foreground mt-1">
+          The inbox is reachable but the query failed, so syncing again will not help.
+        </p>
+        <p className="text-xs text-muted-foreground mt-2 font-mono break-words">{error?.message}</p>
+      </div>
     </div>
   );
 }
