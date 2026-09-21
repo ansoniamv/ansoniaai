@@ -115,7 +115,8 @@ export default function AuthPage() {
       return;
     }
     toast.success("If the email is registered, a reset link was sent.");
-    setForgotMode(false);
+    // Back to sign-in, the same transition the forgot form's own Back button makes.
+    setMode("signin");
   };
 
   const labelCls =
