@@ -30,12 +30,7 @@ export interface NoteLinkChipsProps {
 
 export function NoteLinkChips({ noteId, ownerType, ownerId, links, hideEntity }: NoteLinkChipsProps) {
   const { data: deals } = useDeals();
-  // Two different jobs, two different lists. Resolving the NAME of an already
-  // linked partner must include the internal record — notes on the internal desk
-  // are stored as entity_type 'partner', and without it an existing link renders
-  // as "Deleted partner". OFFERING a partner to link is a different question:
-  // that list stays filtered, so the internal record can never be newly linked.
-  const { data: allPartners } = usePartners({ includeInternal: true });
+  const { data: allPartners } = usePartners();
   const partners = useMemo(
     () => allPartners ?? [],
     [allPartners],
