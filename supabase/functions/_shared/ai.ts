@@ -23,6 +23,13 @@ const ALLOW_GATEWAY_FALLBACK = Deno.env.get("ALLOW_GATEWAY_FALLBACK") === "1";
 
 export interface CompleteOptions {
   system?: string;
+  /**
+   * Overrides the platform default for this one call. The Deal Inbox call sites
+   * pass DEAL_INBOX_MODEL; everything else omits it and resolves DEFAULT_MODEL.
+   * The gateway fallback ignores it — it is a different provider with its own
+   * model id, which is one more reason those calls pass allowFallback: false.
+   */
+  model?: string;
   /** Keep generous: Opus 5 thinking tokens share this budget. */
   maxTokens?: number;
   /** "low" | "medium" | "high" | "xhigh" | "max" — omit for the API default. */
@@ -89,6 +96,7 @@ export async function completeText(prompt: string, opts: CompleteOptions = {}): 
     try {
       const res = await callClaude(prompt, {
         system: opts.system,
+        model: opts.model,
         max_tokens: opts.maxTokens ?? 8000,
         effort: opts.effort,
         schema: opts.schema,
@@ -135,9 +143,14 @@ export async function completeVision(
 
       const res = await callClaudeRaw({
         system: opts.system,
+        model: opts.model,
         messages: [{ role: "user", content }],
         max_tokens: opts.maxTokens ?? 8000,
         effort: opts.effort,
+        // Forwarded here for the same reason completeText forwards it: without
+        // it a vision call that supplied a schema got unconstrained prose back
+        // and the caller had to regex it out.
+        schema: opts.schema,
         timeoutMs: opts.timeoutMs,
       });
       return { text: res.text, model: res.model, provider: "anthropic", usage: res.usage };
