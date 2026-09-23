@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { Loader2, Globe, RefreshCw, ExternalLink, AlertTriangle } from "lucide-react";
+import { Loader2, Globe, RefreshCw, ExternalLink } from "lucide-react";
 import { safeExternalUrl } from "@/lib/safeUrl";
 import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { usePropertyResearch, type PropertySnapshot } from "@/hooks/usePropertyResearch";
 
@@ -71,8 +70,6 @@ export function PropertyResearchPanel({
 
   const running = research.isPending;
 
-  const isPaused = true;
-
   return (
     <Card className="md:col-span-2">
       <CardHeader>
@@ -81,12 +78,12 @@ export function PropertyResearchPanel({
             <Globe className="h-4 w-4" /> AI Property Research
           </span>
           <div className="flex items-center gap-3">
-            {meta?.generated_at && !isPaused && (
+            {meta?.generated_at && (
               <span className="text-xs font-normal text-muted-foreground">
                 {new Date(meta.generated_at).toLocaleString()}
               </span>
             )}
-            <Button variant="outline" size="sm" onClick={run} disabled={isPaused || running || (!address && !propertyName)}>
+            <Button variant="outline" size="sm" onClick={run} disabled={running || (!address && !propertyName)}>
               {running ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-2 h-3 w-3" />}
               {snapshot ? "Re-run" : "Research with Claude"}
             </Button>
@@ -94,21 +91,12 @@ export function PropertyResearchPanel({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {isPaused && (
-          <Alert variant="default" className="border-amber-500/30 bg-amber-500/10 text-amber-200">
-            <AlertTriangle className="h-4 w-4 text-amber-400" />
-            <AlertTitle className="text-sm font-semibold text-amber-100">Paused for cost review</AlertTitle>
-            <AlertDescription className="text-xs text-amber-200/80">
-              AI Property Research is temporarily disabled while per-call API costs are reviewed. Existing snapshots below remain visible.
-            </AlertDescription>
-          </Alert>
-        )}
         {!snapshot && running && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
             <Loader2 className="h-4 w-4 animate-spin" /> Claude is searching the web… this can take up to a minute.
           </div>
         )}
-        {!snapshot && !running && !isPaused && (
+        {!snapshot && !running && (
           <p className="text-sm text-muted-foreground">
             Pull a public-record + market snapshot (identity, unit mix, current rents, ownership, sentiment) and an
             automatic buybox-fit read. Claude searches the web live — it assembles the public record, not paywalled comps.

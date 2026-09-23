@@ -12,9 +12,14 @@ import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
-// claude-opus-5 also fixes a latent mismatch: the web_search_20260209 tool used
-// below requires Opus 4.6+/Sonnet 4.6+ and is not supported on claude-sonnet-4-5.
-const MODEL = Deno.env.get("PROPERTY_RESEARCH_MODEL") ?? Deno.env.get("ANTHROPIC_MODEL") ?? "claude-opus-5";
+// Sonnet 5 supports the web_search_20260209 tool used below, which needs
+// Opus 4.6+ / Sonnet 4.6+ and is NOT available on claude-sonnet-4-5 — the model
+// the one historical run used. Keep that constraint in mind before lowering this
+// again: an older Sonnet silently loses the search tool this feature is built on.
+//
+// PROPERTY_RESEARCH_MODEL still overrides, so raising this back to claude-opus-5
+// is a secrets change rather than a deploy.
+const MODEL = Deno.env.get("PROPERTY_RESEARCH_MODEL") ?? "claude-sonnet-5";
 const RESEARCH_TIMEOUT_MS = 25_000;
 
 const DEFAULT_BUYBOX = `Ansonia Capital Management buybox:
@@ -426,13 +431,18 @@ async function anthropicResearch(userText: string, buybox: string, ctx?: { supab
 
     const data = await callAnthropic({
       model: MODEL,
-      // Opus 5 runs adaptive thinking by default and those tokens share this
-      // budget, so it is raised from the old 2500 to leave room for the answer.
+      // Adaptive thinking tokens share this budget, so it stays well above the
+      // old 2500 to leave room for the answer itself.
       max_tokens: 16000,
-      // `thinking` is intentionally omitted: Opus 5 runs adaptive thinking when
-      // the field is absent. Do not add budget_tokens — it returns a 400.
+      // `thinking` is intentionally omitted: Sonnet 5 runs adaptive thinking
+      // when the field is absent. Do not add budget_tokens — it returns a 400.
       output_config: {
         format: { type: "json_schema", schema: SNAPSHOT_SCHEMA },
+        // The expensive half of this call is INPUT — the one logged run carried
+        // 42k input tokens of search results against 3.7k output. Effort only
+        // moves the output side, so "medium" trims the reasoning without
+        // touching the part that actually drives the bill.
+        effort: "medium",
       },
       system: systemPrompt(buybox),
       tools,
