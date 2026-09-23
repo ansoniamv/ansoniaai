@@ -18,6 +18,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage, logApiRequest, normalizeUsage } from "../_shared/logUsage.ts";
+import { requireApprovedUser } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -713,6 +714,17 @@ Deno.serve(async (req) => {
     }
 
     // --- public: start a job ------------------------------------------------
+    //
+    // `address` is free text that becomes the model prompt, and web_search is
+    // attached — unauthenticated this endpoint is a billable model proxy. This
+    // gate sits below the internal-worker branch on purpose: that call carries
+    // the service key, not a user session, and would fail an approved-user check.
+    //
+    // It also runs before any write, so a rejected caller leaves no row in
+    // property_research_jobs.
+    const authz = await requireApprovedUser(req);
+    if (!authz.ok) return authz.response;
+
     const { deal_id, address, property_name, depth, force } = body as {
       deal_id?: string; address?: string; property_name?: string; depth?: Depth; force?: boolean;
     };
@@ -763,13 +775,9 @@ Deno.serve(async (req) => {
       if (live) return json({ job_id: live.id, already_running: true });
     }
 
-    const authHeader = req.headers.get("Authorization") ?? "";
-    let userId: string | null = null;
-    try {
-      const token = authHeader.replace("Bearer ", "");
-      const { data } = await supabase.auth.getUser(token);
-      userId = data?.user?.id ?? null;
-    } catch { /* anonymous is acceptable */ }
+    // Identity comes from the gate above, which already verified it. The
+    // previous best-effort lookup treated an anonymous caller as acceptable.
+    const userId = authz.user.id;
 
     const { data: job, error: jobErr } = await supabase
       .from("property_research_jobs").insert({
