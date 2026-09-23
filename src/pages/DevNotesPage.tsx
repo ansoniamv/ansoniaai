@@ -70,7 +70,7 @@ const phaseNotes: NoteSection[] = [
       "Replaced legacy red/yellow/green criteria with weighted pillars + free-text investment thesis.",
       "6 pillars stored in buy_box_pillars: Market Demand & Demographics, Market Supply & Rent Dynamics, Location & Accessibility, Asset Quality & Vintage, Value-Add Opportunity, Deal Economics. Weights must sum to 100%.",
       "Each pillar has buy_box_signals — sub-criteria with field_source path (e.g. deals.median_income_tract, deal_enrichment.rings.5mi.pop_growth_5yr, derived.rent_gap_pct), scoring_method (higher_better/lower_better/range_optimal/boolean), min/max/optimal ranges, and weight_within_pillar.",
-      "buy_box_thesis: singleton free-text. Sent to Lovable AI (gemini-3-flash-preview) along with deal data and pillar scores → returns a -10/+10 adjustment + rationale stored in ai_score_summary.",
+      "buy_box_thesis: singleton free-text. Sent to Claude (deal-score, DEAL_INBOX_MODEL — currently claude-sonnet-5) along with deal data and pillar scores → returns a schema-enforced -10/+10 adjustment + rationale stored in ai_score_summary.",
       "Final ai_score = clamp(weighted_pillar_score + thesis_adjustment, 0, 100). Full breakdown stored in deals.pillar_scores jsonb for transparency in ScoreBreakdown component.",
       "Auto-scoring: edge function deal-score is invoked (a) on deal creation from NewDeal.tsx, (b) nightly via pg_cron at 03:00 UTC, (c) manually via Re-score button on Deal Detail.",
       "Supply data: permits-enrich pulls Census Building Permits Survey (BPS) — free, no API key. CBSA crosswalk TBD; signal scores null until wired.",
