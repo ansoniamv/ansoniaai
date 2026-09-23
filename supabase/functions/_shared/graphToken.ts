@@ -16,8 +16,8 @@ type TokenCache = { token: string; expiresAt: number } | null;
 let cachedToken: TokenCache = null;
 const TOKEN_REFRESH_BUFFER_MS = 120_000; // 2 minutes
 
-/** True when the three app-only secrets are present. Callers use this to decide
- *  between the Graph path and the legacy Lovable connector gateway. */
+/** True when the three app-only secrets are present. Graph app-only is the only
+ *  mailbox transport, so this gates whether mail works at all. */
 export function graphConfigured(): boolean {
   return !!(
     Deno.env.get("GRAPH_TENANT_ID") &&
