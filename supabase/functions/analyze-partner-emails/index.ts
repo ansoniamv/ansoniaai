@@ -2,6 +2,7 @@
 // Input: { partner_id?: string, since_days?: number }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { completeJSON } from "../_shared/ai.ts";
+import { isAnthropicConfigured } from "../_shared/anthropic.ts";
 import { requireUserOrService } from "../_shared/auth.ts";
 
 const corsHeaders = {
@@ -19,8 +20,7 @@ const FACT_CATEGORIES = [
   "capital","personnel","strategy","organizational","relationship","other",
 ] as const;
 
-// Model selection lives in _shared/anthropic.ts (claude-opus-5).
-const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+// AI routing and model selection live in _shared/ai.ts.
 
 // Confidence gates
 const MIN_CONF: Record<string, number> = {
@@ -160,7 +160,7 @@ function looksLikeDirective(m: any): boolean {
 }
 
 async function parseDirectiveWithAI(
-  m: any, apiKey: string,
+  m: any,
 ): Promise<{ intent: string; partner_name: string | null; deal_name: string | null } | null> {
   const text = (m.body_text || stripHtml(m.body_html) || m.preview || "").slice(0, 3000);
   const prompt = `An Ansonia teammate CC'd atlas@ansoniaproperties.com with an instruction for Atlas.
@@ -180,7 +180,7 @@ From: ${m.from_email || ""}
 Body:
 ${text}`;
   try {
-    // Claude Opus 5 primary, gateway fallback — see _shared/ai.ts.
+    // Routed through _shared/ai.ts (Anthropic only).
     const { parsed } = await completeJSON<any>(prompt, { maxTokens: 4000 });
     if (!parsed || typeof parsed !== "object") return null;
     if (typeof parsed.confidence === "number" && parsed.confidence < 0.5) return null;
@@ -400,9 +400,12 @@ Deno.serve(async (req) => {
   const auth = await requireUserOrService(req);
   if (auth && !auth.ok) return auth.response;
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      return new Response(JSON.stringify({ error: "LOVABLE_API_KEY missing" }), {
+    // Guard on the credential this function actually uses. It previously
+    // refused when a now-retired gateway secret was absent, then handed that
+    // secret to parseDirectiveWithAI, which never read it — so retiring the
+    // secret would have silently stopped Atlas directive parsing.
+    if (!isAnthropicConfigured()) {
+      return new Response(JSON.stringify({ error: "ANTHROPIC_API_KEY is not configured" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -451,7 +454,7 @@ Deno.serve(async (req) => {
     });
 
     for (const m of directiveCandidates) {
-      const parsed = await parseDirectiveWithAI(m, LOVABLE_API_KEY);
+      const parsed = await parseDirectiveWithAI(m);
       directiveCheckedIds.add((m as any).id);   // spent an LLM call — never re-check this message
       if (!parsed || parsed.intent === "none") continue;
       if (!parsed.partner_name && !parsed.deal_name) continue;
@@ -901,7 +904,7 @@ Notes on noise reduction:
 
         let aiJson: { suggestions?: Suggestion[]; deal_pick?: any } | null = null;
         try {
-          // Claude Opus 5 primary, gateway fallback — see _shared/ai.ts.
+          // Routed through _shared/ai.ts (Anthropic only).
           const { parsed } = await completeJSON<{ suggestions?: Suggestion[]; deal_pick?: any }>(
             JSON.stringify(userPayload),
             { system: systemPrompt, maxTokens: 8000 },
