@@ -64,6 +64,8 @@ async function generateRationale(
     // the cost down on a call that runs once per deal.
     const res = await completeText(user, {
       model: DEAL_INBOX_MODEL,
+      supabase: ctx?.supabase,
+      priority: "background",
       system,
       maxTokens: 1500,
       effort: "low",

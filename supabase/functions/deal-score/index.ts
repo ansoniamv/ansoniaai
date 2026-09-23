@@ -240,6 +240,9 @@ serve(async (req) => {
           {
             system: "You are an investment committee analyst evaluating a value-add multifamily deal against an investment thesis. Be concise and specific.",
             model: DEAL_INBOX_MODEL,
+            supabase,
+            // Fired by enrichment chains as well as by a click; treat as background.
+            priority: "background",
             maxTokens: 4000,
             // A bounded integer plus a short narrative; no deep reasoning needed.
             effort: "low",

@@ -4,6 +4,7 @@ import { getArcGISToken } from "../_shared/arcgisToken.ts";
 import { graphConfigured, getGraphToken, graphSecretsPresent } from "../_shared/graphToken.ts";
 import { MAILBOX_UPN } from "../_shared/graphMail.ts";
 import { callClaudeRaw, isAnthropicConfigured } from "../_shared/anthropic.ts";
+import { DAILY_BUDGET_USD, MONTHLY_BUDGET_USD } from "../_shared/aiBudget.ts";
 
 
 const corsHeaders = {
@@ -320,8 +321,26 @@ Deno.serve(async (req) => {
     j.stale = !!j.last_success_at && Date.now() - new Date(j.last_success_at).getTime() > DAY_MS;
   }
 
+  // AI spend against the in-app caps. Anthropic only — Esri and HelloData bill
+  // to separate accounts and are not what these caps govern.
+  const { data: spendRow } = await supabase.rpc("ai_spend_totals", { exempt_function_names: [] });
+  const spend = Array.isArray(spendRow) ? spendRow[0] : spendRow;
+  const todayUsd = Number(spend?.today_usd ?? 0);
+  const monthUsd = Number(spend?.month_usd ?? 0);
+  const budget = {
+    today_usd: Number(todayUsd.toFixed(4)),
+    daily_limit_usd: DAILY_BUDGET_USD,
+    month_usd: Number(monthUsd.toFixed(4)),
+    monthly_limit_usd: MONTHLY_BUDGET_USD,
+    label: `${monthUsd.toFixed(2)} of ${MONTHLY_BUDGET_USD.toFixed(2)} this month · ` +
+      `${todayUsd.toFixed(2)} of ${DAILY_BUDGET_USD.toFixed(2)} today`,
+    // "daily" means background jobs are paused but clicks still work.
+    state: monthUsd >= MONTHLY_BUDGET_USD ? "monthly_exceeded"
+      : todayUsd >= DAILY_BUDGET_USD ? "daily_exceeded" : "ok",
+  };
+
   return new Response(
-    JSON.stringify({ ok: true, checked_at: new Date().toISOString(), probes, jobs }),
+    JSON.stringify({ ok: true, checked_at: new Date().toISOString(), probes, jobs, budget }),
     { headers: { ...corsHeaders, "Content-Type": "application/json" } },
   );
 });

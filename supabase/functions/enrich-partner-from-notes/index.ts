@@ -5,7 +5,9 @@ import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-// AI routing and model selection live in _shared/ai.ts.
+import { PARTNER_MODEL } from "../_shared/featureModels.ts";
+
+// AI routing lives in _shared/ai.ts; the model is PARTNER_MODEL.
 
 // Fields we will populate on `partners` from notes.
 type FieldSpec = {
@@ -75,7 +77,11 @@ class GatewayError extends Error {
 // Routing and retries live in _shared/ai.ts — Claude Opus 5 primary, gateway fallback.
 async function callLLM(prompt: string, ctx?: { supabase: any; partner_id?: string }): Promise<string> {
   // Floor the budget: Opus 5 thinking tokens share max_tokens.
-  const res = await completeText(prompt, { maxTokens: 8000 });
+  const res = await completeText(prompt, {
+    model: PARTNER_MODEL,
+    maxTokens: 8000,
+    priority: "interactive",
+  });
   if (ctx?.supabase) {
     await logAiUsage(ctx.supabase, {
       function_name: "enrich-partner-from-notes",

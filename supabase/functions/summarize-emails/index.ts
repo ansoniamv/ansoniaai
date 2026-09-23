@@ -69,6 +69,9 @@ async function callLLM(
   try {
     res = await completeText(prompt, {
       model: DEAL_INBOX_MODEL,
+      supabase: ctx?.supabase,
+      // Fan-out and backfill both land here; nobody is watching a single email.
+      priority: "background",
       allowFallback: false,
       system: opts.system,
       maxTokens: opts.maxTokens,
@@ -111,6 +114,8 @@ async function callVisionLLM(
   try {
     res = await completeVision(prompt, imageUrls, {
       model: DEAL_INBOX_MODEL,
+      supabase: ctx?.supabase,
+      priority: "background",
       allowFallback: false,
       system: opts.system,
       maxTokens: opts.maxTokens,

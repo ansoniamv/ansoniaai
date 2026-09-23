@@ -15,7 +15,13 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 // `claude-sonnet-5` is the only other model we intend to run; select it by
 // changing the ANTHROPIC_MODEL secret, not by changing this code.
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
-const ANTHROPIC_MODEL = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-opus-5";
+import { CHAT_MODEL } from "../_shared/featureModels.ts";
+
+// Ask Atlas runs on CHAT_MODEL (claude-opus-5-5), set in _shared/featureModels.ts.
+// It is the one feature where open-ended reasoning over the whole pipeline is
+// the product, so it gets the Opus tier; note 5.5 is both newer and cheaper than
+// the legacy claude-opus-5 this used to default to.
+const ANTHROPIC_MODEL = CHAT_MODEL;
 const ANTHROPIC_EFFORT = Deno.env.get("ANTHROPIC_EFFORT") ?? "medium";
 const MAX_TOOL_STEPS = 8;
 
