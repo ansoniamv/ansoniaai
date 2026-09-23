@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { completeText, completeVision } from "../_shared/ai.ts";
+import { DEAL_INBOX_MODEL } from "../_shared/dealInboxModel.ts";
 import { logAiUsage, logAiFailure } from "../_shared/logUsage.ts";
 import { requireUserOrService } from "../_shared/auth.ts";
 // The extractable-field contract, the write-boundary guards and the
@@ -16,20 +17,21 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Structured extraction here is the foundation for gating + scoring, so it runs
-// on the platform default. Model selection lives in _shared/anthropic.ts
-// (claude-opus-5). The former per-call Gemini constants were vestigial: callLLM
-// ignored the argument, and the usage log already records the model that
-// actually answered.
+// Structured extraction here is the foundation for gating + scoring. All three
+// model calls in this file — extraction, the vision pass and the thread roll-up
+// — run on DEAL_INBOX_MODEL (Sonnet 5), set in _shared/dealInboxModel.ts. The
+// former per-call Gemini constants were vestigial: callLLM ignored the argument,
+// and the usage log already records the model that actually answered.
 
 // Outlook connector — used to fetch inline image attachments referenced by cid:
 import { graphFetch, resolveMailbox } from "../_shared/graphMail.ts";
 
 // Batch size for every path through this function. This is a COST decision whose
 // premise is the model on the other end: it was 100/200, sized for the Lovable
-// gateway's flash-lite pricing, and routing now goes to Claude Opus 5 via
-// _shared/ai.ts. The premise is named on purpose — if routing changes again, this
-// comment should read as wrong rather than age quietly.
+// gateway's flash-lite pricing, then Claude Opus 5, and now Sonnet 5 via
+// DEAL_INBOX_MODEL — roughly 2.5x cheaper per token than Opus 5. The premise is
+// named on purpose — if routing changes again, this comment should read as wrong
+// rather than age quietly.
 //
 // It is also a THROUGHPUT floor, not only a ceiling: selection below is
 // newest-first, so a batch smaller than daily inflow leaves older rows permanently
@@ -47,11 +49,11 @@ async function callLLM(
   maxTokens = 400,
   ctx?: { supabase: any; deal_id?: string | null },
 ): Promise<string> {
-  // Routing and retries live in _shared/ai.ts. Floor the budget: Opus 5 thinking
-  // tokens share max_tokens.
+  // Routing and retries live in _shared/ai.ts. Floor the budget: thinking is
+  // adaptive on Sonnet 5 and its tokens count against max_tokens.
   let res;
   try {
-    res = await completeText(prompt, { maxTokens: Math.max(maxTokens, 8000) });
+    res = await completeText(prompt, { model: DEAL_INBOX_MODEL, maxTokens: Math.max(maxTokens, 8000) });
   } catch (e) {
     // A failed model call now leaves a row with the provider's HTTP status, so
     // the failure is visible from SQL instead of only in the function logs.
@@ -82,8 +84,9 @@ async function callVisionLLM(
   maxTokens = 400,
   ctx?: { supabase: any; deal_id?: string | null },
 ): Promise<string> {
-  // Image handling and routing live in _shared/ai.ts — Claude Opus 5 primary.
-  const res = await completeVision(prompt, imageUrls, { maxTokens: Math.max(maxTokens, 8000) });
+  // Image handling and routing live in _shared/ai.ts. Sonnet 5 takes the same
+  // base64 and URL image blocks Opus 5 did; only the model id changes.
+  const res = await completeVision(prompt, imageUrls, { model: DEAL_INBOX_MODEL, maxTokens: Math.max(maxTokens, 8000) });
   if (ctx?.supabase) {
     await logAiUsage(ctx.supabase, {
       function_name: "summarize-emails",
