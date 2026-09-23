@@ -1,23 +1,19 @@
 // One place where "which mailbox, over which transport" is decided.
 //
-// Graph path (preferred): app-only token + an explicit mailbox UPN in the path,
+// There is one transport: Microsoft Graph app-only. A token is minted from the
+// GRAPH_* secrets and the mailbox is named explicitly in the path,
 //   https://graph.microsoft.com/v1.0/users/{upn}/...
-//   The mailbox is named by us, not inferred from whoever happened to be signed
-//   in when someone clicked Connect — so it cannot silently bind to the wrong one.
+// so the mailbox is chosen by us rather than inferred from whoever happened to
+// be signed in when someone clicked Connect. It cannot silently bind to the
+// wrong one, and "reachable" and "is the right mailbox" are the same question.
 //
-// Gateway path (legacy, Lovable): kept only as a fallback while GRAPH_* secrets
-//   are not yet set, so this code can ship before admin consent lands. Delete the
-//   gateway branch — and _shared/outlookKeys.ts with it — once Graph is live.
-//
-// Graph resource paths and $select/$filter query strings are IDENTICAL on both
-// transports; the gateway was never rewriting them. Only the prefix and the
-// auth headers differ.
+// The legacy connector-gateway path is gone. It could not verify which mailbox
+// it was talking to, which is precisely the failure this module exists to make
+// impossible, and there is no fallback to fall back to.
 
 import { getGraphToken, graphConfigured } from "./graphToken.ts";
-import { resolveAcquisitionsKey, resolveAtlasKey } from "./outlookKeys.ts";
 
 export const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
-const GATEWAY_BASE = "https://connector-gateway.lovable.dev/microsoft_outlook";
 
 export type MailboxKey = "acquisitions" | "atlas";
 
@@ -28,10 +24,14 @@ export const MAILBOX_UPN: Record<MailboxKey, string> = {
 
 export type MailboxTransport = {
   mailbox: MailboxKey;
-  /** "graph" | "gateway" — safe to log and surface on the status page. */
+  /**
+   * Always "graph". The union is kept because callers compare against it and
+   * persist it, and narrowing it to a single literal would turn those reads into
+   * type errors in functions this change does not otherwise touch.
+   */
   via: "graph" | "gateway";
-  /** UPN on the Graph path, null on the gateway path (identity is implicit there). */
-  upn: string | null;
+  /** UPN this transport is bound to. */
+  upn: string;
   /** Absolute URL for a Graph-relative path such as "/messages?$top=1". */
   url: (path: string) => string;
   /** Auth headers for that transport. */
@@ -41,46 +41,32 @@ export type MailboxTransport = {
 };
 
 /**
- * Resolve how to talk to a mailbox. Returns null when neither transport is
- * configured for it (caller decides whether that is fatal).
+ * Resolve how to talk to a mailbox.
+ *
+ * Throws rather than returning null when the secrets are absent: there is no
+ * second transport to try, so a null here would only travel further before
+ * failing somewhere less informative.
  */
-export function resolveMailbox(mailbox: MailboxKey): MailboxTransport | null {
-  if (graphConfigured()) {
-    const upn = MAILBOX_UPN[mailbox];
-    const prefix = `${GRAPH_BASE}/users/${encodeURIComponent(upn)}`;
-    return {
-      mailbox,
-      via: "graph",
-      upn,
-      url: (path: string) => (path.startsWith("http") ? path : `${prefix}${path}`),
-      headers: async () => {
-        const { token } = await getGraphToken();
-        return { Authorization: `Bearer ${token}` };
-      },
-      detail: `Graph app-only as ${upn}`,
-    };
+export function resolveMailbox(mailbox: MailboxKey): MailboxTransport {
+  if (!graphConfigured()) {
+    throw new Error(
+      "GRAPH_TENANT_ID, GRAPH_CLIENT_ID and GRAPH_CLIENT_SECRET are not set — " +
+        "Microsoft Graph app-only is the only mailbox transport.",
+    );
   }
 
-  // ---- legacy gateway fallback ----
-  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
-  const acq = resolveAcquisitionsKey();
-  const atlasRes = resolveAtlasKey();
-  const connectionKey = mailbox === "atlas"
-    ? (atlasRes.collidesWithAcquisitions ? null : atlasRes.key)
-    : acq.key;
-  const keyName = mailbox === "atlas" ? atlasRes.name : acq.name;
-  if (!lovableKey || !connectionKey) return null;
-
+  const upn = MAILBOX_UPN[mailbox];
+  const prefix = `${GRAPH_BASE}/users/${encodeURIComponent(upn)}`;
   return {
     mailbox,
-    via: "gateway",
-    upn: null,
-    url: (path: string) => (path.startsWith("http") ? path : `${GATEWAY_BASE}/me${path}`),
-    headers: async () => ({
-      Authorization: `Bearer ${lovableKey}`,
-      "X-Connection-Api-Key": connectionKey,
-    }),
-    detail: `Lovable gateway via ${keyName} (mailbox identity unverified)`,
+    via: "graph",
+    upn,
+    url: (path: string) => (path.startsWith("http") ? path : `${prefix}${path}`),
+    headers: async () => {
+      const { token } = await getGraphToken();
+      return { Authorization: `Bearer ${token}` };
+    },
+    detail: `Graph app-only as ${upn}`,
   };
 }
 
@@ -98,11 +84,10 @@ export async function graphFetch(
 }
 
 /**
- * Follow an @odata.nextLink only when it points at the transport we are already
- * using — never chase an absolute URL a response hands us to some other host.
+ * Follow an @odata.nextLink only when it points at Graph — never chase an
+ * absolute URL a response hands us to some other host.
  */
-export function safeNextLink(mb: MailboxTransport, next: unknown): string | null {
+export function safeNextLink(_mb: MailboxTransport, next: unknown): string | null {
   if (typeof next !== "string") return null;
-  const allowed = mb.via === "graph" ? GRAPH_BASE : GATEWAY_BASE;
-  return next.startsWith(allowed) ? next : null;
+  return next.startsWith(GRAPH_BASE) ? next : null;
 }

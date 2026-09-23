@@ -1,9 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { requireApprovedUser } from "../_shared/auth.ts";
 import { getArcGISToken } from "../_shared/arcgisToken.ts";
-import { resolveAtlasKey, ATLAS_CANDIDATES } from "../_shared/outlookKeys.ts";
 import { graphConfigured, getGraphToken, graphSecretsPresent } from "../_shared/graphToken.ts";
-import { graphFetch, resolveMailbox, MAILBOX_UPN } from "../_shared/graphMail.ts";
+import { MAILBOX_UPN } from "../_shared/graphMail.ts";
+import { callClaudeRaw, isAnthropicConfigured } from "../_shared/anthropic.ts";
 
 
 const corsHeaders = {
@@ -31,29 +31,104 @@ async function timed(fn: () => Promise<{ ok: boolean; status?: number; detail: s
   }
 }
 
-const GATEWAY = "https://connector-gateway.lovable.dev";
+type ProbeResult = { ok: boolean; status?: number; detail: string; degraded?: boolean };
 
 /**
- * Probe one mailbox over whatever transport production uses for it.
+ * Firecrawl reachability, without paying for it.
  *
- * Graph path: the mailbox is named in the URL, so "reachable" and "is the right
- * mailbox" are the same question — a 404 means that UPN does not exist, a 403
- * means application permissions (Mail.Read / Mail.Send, plus any application
- * access policy) do not cover it. There is no identity to drift.
+ * Two things matter here. The status page is opened casually and by several
+ * people, so a probe that spends a paid search credit per page load is a real
+ * recurring cost for a diagnostic. And the account-level credit-usage endpoint,
+ * where available, answers a strictly better question: not just "is the key
+ * accepted" but "how much is left".
  *
- * Gateway path: identity stays unverifiable, so say so rather than implying health.
+ * So: try credit-usage, fall back to a 1-result search only if that endpoint is
+ * genuinely absent (404/405), and cache either answer for an hour. Worst case —
+ * no credit-usage endpoint — that caps the cost at one credit per hour per warm
+ * instance instead of one per page load.
+ *
+ * The cache is module-level, so it lives as long as the instance and is lost on
+ * a cold start. That is the right tradeoff for a status page: a stale "ok" never
+ * outlives the instance by much, and a cold start pays at most one probe.
+ */
+const FIRECRAWL_TTL_MS = 60 * 60 * 1000;
+let firecrawlCache: { at: number; result: ProbeResult } | null = null;
+
+async function probeFirecrawl(key: string | undefined): Promise<ProbeResult> {
+  if (!key) return { ok: false, detail: "FIRECRAWL_API_KEY missing" };
+
+  if (firecrawlCache && Date.now() - firecrawlCache.at < FIRECRAWL_TTL_MS) {
+    const age = Math.round((Date.now() - firecrawlCache.at) / 60_000);
+    return { ...firecrawlCache.result, detail: `${firecrawlCache.result.detail} (cached ${age}m)` };
+  }
+
+  const classify = async (r: Response, okDetail: string): Promise<ProbeResult> => {
+    if (r.ok) return { ok: true, status: r.status, detail: okDetail };
+    const body = await r.text().catch(() => "");
+    if (r.status === 401 || r.status === 403) return { ok: false, status: r.status, detail: "FIRECRAWL_API_KEY rejected" };
+    if (r.status === 402) return { ok: false, degraded: true, status: 402, detail: "Credits exhausted" };
+    if (r.status === 429) return { ok: false, degraded: true, status: 429, detail: "Rate limited" };
+    return { ok: false, status: r.status, detail: `HTTP ${r.status}: ${body.slice(0, 120)}` };
+  };
+
+  let result: ProbeResult;
+  try {
+    const usage = await fetch("https://api.firecrawl.dev/v2/team/credit-usage", {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+
+    if (usage.status === 404 || usage.status === 405) {
+      // Not on this plan, or not this path — fall back to the call production
+      // actually makes. Cached below like any other answer.
+      const search = await fetch("https://api.firecrawl.dev/v2/search", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ query: "ansonia properties", limit: 1 }),
+      });
+      result = await classify(search, "Reachable (search probe — no credit-usage endpoint)");
+    } else if (usage.ok) {
+      const j = await usage.json().catch(() => ({}));
+      const remaining =
+        (j as any)?.data?.remaining_credits ?? (j as any)?.remaining_credits ?? null;
+      result = {
+        ok: true,
+        status: usage.status,
+        detail: remaining === null ? "Reachable" : `Reachable — ${remaining} credits remaining`,
+      };
+    } else {
+      result = await classify(usage, "Reachable");
+    }
+  } catch (e) {
+    // Network-level failure: report it, and do not cache it. A blip should not
+    // pin the page to "down" for an hour.
+    return { ok: false, detail: (e as Error).message };
+  }
+
+  firecrawlCache = { at: Date.now(), result };
+  return result;
+}
+
+/**
+ * Probe one mailbox. Microsoft Graph app-only is the only transport.
+ *
+ * The mailbox is named in the URL, so "reachable" and "is the right mailbox" are
+ * the same question — a 404 means that UPN does not exist, a 403 means
+ * application permissions (Mail.Read / Mail.Send, plus any application access
+ * policy) do not cover it. There is no identity to drift.
  */
 async function probeMailbox(
   mailbox: "acquisitions" | "atlas",
 ): Promise<{ ok: boolean; status?: number; detail: string; degraded?: boolean }> {
-  const atlasRes = resolveAtlasKey();
-  const found = mailbox === "atlas"
-    ? (atlasRes.present.length
-      ? `Found: ${atlasRes.present.join(", ")}`
-      : `No Atlas secret found (checked: ${ATLAS_CANDIDATES.join(", ")})`)
-    : "";
+  if (!graphConfigured()) {
+    return {
+      ok: false,
+      detail:
+        `GRAPH_* secrets not set (present: ${graphSecretsPresent().join(", ") || "none"}) — ` +
+        "Graph app-only is the only mailbox transport.",
+    };
+  }
 
-  if (graphConfigured()) {
+  {
     const upn = MAILBOX_UPN[mailbox];
     let token = "";
     try {
@@ -82,25 +157,6 @@ async function probeMailbox(
     return { ok: false, status: r.status, detail: `HTTP ${r.status} for ${upn}: ${body.slice(0, 120)}` };
   }
 
-  // ---- legacy gateway path ----
-  const mb = resolveMailbox(mailbox);
-  if (!mb) {
-    return { ok: false, detail: `Connector not linked (Graph secrets not set)${found ? ` — ${found}` : ""}` };
-  }
-  if (mailbox === "atlas" && atlasRes.collidesWithAcquisitions) {
-    return { ok: false, status: 409, detail: `${atlasRes.name} matches the acquisitions key — wrong mailbox authorized. ${found}` };
-  }
-  const r = await graphFetch(mb, "/messages?$top=1&$select=id");
-  if (r.ok) {
-    return {
-      ok: true, degraded: true, status: r.status,
-      detail: `Reachable via ${mb.detail} — set GRAPH_TENANT_ID/CLIENT_ID/CLIENT_SECRET to verify mailbox identity. ${found}`.trim(),
-    };
-  }
-  if (r.status === 401 || r.status === 403) {
-    return { ok: false, status: r.status, detail: `HTTP ${r.status} via ${mb.detail} — grant expired or revoked. ${found}`.trim() };
-  }
-  return { ok: false, status: r.status, detail: `HTTP ${r.status} via ${mb.detail}. ${found}`.trim() };
 }
 
 
@@ -111,10 +167,7 @@ Deno.serve(async (req) => {
   if (!auth.ok) return auth.response;
 
 
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
   const OUTLOOK_KEY = Deno.env.get("MICROSOFT_OUTLOOK_API_KEY");
-  const atlasRes = resolveAtlasKey();
-  
 
   const FIRECRAWL_KEY = Deno.env.get("FIRECRAWL_API_KEY");
   const HELLODATA_KEY = Deno.env.get("HELLODATA_API_KEY");
@@ -127,7 +180,7 @@ Deno.serve(async (req) => {
   );
 
   // Run probes in parallel.
-  const [outlook, outlookAtlas, hellodata, esri, firecrawl, lovableAi] = await Promise.all([
+  const [outlook, outlookAtlas, hellodata, esri, firecrawl, anthropic] = await Promise.all([
     // Outlook — acquisitions mailbox
     timed(() => probeMailbox("acquisitions")),
     // Outlook — Atlas mailbox
@@ -158,36 +211,35 @@ Deno.serve(async (req) => {
       const ok = r.ok && Array.isArray(j?.candidates) && j.candidates.length > 0;
       return { ok, degraded: ok && source === "api_key_fallback", status: r.status, detail: ok ? `Geocode OK via ${via}` : `HTTP ${r.status} via ${via}` };
     }),
-    // Firecrawl via gateway verify
+    // Firecrawl — direct against api.firecrawl.dev, the same host and auth
+    // find-partner-website uses, so this cannot report healthy on a path
+    // production does not take.
+    timed(() => probeFirecrawl(FIRECRAWL_KEY)),
+    // Anthropic — a real inference call through the same client every AI path
+    // uses, so a key that passes here is one those paths will work with.
+    // Haiku at max_tokens: 1 is the cheapest round trip that still proves auth,
+    // routing and quota rather than merely that a secret is present.
     timed(async () => {
-      if (!LOVABLE_API_KEY || !FIRECRAWL_KEY) return { ok: false, detail: "Connector not linked" };
-      const r = await fetch(`${GATEWAY}/api/v1/verify_credentials`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "X-Connection-Api-Key": FIRECRAWL_KEY },
-      });
-      const j = await r.json().catch(() => ({}));
-      const ok = r.ok && j.outcome === "verified";
-      return { ok: r.ok && j.outcome !== "failed", degraded: j.outcome === "skipped", status: r.status, detail: j.outcome || `HTTP ${r.status}` };
-    }),
-    // Lovable AI Gateway — minimal real inference call.
-    // NOTE: /v1/models is NOT a documented gateway route and always 404s;
-    // the gateway's real surface is /v1/chat/completions.
-    timed(async () => {
-      if (!LOVABLE_API_KEY) return { ok: false, detail: "LOVABLE_API_KEY missing" };
-      const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [{ role: "user", content: "ping" }],
+      if (!isAnthropicConfigured()) return { ok: false, detail: "ANTHROPIC_API_KEY missing" };
+      try {
+        const res = await callClaudeRaw({
+          model: "claude-haiku-4-5",
           max_tokens: 1,
-        }),
-      });
-      if (r.ok) { await r.text().catch(() => ""); return { ok: true, status: r.status, detail: "Reachable" }; }
-      const body = await r.text().catch(() => "");
-      if (r.status === 402) return { ok: false, degraded: true, status: 402, detail: "AI credits exhausted" };
-      if (r.status === 429) return { ok: false, degraded: true, status: 429, detail: "Rate limited" };
-      return { ok: false, status: r.status, detail: `HTTP ${r.status}: ${body.slice(0, 120)}` };
+          messages: [{ role: "user", content: "ping" }],
+          maxRetries: 0,
+          timeoutMs: 15_000,
+        });
+        return { ok: true, status: 200, detail: `Reachable (${res.model})` };
+      } catch (e: any) {
+        const status = typeof e?.status === "number" ? e.status : undefined;
+        const body = String(e?.body ?? e?.message ?? e).slice(0, 160);
+        if (status === 401) return { ok: false, status, detail: "ANTHROPIC_API_KEY rejected" };
+        if (status === 429) return { ok: false, degraded: true, status, detail: "Rate limited" };
+        if (status === 400 && /credit balance/i.test(body)) {
+          return { ok: false, degraded: true, status, detail: "Credit balance too low" };
+        }
+        return { ok: false, status, detail: body };
+      }
     }),
 
   ]);
@@ -201,7 +253,7 @@ Deno.serve(async (req) => {
     },
     {
       id: "outlook_atlas", name: "Microsoft Outlook — Atlas", category: "connector",
-      status: (!graphConfigured() && atlasRes.present.length === 0) ? "unconfigured"
+      status: !graphConfigured() ? "unconfigured"
         : outlookAtlas.degraded ? "degraded" : outlookAtlas.ok ? "ok" : "down",
       latency_ms: outlookAtlas.ms, detail: outlookAtlas.detail, http_status: outlookAtlas.status,
     },
@@ -221,15 +273,10 @@ Deno.serve(async (req) => {
       latency_ms: esri.ms, detail: esri.detail, http_status: esri.status,
     },
     {
-      id: "lovable_ai", name: "Lovable AI Gateway", category: "ai",
-      status: !LOVABLE_API_KEY ? "unconfigured" : lovableAi.ok ? "ok" : lovableAi.degraded ? "degraded" : "down",
-      latency_ms: lovableAi.ms, detail: lovableAi.detail, http_status: lovableAi.status,
-    },
-    {
-      id: "anthropic", name: "Anthropic (backup LLM)", category: "ai",
-      status: ANTHROPIC_KEY ? "ok" : "unconfigured",
-      latency_ms: null,
-      detail: ANTHROPIC_KEY ? "Key configured (not pinged)" : "Not configured",
+      id: "anthropic", name: "Anthropic (Claude)", category: "ai",
+      status: !ANTHROPIC_KEY ? "unconfigured"
+        : anthropic.degraded ? "degraded" : anthropic.ok ? "ok" : "down",
+      latency_ms: anthropic.ms, detail: anthropic.detail, http_status: anthropic.status,
     },
   ];
 

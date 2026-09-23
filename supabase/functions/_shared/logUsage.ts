@@ -47,7 +47,8 @@ export function normalizeUsage(usage: any): {
   if (!usage || typeof usage !== "object") {
     return { input_tokens: 0, output_tokens: 0, cached_tokens: 0 };
   }
-  // OpenAI/Lovable-gateway shape: prompt_tokens, completion_tokens
+  // OpenAI-style shape: prompt_tokens, completion_tokens. Retained so historical
+  // rows written by the retired gateway still parse.
   //   optional prompt_tokens_details.cached_tokens
   // Anthropic shape: input_tokens, output_tokens, cache_read_input_tokens
   const input =

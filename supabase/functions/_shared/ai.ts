@@ -1,186 +1,111 @@
 // Single entry point for every AI text call in the platform.
 //
-// Claude Opus 5 is the primary model. The Lovable gateway remains as an
-// automatic fallback so a single Anthropic outage cannot take the platform
-// down; set USE_ANTHROPIC=0 to force the fallback path.
+// Anthropic is the only provider. There is no fallback: if Claude cannot be
+// reached the call throws and the caller decides what that means. The previous
+// third-party gateway fallback is gone — it could not succeed, because that
+// gateway is dead, and all it did was replace a diagnosable Anthropic error
+// carrying a status and a verbatim body with a misleading gateway one. That is
+// how a real failure stayed invisible for a week.
 //
-// SECURITY: both API keys are read from the edge-function environment and are
-// only ever used server-side. Nothing here reaches the browser.
+// Model selection: DEFAULT_MODEL unless a caller passes opts.model. The Deal
+// Inbox call sites pass DEAL_INBOX_MODEL.
+//
+// SECURITY: the API key is read from the edge-function environment and is only
+// ever used server-side. Nothing here reaches the browser.
 
-import { callClaude, callClaudeRaw, isAnthropicConfigured, AnthropicRefusalError } from "./anthropic.ts";
-
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-const USE_ANTHROPIC = Deno.env.get("USE_ANTHROPIC") !== "0";
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const FALLBACK_MODEL = Deno.env.get("FALLBACK_MODEL") ?? "google/gemini-2.5-flash";
-/**
- * The Lovable gateway is dead, so the fallback cannot succeed — all it does is
- * replace a diagnosable Anthropic error (status + body) with a misleading
- * gateway one, which is how the real failure stayed invisible for a week.
- * OFF unless explicitly enabled.
- */
-const ALLOW_GATEWAY_FALLBACK = Deno.env.get("ALLOW_GATEWAY_FALLBACK") === "1";
+import {
+  callClaude,
+  callClaudeRaw,
+  isAnthropicConfigured,
+  AnthropicNotConfiguredError,
+} from "./anthropic.ts";
 
 export interface CompleteOptions {
   system?: string;
   /**
    * Overrides the platform default for this one call. The Deal Inbox call sites
    * pass DEAL_INBOX_MODEL; everything else omits it and resolves DEFAULT_MODEL.
-   * The gateway fallback ignores it — it is a different provider with its own
-   * model id, which is one more reason those calls pass allowFallback: false.
    */
   model?: string;
-  /** Keep generous: Opus 5 thinking tokens share this budget. */
+  /** Keep generous: thinking is adaptive on these models and shares this budget. */
   maxTokens?: number;
   /** "low" | "medium" | "high" | "xhigh" | "max" — omit for the API default. */
   effort?: string;
   timeoutMs?: number;
-  /** Set false for calls that must not silently degrade to the fallback model. */
-  allowFallback?: boolean;
   /**
-   * JSON Schema constraining the response. Anthropic enforces it server-side.
-   * The gateway fallback has no equivalent, so a schema'd call that falls back
-   * still returns prose — completeJSON's tolerant parse covers that case.
+   * Accepted and ignored. With the gateway gone every call already behaves as
+   * allowFallback: false, so this stays only to keep the existing call sites
+   * compiling — dropping it from them is a separate, unhurried edit rather than
+   * a sweep across functions this task does not otherwise touch.
    */
+  allowFallback?: boolean;
+  /** JSON Schema constraining the response. Anthropic enforces it server-side. */
   schema?: Record<string, unknown>;
 }
 
 export interface CompleteResult {
   text: string;
   model: string;
-  provider: "anthropic" | "lovable-gateway";
+  provider: "anthropic";
   usage: any;
-  /** Populated when the primary model failed and the fallback answered. */
-  fallbackReason?: string;
 }
 
-async function callGateway(prompt: string, opts: CompleteOptions): Promise<CompleteResult> {
-  if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
-  const messages: any[] = [];
-  if (opts.system) messages.push({ role: "system", content: opts.system });
-  messages.push({ role: "user", content: prompt });
-
-  const res = await fetch(GATEWAY_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${LOVABLE_API_KEY}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: FALLBACK_MODEL,
-      max_tokens: opts.maxTokens ?? 2000,
-      messages,
-    }),
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`Gateway ${res.status}: ${t.slice(0, 300)}`);
-  }
-  const data = await res.json();
-  return {
-    text: (data?.choices?.[0]?.message?.content ?? "").trim(),
-    model: FALLBACK_MODEL,
-    provider: "lovable-gateway",
-    usage: data?.usage,
-  };
+/** One message for "Claude is not configured", so every caller reads the same. */
+function assertConfigured(): void {
+  if (!isAnthropicConfigured()) throw new AnthropicNotConfiguredError();
 }
 
 /**
- * Run a prompt through Claude Opus 5, falling back to the gateway on failure.
- * A refusal is never retried on the fallback — it is surfaced to the caller.
+ * Run a prompt through Claude.
+ *
+ * A refusal arrives as AnthropicRefusalError and an HTTP failure as
+ * AnthropicHttpError, both carrying enough detail to diagnose from the log.
  */
 export async function completeText(prompt: string, opts: CompleteOptions = {}): Promise<CompleteResult> {
-  const allowFallback = opts.allowFallback !== false;
-
-  if (USE_ANTHROPIC && isAnthropicConfigured()) {
-    try {
-      const res = await callClaude(prompt, {
-        system: opts.system,
-        model: opts.model,
-        max_tokens: opts.maxTokens ?? 8000,
-        effort: opts.effort,
-        schema: opts.schema,
-        timeoutMs: opts.timeoutMs,
-      });
-      return { text: res.text, model: res.model, provider: "anthropic", usage: res.usage };
-    } catch (e: any) {
-      if (e instanceof AnthropicRefusalError) throw e;
-      if (!ALLOW_GATEWAY_FALLBACK || !allowFallback || !LOVABLE_API_KEY) throw e;
-      const reason = String(e?.message ?? e);
-      console.warn("Claude failed, falling back to gateway:", reason);
-      const res = await callGateway(prompt, opts);
-      return { ...res, fallbackReason: reason };
-    }
-  }
-
-  return callGateway(prompt, opts);
+  assertConfigured();
+  const res = await callClaude(prompt, {
+    system: opts.system,
+    model: opts.model,
+    max_tokens: opts.maxTokens ?? 8000,
+    effort: opts.effort,
+    schema: opts.schema,
+    timeoutMs: opts.timeoutMs,
+  });
+  return { text: res.text, model: res.model, provider: "anthropic", usage: res.usage };
 }
 
 /**
  * Vision call. Accepts `data:` URIs (inline attachments) or plain https URLs and
- * converts them to Claude image blocks, falling back to the OpenAI-compatible
- * gateway shape if Claude is unavailable.
+ * converts them to Claude image blocks.
  */
 export async function completeVision(
   prompt: string,
   imageUrls: string[],
   opts: CompleteOptions = {},
 ): Promise<CompleteResult> {
-  const allowFallback = opts.allowFallback !== false;
+  assertConfigured();
 
-  if (USE_ANTHROPIC && isAnthropicConfigured()) {
-    try {
-      const content: any[] = [];
-      for (const url of imageUrls) {
-        const m = /^data:([^;]+);base64,(.*)$/s.exec(url);
-        content.push(
-          m
-            ? { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } }
-            : { type: "image", source: { type: "url", url } },
-        );
-      }
-      content.push({ type: "text", text: prompt });
-
-      const res = await callClaudeRaw({
-        system: opts.system,
-        model: opts.model,
-        messages: [{ role: "user", content }],
-        max_tokens: opts.maxTokens ?? 8000,
-        effort: opts.effort,
-        // Forwarded here for the same reason completeText forwards it: without
-        // it a vision call that supplied a schema got unconstrained prose back
-        // and the caller had to regex it out.
-        schema: opts.schema,
-        timeoutMs: opts.timeoutMs,
-      });
-      return { text: res.text, model: res.model, provider: "anthropic", usage: res.usage };
-    } catch (e: any) {
-      if (e instanceof AnthropicRefusalError) throw e;
-      if (!ALLOW_GATEWAY_FALLBACK || !allowFallback || !LOVABLE_API_KEY) throw e;
-      console.warn("Claude vision failed, falling back to gateway:", String(e?.message ?? e));
-    }
+  const content: any[] = [];
+  for (const url of imageUrls) {
+    const m = /^data:([^;]+);base64,(.*)$/s.exec(url);
+    content.push(
+      m
+        ? { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } }
+        : { type: "image", source: { type: "url", url } },
+    );
   }
+  content.push({ type: "text", text: prompt });
 
-  if (!LOVABLE_API_KEY) throw new Error("No vision model is configured");
-  const content: any[] = [{ type: "text", text: prompt }];
-  for (const url of imageUrls) content.push({ type: "image_url", image_url: { url } });
-  const res = await fetch(GATEWAY_URL, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      model: FALLBACK_MODEL,
-      max_tokens: opts.maxTokens ?? 2000,
-      messages: [{ role: "user", content }],
-    }),
+  const res = await callClaudeRaw({
+    system: opts.system,
+    model: opts.model,
+    messages: [{ role: "user", content }],
+    max_tokens: opts.maxTokens ?? 8000,
+    effort: opts.effort,
+    schema: opts.schema,
+    timeoutMs: opts.timeoutMs,
   });
-  if (!res.ok) throw new Error(`Vision gateway ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const data = await res.json();
-  return {
-    text: (data?.choices?.[0]?.message?.content ?? "").trim(),
-    model: FALLBACK_MODEL,
-    provider: "lovable-gateway",
-    usage: data?.usage,
-  };
+  return { text: res.text, model: res.model, provider: "anthropic", usage: res.usage };
 }
 
 /** completeText + JSON parsing. Tolerates prose or code fences around the object. */

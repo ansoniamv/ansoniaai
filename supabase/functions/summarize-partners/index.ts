@@ -10,10 +10,7 @@ import { completeText } from "../_shared/ai.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
-
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-// Model selection lives in _shared/anthropic.ts (claude-opus-5).
+// AI routing and model selection live in _shared/ai.ts.
 const CONCURRENCY = 4;
 const MAX_IDS_PER_CALL = 200;
 
