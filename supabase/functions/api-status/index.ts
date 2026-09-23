@@ -31,8 +31,85 @@ async function timed(fn: () => Promise<{ ok: boolean; status?: number; detail: s
   }
 }
 
+type ProbeResult = { ok: boolean; status?: number; detail: string; degraded?: boolean };
+
 /**
- * Probe one mailbox over whatever transport production uses for it.
+ * Firecrawl reachability, without paying for it.
+ *
+ * Two things matter here. The status page is opened casually and by several
+ * people, so a probe that spends a paid search credit per page load is a real
+ * recurring cost for a diagnostic. And the account-level credit-usage endpoint,
+ * where available, answers a strictly better question: not just "is the key
+ * accepted" but "how much is left".
+ *
+ * So: try credit-usage, fall back to a 1-result search only if that endpoint is
+ * genuinely absent (404/405), and cache either answer for an hour. Worst case —
+ * no credit-usage endpoint — that caps the cost at one credit per hour per warm
+ * instance instead of one per page load.
+ *
+ * The cache is module-level, so it lives as long as the instance and is lost on
+ * a cold start. That is the right tradeoff for a status page: a stale "ok" never
+ * outlives the instance by much, and a cold start pays at most one probe.
+ */
+const FIRECRAWL_TTL_MS = 60 * 60 * 1000;
+let firecrawlCache: { at: number; result: ProbeResult } | null = null;
+
+async function probeFirecrawl(key: string | undefined): Promise<ProbeResult> {
+  if (!key) return { ok: false, detail: "FIRECRAWL_API_KEY missing" };
+
+  if (firecrawlCache && Date.now() - firecrawlCache.at < FIRECRAWL_TTL_MS) {
+    const age = Math.round((Date.now() - firecrawlCache.at) / 60_000);
+    return { ...firecrawlCache.result, detail: `${firecrawlCache.result.detail} (cached ${age}m)` };
+  }
+
+  const classify = async (r: Response, okDetail: string): Promise<ProbeResult> => {
+    if (r.ok) return { ok: true, status: r.status, detail: okDetail };
+    const body = await r.text().catch(() => "");
+    if (r.status === 401 || r.status === 403) return { ok: false, status: r.status, detail: "FIRECRAWL_API_KEY rejected" };
+    if (r.status === 402) return { ok: false, degraded: true, status: 402, detail: "Credits exhausted" };
+    if (r.status === 429) return { ok: false, degraded: true, status: 429, detail: "Rate limited" };
+    return { ok: false, status: r.status, detail: `HTTP ${r.status}: ${body.slice(0, 120)}` };
+  };
+
+  let result: ProbeResult;
+  try {
+    const usage = await fetch("https://api.firecrawl.dev/v2/team/credit-usage", {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+
+    if (usage.status === 404 || usage.status === 405) {
+      // Not on this plan, or not this path — fall back to the call production
+      // actually makes. Cached below like any other answer.
+      const search = await fetch("https://api.firecrawl.dev/v2/search", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ query: "ansonia properties", limit: 1 }),
+      });
+      result = await classify(search, "Reachable (search probe — no credit-usage endpoint)");
+    } else if (usage.ok) {
+      const j = await usage.json().catch(() => ({}));
+      const remaining =
+        (j as any)?.data?.remaining_credits ?? (j as any)?.remaining_credits ?? null;
+      result = {
+        ok: true,
+        status: usage.status,
+        detail: remaining === null ? "Reachable" : `Reachable — ${remaining} credits remaining`,
+      };
+    } else {
+      result = await classify(usage, "Reachable");
+    }
+  } catch (e) {
+    // Network-level failure: report it, and do not cache it. A blip should not
+    // pin the page to "down" for an hour.
+    return { ok: false, detail: (e as Error).message };
+  }
+
+  firecrawlCache = { at: Date.now(), result };
+  return result;
+}
+
+/**
+ * Probe one mailbox. Microsoft Graph app-only is the only transport.
  *
  * The mailbox is named in the URL, so "reachable" and "is the right mailbox" are
  * the same question — a 404 means that UPN does not exist, a 403 means
@@ -136,21 +213,8 @@ Deno.serve(async (req) => {
     }),
     // Firecrawl — direct against api.firecrawl.dev, the same host and auth
     // find-partner-website uses, so this cannot report healthy on a path
-    // production does not take. NOTE: one search credit per probe.
-    timed(async () => {
-      if (!FIRECRAWL_KEY) return { ok: false, detail: "FIRECRAWL_API_KEY missing" };
-      const r = await fetch("https://api.firecrawl.dev/v2/search", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${FIRECRAWL_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ query: "ansonia properties", limit: 1 }),
-      });
-      if (r.ok) return { ok: true, status: r.status, detail: "Reachable" };
-      const body = await r.text().catch(() => "");
-      if (r.status === 401 || r.status === 403) return { ok: false, status: r.status, detail: "FIRECRAWL_API_KEY rejected" };
-      if (r.status === 402) return { ok: false, degraded: true, status: 402, detail: "Credits exhausted" };
-      if (r.status === 429) return { ok: false, degraded: true, status: 429, detail: "Rate limited" };
-      return { ok: false, status: r.status, detail: `HTTP ${r.status}: ${body.slice(0, 120)}` };
-    }),
+    // production does not take.
+    timed(() => probeFirecrawl(FIRECRAWL_KEY)),
     // Anthropic — a real inference call through the same client every AI path
     // uses, so a key that passes here is one those paths will work with.
     // Haiku at max_tokens: 1 is the cheapest round trip that still proves auth,
