@@ -15,9 +15,7 @@ const MAX_DEALS_PER_CALL = 200;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 // The rationale call runs on DEAL_INBOX_MODEL (Sonnet 5) via _shared/ai.ts —
-// see the call site below. The old Lovable-gateway Gemini rationale path was
-// removed when scoring moved to Claude; its constants lingered as dead code and
-// are gone now. Provider routing belongs in _shared/ai.ts, not here.
+// see the call site below. Provider routing belongs in _shared/ai.ts, not here.
 
 
 async function generateRationale(

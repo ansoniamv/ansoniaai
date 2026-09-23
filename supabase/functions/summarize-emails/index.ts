@@ -27,9 +27,9 @@ const corsHeaders = {
 import { graphFetch, resolveMailbox } from "../_shared/graphMail.ts";
 
 // Batch size for every path through this function. This is a COST decision whose
-// premise is the model on the other end: it was 100/200, sized for the Lovable
-// gateway's flash-lite pricing, then Claude Opus 5, and now Sonnet 5 via
-// DEAL_INBOX_MODEL — roughly 2.5x cheaper per token than Opus 5. The premise is
+// premise is the model on the other end: it was 100/200, sized for a much
+// cheaper model, then Claude Opus 5, and now Sonnet 5 via DEAL_INBOX_MODEL —
+// roughly 2.5x cheaper per token than Opus 5. The premise is
 // named on purpose — if routing changes again, this comment should read as wrong
 // rather than age quietly.
 //

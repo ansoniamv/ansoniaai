@@ -5,8 +5,6 @@ import { completeText } from "../_shared/ai.ts";
 import { logAiUsage } from "../_shared/logUsage.ts";
 import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
 
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-
 Deno.serve(async (req) => {
   const corsHeaders = corsFor(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });

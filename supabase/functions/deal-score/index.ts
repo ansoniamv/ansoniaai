@@ -23,7 +23,6 @@ const DEAL_ADJUSTMENT_SCHEMA = {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 
 // --- Scoring helpers --------------------------------------------------------
 function clamp(n: number, min = 0, max = 100) { return Math.max(min, Math.min(max, n)); }
