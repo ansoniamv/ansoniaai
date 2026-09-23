@@ -2,6 +2,7 @@
 // Reads pillars + active signals fresh on every invocation — never use hardcoded weights.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { completeText } from "../_shared/ai.ts";
+import { DEAL_INBOX_MODEL } from "../_shared/dealInboxModel.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage, logAiFailure } from "../_shared/logUsage.ts";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
@@ -13,10 +14,10 @@ const MAX_DEALS_PER_CALL = 200;
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-// Scoring runs on Claude Opus 5 via _shared/ai.ts. The old Lovable-gateway
-// Gemini rationale path was removed when scoring moved to Opus 5; its constants
-// lingered as dead code and are gone now. Provider routing and any fallback
-// belong in _shared/ai.ts, not here.
+// The rationale call runs on DEAL_INBOX_MODEL (Sonnet 5) via _shared/ai.ts —
+// see the call site below. The old Lovable-gateway Gemini rationale path was
+// removed when scoring moved to Claude; its constants lingered as dead code and
+// are gone now. Provider routing belongs in _shared/ai.ts, not here.
 
 
 async function generateRationale(
@@ -59,10 +60,17 @@ async function generateRationale(
   const system = "You are an investment analyst at Ansonia Properties triaging multifamily deals at the TOP of the funnel. This is a FIT signal, not an underwriting verdict. Reason ONLY about market, submarket demand, demographics, asset type, vintage, size, location, and value-add potential. NEVER mention or penalize for missing/absent deal economics, pricing, asking price, purchase price, cap rate, returns, IRR, yield, rent-to-market gap, or underwriting data — those are evaluated later in the pipeline, not here. Write a single concise 2-sentence rationale (<=55 words total) explaining the fit score against the thesis. Reference the strongest and weakest pillar by name. No preamble, no markdown, no bullet points.";
   const user = `ANSONIA INVESTMENT THESIS:\n${thesis || "(no thesis configured)"}${strategyBlock}${examplesBlock}\n\nDEAL + PILLAR SCORES:\n${JSON.stringify(summary, null, 2)}\n\nWrite the 2-sentence rationale now.`;
   try {
-    // Claude Opus 5 primary, gateway fallback — see _shared/ai.ts. The rationale
-    // is two sentences, but Opus 5 thinking shares max_tokens, so the budget is
-    // well above the old 220-token ceiling; low effort keeps the cost down.
-    const res = await completeText(user, { system, maxTokens: 4000, effort: "low" });
+    // Sonnet 5 via DEAL_INBOX_MODEL, no gateway fallback — see _shared/ai.ts.
+    // The rationale is two sentences, but adaptive thinking shares max_tokens, so
+    // 1500 still leaves room above the old 220-token ceiling; low effort keeps
+    // the cost down on a call that runs once per deal.
+    const res = await completeText(user, {
+      model: DEAL_INBOX_MODEL,
+      system,
+      maxTokens: 1500,
+      effort: "low",
+      allowFallback: false,
+    });
     if (ctx?.supabase) {
       await logAiUsage(ctx.supabase, {
         function_name: "score-deals",
