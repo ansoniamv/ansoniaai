@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
     const hours = ts ? (Date.now() - ts.getTime()) / 3600_000 : Infinity;
     if (hours > STALE_HOURS) {
       alerts.push(ts
-        ? `${mb} mailbox has not synced in ${Math.floor(hours / 24)} days (last ${ts.toISOString().slice(0, 16).replace("T", " ")} UTC) — reconnect the connector in Lovable → Integrations.`
+        ? `${mb} mailbox has not synced in ${Math.floor(hours / 24)} days (last ${ts.toISOString().slice(0, 16).replace("T", " ")} UTC) — check the GRAPH_* secrets and the Exchange application access policy for this mailbox, then run outlook-sync manually.`
         : `${mb} mailbox has never synced.`);
     }
   }
