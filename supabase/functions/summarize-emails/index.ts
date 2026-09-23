@@ -261,10 +261,26 @@ const ASSET_CLASSES = [
 ];
 const STRATEGIES = ["Core", "Core-Plus", "Value-Add", "Opportunistic", "Development"];
 
-/** Nullable leaf. Enums carry null in the enum list as well as the type union. */
+/** Nullable leaf, for plain types. */
 const nullable = (type: string, extra: Record<string, unknown> = {}) => ({
   type: [type, "null"],
   ...extra,
+});
+
+/**
+ * Nullable enum, as anyOf rather than a type union.
+ *
+ * The obvious encoding — {type: ["string","null"], enum: [...values, null]} —
+ * is rejected by the API: "Enum value 'Multifamily' does not match declared
+ * type ['string','null']". It validates each enum member against the whole
+ * type array rather than against any one member of it, so a union type and an
+ * enum cannot be combined on the same node.
+ *
+ * anyOf keeps the two claims separate: either one of these strings, or null.
+ * Every extraction call 400d on this for as long as it was live.
+ */
+const nullableEnum = (values: string[]) => ({
+  anyOf: [{ type: "string", enum: values }, { type: "null" }],
 });
 
 /**
@@ -281,8 +297,8 @@ const EXTRACTION_FIELD_SCHEMA: Record<string, unknown> = (() => {
   for (const f of EXTRACTABLE_FIELDS) {
     if (f === "units" || f === "year_built" || f === "avg_sf") props[f] = nullable("integer");
     else if (f === "occupancy_pct") props[f] = nullable("number");
-    else if (f === "asset_class") props[f] = nullable("string", { enum: [...ASSET_CLASSES, null] });
-    else if (f === "strategy") props[f] = nullable("string", { enum: [...STRATEGIES, null] });
+    else if (f === "asset_class") props[f] = nullableEnum(ASSET_CLASSES);
+    else if (f === "strategy") props[f] = nullableEnum(STRATEGIES);
     else if (f === "offers_due") props[f] = nullable("string", { description: "ISO date YYYY-MM-DD" });
     else props[f] = nullable("string");
   }
