@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { completeJSON } from "../_shared/ai.ts";
+import { DEAL_INBOX_MODEL } from "../_shared/dealInboxModel.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage } from "../_shared/logUsage.ts";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
@@ -239,11 +240,18 @@ serve(async (req) => {
           prompt,
           {
             system: "You are an investment committee analyst evaluating a value-add multifamily deal against an investment thesis. Be concise and specific.",
+            model: DEAL_INBOX_MODEL,
             maxTokens: 4000,
-            // Opus 5 enforces the shape server-side, so `adjustment` arrives as
+            // A bounded integer plus a short narrative; no deep reasoning needed.
+            effort: "low",
+            // The API enforces the shape server-side, so `adjustment` arrives as
             // a bounded integer rather than something the clamp below has to
             // rescue from a stray string or a hallucinated field name.
             schema: DEAL_ADJUSTMENT_SCHEMA,
+            // The gateway cannot honour DEAL_ADJUSTMENT_SCHEMA, so a silent
+            // fallback would hand the clamp below exactly the stray values the
+            // schema exists to prevent. Fail instead; the catch already logs.
+            allowFallback: false,
           },
         );
         await logAiUsage(supabase, { function_name: "deal-score", model, provider, usage, deal_id });
