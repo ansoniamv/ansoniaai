@@ -64,8 +64,10 @@ function providerLabel(raw: string | null | undefined): string {
   const v = String(raw).trim();
   const low = v.toLowerCase();
   if (low === "anthropic") return "Anthropic";
+  // Retired provider. The mapping stays so historical ai_usage rows still have
+  // a readable name; nothing writes this value any more.
   if (low === "lovable-gateway" || low === "lovable_gateway" || low === "lovable gateway")
-    return "Lovable Gateway";
+    return "Legacy gateway (retired)";
   if (low === "hellodata") return "HelloData";
   if (low === "esri" || low === "arcgis") return "Esri";
   return v.charAt(0).toUpperCase() + v.slice(1);
@@ -195,7 +197,7 @@ function EstBadge() {
           </span>
         </TooltipTrigger>
         <TooltipContent side="left" className="max-w-[260px] text-xs">
-          Placeholder rate — Lovable AI Gateway bills in credits, not direct USD. Confirm against actual billing before trusting the number. Admins can edit this row.
+          Placeholder rate — confirm against actual billing before trusting the number. Admins can edit this row.
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
@@ -308,9 +310,9 @@ export default function AiUsageDashboard() {
             API Usage & Cost
           </h2>
           <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
-            All USD amounts are <span className="font-semibold">estimates</span>. Lovable AI Gateway
-            usage bills in credits, and data-API providers meter by call/credit — figures below are
-            computed from the editable pricing table using the rate on the row at time of the call.
+            All USD amounts are <span className="font-semibold">estimates</span>. Data-API providers
+            meter by call or credit — figures below are computed from the editable pricing table using
+            the rate on the row at time of the call.
           </p>
         </div>
         <div className="flex gap-1">

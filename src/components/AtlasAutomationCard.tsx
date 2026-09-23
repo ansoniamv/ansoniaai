@@ -95,7 +95,7 @@ export function AtlasAutomationCard() {
         {lastError && (
           <div className="text-xs text-destructive">
             {lastError}
-            {needsReconnect && " Reconnect the Atlas mailbox in Lovable → Integrations."}
+            {needsReconnect && " Atlas mailbox isn't syncing — check the Microsoft Graph connection on the API Status page."}
           </div>
         )}
 
