@@ -45,6 +45,7 @@ import {
   useRestoreEngagement,
   RAISE_STAGES,
   STAGE_LABEL,
+  stageStampFields,
   type Engagement,
   type RaiseStage,
 } from "@/hooks/useCapitalRaiseEngagements";
@@ -94,40 +95,6 @@ const agingLabel = (d: string | null | undefined) => {
   return `${days}d since last contact`;
 };
 
-function stageStampFields(stage: RaiseStage): Partial<Engagement> {
-  const today = new Date();
-  const dateOnly = today.toISOString().slice(0, 10);
-  const iso = today.toISOString();
-  // Any explicit stage change from the UI is manual — lock the row so
-  // automations (email replies, commits, denials) don't overwrite it.
-  const patch: Partial<Engagement> = {
-    stage,
-    last_contact_date: dateOnly,
-    stage_locked_manual: true,
-    stage_locked_at: iso,
-  } as Partial<Engagement>;
-  switch (stage) {
-    case "initial_reachout":
-      patch.initial_reachout_date = dateOnly;
-      break;
-    case "materials_shared":
-      patch.materials_shared_date = dateOnly;
-      break;
-    case "in_discussion":
-      break;
-    case "added_to_pipeline":
-      break;
-    case "serious_interest":
-      patch.serious_interest = true;
-      break;
-    case "committed":
-      break;
-    case "passed":
-      patch.passed = true;
-      break;
-  }
-  return patch;
-}
 
 // Fields captured to make a stage move reversible.
 const STAGE_STAMP_FIELD_KEYS = [
