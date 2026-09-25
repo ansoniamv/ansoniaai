@@ -53,6 +53,26 @@ export default function AdminUsersPage() {
     load();
   }, []);
 
+  // Every message admin-invite-user returns is written for the UI (it never
+  // forwards provider errors), so the body is safe to show. Returns null on success.
+  const invite = async (
+    email: string,
+    full_name: string | null,
+  ): Promise<{ status: number; message: string } | null> => {
+    const { error } = await supabase.functions.invoke("admin-invite-user", { body: { email, full_name } });
+    if (!error) return null;
+    const ctx = (error as { context?: Response }).context;
+    try {
+      if (ctx && typeof ctx.json === "function") {
+        const body = await ctx.json();
+        return { status: ctx.status, message: body?.message ?? body?.error ?? "Could not send the invite." };
+      }
+    } catch {
+      // fall through
+    }
+    return { status: 0, message: userMessage(error, "Could not send the invite.") };
+  };
+
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     const parsed = inviteSchema.safeParse({ email, full_name: fullName });
@@ -61,12 +81,10 @@ export default function AdminUsersPage() {
       return;
     }
     setInviting(true);
-    const { error } = await supabase.functions.invoke("admin-invite-user", {
-      body: { email: parsed.data.email, full_name: parsed.data.full_name || null },
-    });
+    const failure = await invite(parsed.data.email, parsed.data.full_name || null);
     setInviting(false);
-    if (error) {
-      toast.error(userMessage(error, "Could not send the invite."));
+    if (failure) {
+      toast.error(failure.message);
       return;
     }
     toast.success(`Invite sent to ${parsed.data.email}`);
@@ -85,12 +103,20 @@ export default function AdminUsersPage() {
     load();
   };
 
-  const resendInvite = async (email: string) => {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+  // Re-invites someone who never finished setup. If they already have a
+  // password, the function answers 409 and we send a password reset instead.
+  const resendInvite = async (row: Row) => {
+    const failure = await invite(row.email, row.full_name);
+    if (!failure) {
+      toast.success(`Invite resent to ${row.email}`);
+      return;
+    }
+    if (failure.status !== 409) return toast.error(failure.message);
+    const { error } = await supabase.auth.resetPasswordForEmail(row.email, {
       redirectTo: `${window.location.origin}/reset-password`,
     });
-    if (error) return toast.error(userMessage(error, "Could not resend the invite link."));
-    toast.success(`Invite link resent to ${email}`);
+    if (error) return toast.error(userMessage(error, "Could not send the password reset."));
+    toast.success(`${row.email} is already active, so a password reset was sent instead.`);
   };
 
   const toggleAdmin = async (id: string, makeAdmin: boolean) => {
@@ -114,13 +140,13 @@ export default function AdminUsersPage() {
     <div className="space-y-6 max-w-6xl">
       <div>
         <h1 className="text-2xl font-semibold">User Management</h1>
-        <p className="text-muted-foreground">Invite teammates and approve access requests.</p>
+        <p className="text-muted-foreground">Accounts are invite-only. Invite teammates and manage their access.</p>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><UserPlus className="h-5 w-5" /> Invite user</CardTitle>
-          <CardDescription>They'll receive an email to set their password and will be auto-approved.</CardDescription>
+          <CardDescription>They'll get an email with a link to create their password. Only @ansoniaproperties.com addresses can be invited.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleInvite} className="flex flex-col md:flex-row gap-3 md:items-end">
@@ -176,7 +202,7 @@ export default function AdminUsersPage() {
                           <X className="h-4 w-4 mr-1" /> Reject
                         </Button>
                       )}
-                      <Button size="sm" variant="outline" onClick={() => resendInvite(r.email)}>
+                      <Button size="sm" variant="outline" onClick={() => resendInvite(r)}>
                         <Mail className="h-4 w-4 mr-1" /> Resend invite
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => toggleAdmin(r.id, !r.is_admin)}>
