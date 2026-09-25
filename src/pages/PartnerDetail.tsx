@@ -2,7 +2,7 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { safeExternalUrl } from "@/lib/safeUrl";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ArrowLeft, Building2, Mail, Linkedin, Phone, MapPin, Plus, StickyNote, Inbox, Sparkles, Archive, Pencil, Check, X, Trash2, Loader2, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronLeft, Copy, ExternalLink, Mail, Linkedin, MapPin, Plus, Search, StickyNote, Sparkles, Archive, Pencil, Check, X, Trash2, Loader2, RefreshCw } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,14 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -34,7 +42,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { WarmthBadge } from "@/components/WarmthBadge";
-import { usePartner, usePartnerContacts, usePartnerInteractions, useCreateInteraction, useArchivePartner, useUpdatePartner, useCreatePartnerContact, useUpdatePartnerContact, useDeletePartnerContact, type Partner, type PartnerContact } from "@/hooks/usePartners";
+import { usePartner, usePartnerContacts, usePartnerInteractions, usePartnerCurrency, useCreateInteraction, useArchivePartner, useUpdatePartner, useCreatePartnerContact, useUpdatePartnerContact, useDeletePartnerContact, type Partner, type PartnerContact } from "@/hooks/usePartners";
+import { AboutPartnerCard, ActivityTimeline, DataHighlightsCard, ProfileSummaryCard, RecordSection, initials, noteDealIds, partnerHostname } from "@/components/PartnerRecordPanels";
+import { PartnerDealsCard } from "@/components/PartnerDealsCard";
+import { useDealNames, useEngagementsByPartner } from "@/hooks/useCapitalRaiseEngagements";
 import { Label } from "@/components/ui/label";
 import { DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { useOutlookMessages, type OutlookMessage } from "@/hooks/useOutlook";
@@ -45,10 +56,8 @@ import { PartnerSummaryCards } from "@/components/PartnerSummaryCards";
 import { PartnerSuggestionsSection } from "@/components/PartnerSuggestionsSection";
 import { WarmthSignalsPanel } from "@/components/WarmthSignalsPanel";
 import { CapitalStatusCard } from "@/components/CapitalStatusCard";
-import { PartnerCurrencyStrip } from "@/components/PartnerCurrencyStrip";
 import { PartnerAttachmentsCard } from "@/components/PartnerAttachmentsCard";
 import { EmailReaderDialog } from "@/components/EmailReaderDialog";
-import { PipelineSharedLine } from "@/components/PipelineSharedLine";
 import { useNotes } from "@/hooks/useNotes";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -72,7 +81,22 @@ export default function PartnerDetail() {
   const { data: emails } = useOutlookMessages({ partnerId: id });
   const [newNote, setNewNote] = useState("");
   const [notesOpen, setNotesOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [tab, setTab] = useState("overview");
+  const { data: currency } = usePartnerCurrency(id);
   const { data: partnerNotes } = useNotes("partner", id);
+  const { data: engagements } = useEngagementsByPartner(id);
+  const timelineDealIds = [
+    ...(partnerNotes ?? []).flatMap(noteDealIds),
+    ...(emails ?? []).map((m) => m.deal_id).filter((d): d is string => !!d),
+  ];
+  const { data: dealNames } = useDealNames(timelineDealIds);
+  const dealTagSummary = {
+    tagged: engagements?.length ?? 0,
+    interested: engagements?.filter((e) => e.stage === "serious_interest").length ?? 0,
+    committed: engagements?.filter((e) => e.stage === "committed").length ?? 0,
+    passed: engagements?.filter((e) => e.stage === "passed").length ?? 0,
+  };
   const [openEmail, setOpenEmail] = useState<OutlookMessage | null>(null);
   const qc = useQueryClient();
   const enrichedOnceRef = useRef<string | null>(null);
@@ -174,9 +198,10 @@ export default function PartnerDetail() {
   };
 
   if (isLoading) return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-6 space-y-4">
-      <Skeleton className="h-8 w-48" />
-      <Skeleton className="h-64 w-full" />
+    <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)_320px]">
+      <Skeleton className="h-96 w-full" />
+      <Skeleton className="h-96 w-full" />
+      <Skeleton className="hidden xl:block h-96 w-full" />
     </div>
   );
 
@@ -187,194 +212,118 @@ export default function PartnerDetail() {
   // An internal (Ansonia) record is not an outside capital source. It gets the
   // internal desk instead of the capital-partner profile below.
 
+  const primaryEmail = contacts?.find((c) => c.email)?.email ?? "";
+
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-6 space-y-6">
+    <div className="grid gap-4 items-start lg:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)_320px]">
 
-      <PartnerHeader
-        partner={partner}
-        onBack={goBack}
-        onRerunEnrichment={rerunEnrichment}
-        reEnriching={reEnriching}
-        onRegenerateSummary={regenerateSummary}
-        regenerating={regenerating}
-        onOpenNotes={() => setNotesOpen(true)}
-        onArchived={() => navigate("/partners")}
-      />
+      {/* ── Left: identity, quick actions, properties ── */}
+      <aside className="space-y-4 lg:sticky lg:top-0 lg:max-h-[calc(100vh-4rem)] lg:overflow-y-auto lg:pb-4">
+        <PartnerRecordCard
+          partner={partner}
+          primaryEmail={primaryEmail}
+          onBack={goBack}
+          onEdit={() => setEditOpen(true)}
+          onRerunEnrichment={rerunEnrichment}
+          reEnriching={reEnriching}
+          onRegenerateSummary={regenerateSummary}
+          regenerating={regenerating}
+          onOpenNotes={() => setNotesOpen(true)}
+          onArchived={() => navigate("/partners")}
+        />
+        <AboutPartnerCard partner={partner} onEdit={() => setEditOpen(true)} />
+      </aside>
 
-      <PartnerSummaryCards partner={partner} notes={partnerNotes} />
+      {/* ── Middle: tabs ── */}
+      <main className="min-w-0">
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList className="grid w-full grid-cols-3 h-10">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="activities">Activities</TabsTrigger>
+            <TabsTrigger value="intelligence" className="gap-1.5">
+              Intelligence
+              {!!currency?.pendingSuggestions && (
+                <Badge className="h-4 px-1.5 text-[10px]">{currency.pendingSuggestions}</Badge>
+              )}
+            </TabsTrigger>
+          </TabsList>
 
-      <CapitalStatusCard partner={partner} />
-
-      {id && (
-        <div id="partner-suggestions">
-          <PartnerSuggestionsSection partnerId={id} manualFields={partner.manual_fields || []} />
-        </div>
-      )}
-      {id && <WarmthSignalsPanel partnerId={id} currentLevel={partner.relationship_strength} />}
-
-
-
-
-
-      {/* Organized (AI-structured) Notes */}
-      {partner.organized_notes && (
-        <Card>
-          <CardHeader className="pb-3 items-center text-center">
-            <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground inline-flex items-center gap-2 justify-center">
-              <Sparkles className="h-4 w-4" /> Organized Notes
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="prose prose-sm dark:prose-invert max-w-none
-                            prose-headings:font-semibold prose-headings:tracking-tight
-                            prose-h2:text-xs prose-h2:uppercase prose-h2:tracking-[0.12em]
-                            prose-h2:text-muted-foreground prose-h2:mt-5 prose-h2:mb-2
-                            prose-h2:pb-1 prose-h2:border-b prose-h2:border-border/60
-                            first:prose-h2:mt-0
-                            prose-p:my-1.5 prose-p:leading-relaxed
-                            prose-ul:my-1.5 prose-ul:pl-5 prose-li:my-0.5 prose-li:marker:text-muted-foreground
-                            prose-strong:text-foreground prose-strong:font-semibold">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{partner.organized_notes}</ReactMarkdown>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-
-      {/* Full Notes (from imported capital partners list) — editable */}
-      <EditablePartnerNotesCard partner={partner} />
-
-
-
-      {/* Contacts */}
-      <Card>
-        <CardHeader className="pb-3 flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground inline-flex items-center gap-2">
-            <Building2 className="h-4 w-4" /> Contacts ({contacts?.length ?? 0})
-          </CardTitle>
-          <ContactEditorDialog
-            partnerId={partner.id}
-            trigger={
-              <Button variant="outline" size="sm" className="h-7 gap-1">
-                <Plus className="h-3.5 w-3.5" /> Add contact
-              </Button>
-            }
-          />
-        </CardHeader>
-        <CardContent>
-          {contacts && contacts.length > 0 ? (
-            <div className="space-y-2">
-              {contacts.map((c) => (
-                <div key={c.id} className="flex items-center gap-3 p-2.5 rounded-md border bg-muted/30">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-xs font-bold text-primary shrink-0">
-                    {c.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+          <TabsContent value="overview" className="space-y-4 mt-4">
+            <DataHighlightsCard partner={partner} onOpenSuggestions={() => setTab("intelligence")} deals={dealTagSummary} />
+            <CapitalStatusCard partner={partner} />
+            <PartnerSummaryCards partner={partner} notes={partnerNotes} />
+            <ActivityTimeline
+              notes={partnerNotes}
+              emails={emails}
+              interactions={interactions}
+              onOpenEmail={setOpenEmail}
+              dealNames={dealNames}
+              limit={4}
+              onViewAll={() => setTab("activities")}
+            />
+            {/* Organized (AI-structured) Notes */}
+            {partner.organized_notes && (
+              <Card>
+                <CardHeader className="py-3">
+                  <CardTitle className="text-sm font-semibold inline-flex items-center gap-2">
+                    <Sparkles className="h-4 w-4" /> Organized notes
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="prose prose-sm dark:prose-invert max-w-none
+                                  prose-headings:font-semibold prose-headings:tracking-tight
+                                  prose-h2:text-xs prose-h2:uppercase prose-h2:tracking-[0.12em]
+                                  prose-h2:text-muted-foreground prose-h2:mt-5 prose-h2:mb-2
+                                  prose-h2:pb-1 prose-h2:border-b prose-h2:border-border/60
+                                  first:prose-h2:mt-0
+                                  prose-p:my-1.5 prose-p:leading-relaxed
+                                  prose-ul:my-1.5 prose-ul:pl-5 prose-li:my-0.5 prose-li:marker:text-muted-foreground
+                                  prose-strong:text-foreground prose-strong:font-semibold">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{partner.organized_notes}</ReactMarkdown>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm truncate">{c.name}</div>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                      {c.email && <span className="flex items-center gap-1"><Mail className="h-3 w-3" />{c.email}</span>}
-                      {c.phone && <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{c.phone}</span>}
-                      {c.role && <span className="flex items-center gap-1">{c.role}</span>}
-                      {c.firm_location && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{c.firm_location}</span>}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {c.email && (
-                      <ComposeEmailDialog
-                        trigger={
-                          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1">
-                            <Mail className="h-3.5 w-3.5" /> Email
-                          </Button>
-                        }
-                        defaultTo={c.email}
-                        defaultSubject={`Ansonia – ${partner.name}`}
-                        partnerId={partner.id}
-                        partnerContactId={c.id}
-                      />
-                    )}
-                    {c.linkedin_url && (
-                      <a href={c.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80">
-                        <Linkedin className="h-4 w-4" />
-                      </a>
-                    )}
-                    {c.ansonia_poc && (
-                      <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded border">
-                        POC: {c.ansonia_poc}
-                      </span>
-                    )}
-                    <ContactEditorDialog
-                      partnerId={partner.id}
-                      contact={c}
-                      trigger={
-                        <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Edit contact">
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                      }
-                    />
-                    <DeleteContactButton contact={c} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground text-center py-4">No contacts on file.</p>
-          )}
-        </CardContent>
-      </Card>
+                </CardContent>
+              </Card>
+            )}
+            {/* Full Notes (from imported capital partners list) — editable */}
+            <EditablePartnerNotesCard partner={partner} />
+          </TabsContent>
 
+          <TabsContent value="activities" className="space-y-4 mt-4">
+            <ActivityTimeline
+              notes={partnerNotes}
+              emails={emails}
+              interactions={interactions}
+              onOpenEmail={setOpenEmail}
+              dealNames={dealNames}
+              headerActions={
+                <Button variant="outline" size="sm" className="h-7 gap-1" onClick={() => setNotesOpen(true)}>
+                  <Plus className="h-3.5 w-3.5" /> Note
+                </Button>
+              }
+            />
+          </TabsContent>
 
+          <TabsContent value="intelligence" className="space-y-4 mt-4">
+            {id && (
+              <div id="partner-suggestions">
+                <PartnerSuggestionsSection partnerId={id} manualFields={partner.manual_fields || []} />
+              </div>
+            )}
+            {id && <WarmthSignalsPanel partnerId={id} currentLevel={partner.relationship_strength} />}
+          </TabsContent>
+        </Tabs>
+      </main>
 
-      {/* Email Interactions (from Outlook) */}
-      <Card>
-        <CardHeader className="pb-3 items-center text-center">
-          <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground inline-flex items-center gap-2 justify-center">
-            <Inbox className="h-4 w-4" /> Email Interactions ({emails?.length ?? 0})
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {emails && emails.length > 0 ? (
-            <div className="space-y-2 max-h-[500px] overflow-y-auto">
-              {emails.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => setOpenEmail(m)}
-                  className="w-full text-left p-2.5 rounded-md border bg-muted/20 hover:bg-muted/40 transition-colors"
-                >
-                  <div className="flex items-center justify-between gap-3 mb-1">
-                    <span className="text-xs font-semibold truncate">{m.subject || "(no subject)"}</span>
-                    <span className="text-[10px] font-mono text-muted-foreground whitespace-nowrap">
-                      {m.received_at ? new Date(m.received_at).toLocaleDateString() : ""}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground mb-1">
-                    <span className="truncate">{m.from_name || m.from_email || "Unknown sender"}</span>
-                    {m.from_email && <span className="truncate">&lt;{m.from_email}&gt;</span>}
-                  </div>
-                  {m.preview && (
-                    <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
-                      {m.preview}
-                    </p>
-                  )}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground text-center py-4">No emails linked to this partner. Sync Outlook to pull email history.</p>
-          )}
-        </CardContent>
-      </Card>
+      {/* ── Right: summary + associations ── */}
+      <aside className="space-y-4 min-w-0 lg:col-start-2 xl:col-start-auto">
+        <ProfileSummaryCard partner={partner} onRegenerate={regenerateSummary} regenerating={regenerating} />
+        <PartnerDealsCard partner={partner} />
+        <ContactsSidebarCard partner={partner} contacts={contacts} />
+        {id && <PartnerAttachmentsCard partnerId={id} />}
+      </aside>
 
       <EmailReaderDialog message={openEmail} onClose={() => setOpenEmail(null)} />
-
-
-
-      {/* Attachments */}
-      {id && <PartnerAttachmentsCard partnerId={id} />}
-
-      {/* Notes (rich — deal tags, author, date) */}
-      {id && <EntityNotes entityType="partner" entityId={id} />}
-
+      <PartnerEditDialog partner={partner} open={editOpen} onOpenChange={setEditOpen} />
 
       {id && (
         <FloatingPanel
@@ -392,32 +341,189 @@ export default function PartnerDetail() {
   );
 }
 
-function ArchivePartnerButton({
+// ─────────────────────────────────────────────────────────────────────────────
+// Left column — identity card: back link, Actions menu, name, quick actions
+// ─────────────────────────────────────────────────────────────────────────────
+
+function QuickAction({
+  icon: Icon,
+  label,
+  onClick,
+  disabled,
+  spinning,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  spinning?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="flex flex-col items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 w-12"
+    >
+      <span className="h-9 w-9 rounded-full border bg-background flex items-center justify-center hover:bg-muted transition-colors">
+        <Icon className={`h-4 w-4 ${spinning ? "animate-spin" : ""}`} />
+      </span>
+      <span className="truncate w-full text-center">{label}</span>
+    </button>
+  );
+}
+
+function CopyButton({ value, label }: { value: string; label: string }) {
+  return (
+    <button
+      type="button"
+      aria-label={`Copy ${label}`}
+      title={`Copy ${label}`}
+      onClick={() => navigator.clipboard.writeText(value).then(() => toast.success(`${label} copied`))}
+      className="text-muted-foreground hover:text-foreground"
+    >
+      <Copy className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+function PartnerRecordCard({
   partner,
+  primaryEmail,
+  onBack,
+  onEdit,
+  onRerunEnrichment,
+  reEnriching,
+  onRegenerateSummary,
+  regenerating,
+  onOpenNotes,
   onArchived,
 }: {
-  partner: { id: string; name: string; archived_at: string | null };
+  partner: Partner;
+  primaryEmail: string;
+  onBack: () => void;
+  onEdit: () => void;
+  onRerunEnrichment: () => void;
+  reEnriching: boolean;
+  onRegenerateSummary: () => void;
+  regenerating: boolean;
+  onOpenNotes: () => void;
+  onArchived: () => void;
+}) {
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const host = partnerHostname(partner.website);
+  const href = safeExternalUrl(partner.website);
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between border-b px-3 py-2">
+        <button type="button" onClick={onBack} className="flex items-center gap-1 text-sm font-medium hover:text-primary">
+          <ChevronLeft className="h-4 w-4" /> Capital Partners
+        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="h-7 gap-1 font-semibold">
+              Actions <ChevronDown className="h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuItem onClick={onEdit}><Pencil className="h-4 w-4 mr-2" /> Edit details</DropdownMenuItem>
+            <DropdownMenuItem onClick={onRerunEnrichment} disabled={reEnriching}>
+              <Sparkles className="h-4 w-4 mr-2" /> {reEnriching ? "Enriching…" : "Re-run enrichment"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onRegenerateSummary} disabled={regenerating}>
+              <RefreshCw className="h-4 w-4 mr-2" /> {regenerating ? "Regenerating…" : "Regenerate summary"}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => setArchiveOpen(true)}
+              disabled={!!partner.archived_at}
+              className="text-destructive focus:text-destructive"
+            >
+              <Archive className="h-4 w-4 mr-2" /> {partner.archived_at ? "Archived" : "Archive"}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-start gap-3">
+          <div className="h-11 w-11 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold shrink-0">
+            {initials(partner.name)}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-lg font-bold leading-tight flex items-start gap-1.5">
+              <span className="break-words">{partner.name}</span>
+              <button type="button" onClick={onEdit} aria-label="Edit partner" className="mt-1 text-muted-foreground hover:text-foreground shrink-0">
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            </h1>
+            {partner.archived_at && (
+              <Badge variant="outline" className="mt-1 text-[10px] uppercase tracking-wide border-muted-foreground/40 text-muted-foreground">
+                Archived
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-1 text-sm">
+          {host && href && (
+            <div className="flex items-center gap-2">
+              <a href={href} target="_blank" rel="noreferrer" className="text-primary font-medium hover:underline inline-flex items-center gap-1 truncate">
+                {host} <ExternalLink className="h-3 w-3 shrink-0" />
+              </a>
+              <CopyButton value={partner.website!} label="Website" />
+            </div>
+          )}
+          {primaryEmail && (
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="truncate">{primaryEmail}</span>
+              <CopyButton value={primaryEmail} label="Email" />
+            </div>
+          )}
+          <div className="flex items-center gap-2 flex-wrap pt-1">
+            {partner.firm_type && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-muted border text-muted-foreground">{partner.firm_type}</span>
+            )}
+            <WarmthBadge strength={partner.relationship_strength} />
+          </div>
+        </div>
+
+        <div className="flex justify-between pt-1">
+          <QuickAction icon={StickyNote} label="Note" onClick={onOpenNotes} />
+          <ComposeEmailDialog
+            trigger={<span><QuickAction icon={Mail} label="Email" /></span>}
+            defaultTo={primaryEmail}
+            defaultSubject={`Ansonia – ${partner.name}`}
+            partnerId={partner.id}
+          />
+          <QuickAction icon={Sparkles} label="Enrich" onClick={onRerunEnrichment} disabled={reEnriching} spinning={false} />
+          <QuickAction icon={RefreshCw} label="Summary" onClick={onRegenerateSummary} disabled={regenerating} spinning={regenerating} />
+          <QuickAction icon={Pencil} label="Edit" onClick={onEdit} />
+        </div>
+      </CardContent>
+
+      <ArchivePartnerDialog partner={partner} open={archiveOpen} onOpenChange={setArchiveOpen} onArchived={onArchived} />
+    </Card>
+  );
+}
+
+function ArchivePartnerDialog({
+  partner,
+  open,
+  onOpenChange,
+  onArchived,
+}: {
+  partner: { id: string; name: string };
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onArchived: () => void;
 }) {
   const archive = useArchivePartner();
-  // Restoration lives on the Partners list page — archived firms just show a
-  // status badge here without a restore action, to keep the archive flow
+  // Restoration lives on the Partners list page — the archive flow stays
   // one-way from the detail page.
-  if (partner.archived_at) {
-    return (
-      <Button variant="ghost" size="sm" disabled title="Archived — restore from the Partners list" className="gap-1.5">
-        <Archive className="h-4 w-4" /> Archived
-      </Button>
-    );
-  }
   return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button variant="outline" size="sm" className="text-destructive hover:text-destructive gap-1.5">
-          <Archive className="h-4 w-4" /> Archive
-        </Button>
-
-      </AlertDialogTrigger>
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Archive {partner.name}?</AlertDialogTitle>
@@ -447,30 +553,19 @@ function ArchivePartnerButton({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Editable header — name, firm type, warmth, POC, website, HQ
+// Edit dialog — name, firm type, warmth, POC, website, HQ, investor type, geography
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PartnerHeader({
+function PartnerEditDialog({
   partner,
-  onBack,
-  onRerunEnrichment,
-  reEnriching,
-  onRegenerateSummary,
-  regenerating,
-  onOpenNotes,
-  onArchived,
+  open,
+  onOpenChange,
 }: {
   partner: Partner;
-  onBack: () => void;
-  onRerunEnrichment: () => void;
-  reEnriching: boolean;
-  onRegenerateSummary: () => void;
-  regenerating: boolean;
-  onOpenNotes: () => void;
-  onArchived: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
   const update = useUpdatePartner();
-  const [editing, setEditing] = useState(false);
   const [name, setName] = useState(partner.name);
   const [firmType, setFirmType] = useState(partner.firm_type ?? "");
   const [warmth, setWarmth] = useState(partner.relationship_strength ?? "");
@@ -481,7 +576,9 @@ function PartnerHeader({
   const [geography, setGeography] = useState<string[]>(partner.geography ?? []);
   const [geoInput, setGeoInput] = useState("");
 
-  const enterEdit = () => {
+  // Reset the draft from the stored record every time the dialog opens.
+  useEffect(() => {
+    if (!open) return;
     setName(partner.name);
     setFirmType(partner.firm_type ?? "");
     setWarmth(partner.relationship_strength ?? "");
@@ -491,8 +588,7 @@ function PartnerHeader({
     setInvestorType(partner.investor_type ?? []);
     setGeography(partner.geography ?? []);
     setGeoInput("");
-    setEditing(true);
-  };
+  }, [open, partner]);
 
   const toggleInvestorType = (v: string) =>
     setInvestorType((arr) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]));
@@ -526,30 +622,20 @@ function PartnerHeader({
       {
         onSuccess: () => {
           toast.success("Partner updated");
-          setEditing(false);
+          onOpenChange(false);
         },
         onError: (err: any) => toast.error("Save failed: " + (err?.message ?? err)),
       },
     );
   };
 
-  if (editing) {
-    return (
-      <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={onBack}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <span className="text-xs uppercase tracking-wider text-muted-foreground">Editing partner</span>
-          <div className="ml-auto flex gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
-              <X className="h-3.5 w-3.5 mr-1" /> Cancel
-            </Button>
-            <Button size="sm" onClick={save} disabled={update.isPending}>
-              <Check className="h-3.5 w-3.5 mr-1" /> Save
-            </Button>
-          </div>
-        </div>
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Edit partner details</DialogTitle>
+          <DialogDescription>Investment parameters and capital status are edited in their own cards on the Overview tab.</DialogDescription>
+        </DialogHeader>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground">Partner Name</label>
@@ -651,77 +737,122 @@ function PartnerHeader({
             )}
           </div>
         </div>
-      </div>
-    );
-  }
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <X className="h-3.5 w-3.5 mr-1" /> Cancel
+          </Button>
+          <Button onClick={save} disabled={update.isPending}>
+            <Check className="h-3.5 w-3.5 mr-1" /> Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
-  let hostname: string | null = null;
-  if (partner.website) {
-    try { hostname = new URL(partner.website).hostname.replace(/^www\./, ""); } catch { hostname = partner.website; }
-  }
+// ─────────────────────────────────────────────────────────────────────────────
+// Right column — Contacts (HubSpot association card)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ContactsSidebarCard({ partner, contacts }: { partner: Partner; contacts: PartnerContact[] | undefined }) {
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const list = (contacts ?? []).filter(
+    (c) => !q || [c.name, c.email, c.role, c.firm_location].some((v) => v?.toLowerCase().includes(q)),
+  );
 
   return (
-    <div className="flex items-start gap-3">
-      <Button variant="ghost" size="icon" onClick={onBack} className="mt-1">
-        <ArrowLeft className="h-4 w-4" />
-      </Button>
-      <div className="flex-1 min-w-0">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          {partner.name}
-          {partner.archived_at && (
-            <Badge variant="outline" className="text-[10px] uppercase tracking-wide border-muted-foreground/40 text-muted-foreground">
-              Archived
-            </Badge>
-          )}
-        </h1>
-        <PartnerCurrencyStrip partnerId={partner.id} enrichedFields={partner.enriched_fields} partner={partner} />
-        <PipelineSharedLine partnerId={partner.id} />
-
-        <div className="flex items-center gap-2 mt-1 flex-wrap">
-          {partner.firm_type && (
-            <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-muted border text-muted-foreground">
-              {partner.firm_type}
-            </span>
-          )}
-          <WarmthBadge strength={partner.relationship_strength} />
-          {partner.ansonia_poc && (
-            <span className="text-xs text-muted-foreground">POC: {partner.ansonia_poc}</span>
-          )}
-          {partner.headquarters && (
-            <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-              <MapPin className="h-3 w-3" /> {partner.headquarters}
-            </span>
-          )}
-          {hostname && safeExternalUrl(partner.website) && (
-            <a
-              href={safeExternalUrl(partner.website)!}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs text-primary hover:underline inline-flex items-center gap-1"
-            >
-              🌐 {hostname}
-            </a>
-          )}
+    <RecordSection
+      title={`Contacts (${contacts?.length ?? 0})`}
+      actions={
+        <ContactEditorDialog
+          partnerId={partner.id}
+          trigger={
+            <Button variant="ghost" size="sm" className="h-7 gap-1 text-primary">
+              <Plus className="h-3.5 w-3.5" /> Add
+            </Button>
+          }
+        />
+      }
+    >
+      {(contacts?.length ?? 0) > 3 && (
+        <div className="relative mb-3">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search contacts" className="h-8 pl-8 text-sm" />
         </div>
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <Button variant="ghost" size="sm" onClick={enterEdit} className="gap-1.5">
-          <Pencil className="h-4 w-4" /> Edit
-        </Button>
-        <Button variant="outline" size="sm" onClick={onRerunEnrichment} disabled={reEnriching} className="gap-1.5">
-          <Sparkles className={`h-4 w-4 ${reEnriching ? "animate-pulse" : ""}`} />
-          {reEnriching ? "Enriching…" : "Re-run enrichment"}
-        </Button>
-        <Button variant="outline" size="sm" onClick={onRegenerateSummary} disabled={regenerating} className="gap-1.5">
-          <RefreshCw className={`h-4 w-4 ${regenerating ? "animate-spin" : ""}`} />
-          {regenerating ? "Regenerating…" : "Regenerate summary"}
-        </Button>
-        <Button variant="outline" size="sm" onClick={onOpenNotes} className="gap-1.5">
-          <StickyNote className="h-4 w-4" /> Notes
-        </Button>
-        <ArchivePartnerButton partner={partner} onArchived={onArchived} />
-      </div>
-    </div>
+      )}
+      {list.length > 0 ? (
+        <div className="space-y-2 max-h-[560px] overflow-y-auto pr-1">
+          {list.map((c) => (
+            <div key={c.id} className="rounded-md border p-3 space-y-1.5">
+              <div className="flex items-start gap-2">
+                <div className="w-7 h-7 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
+                  {initials(c.name)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-primary truncate">{c.name}</div>
+                  {c.role && <div className="text-xs text-muted-foreground truncate">{c.role}</div>}
+                </div>
+                <div className="flex items-center shrink-0 -mr-1">
+                  <ContactEditorDialog
+                    partnerId={partner.id}
+                    contact={c}
+                    trigger={
+                      <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Edit contact">
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                    }
+                  />
+                  <DeleteContactButton contact={c} />
+                </div>
+              </div>
+              <div className="text-xs space-y-1">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-muted-foreground shrink-0">Email:</span>
+                  {c.email ? (
+                    <>
+                      <ComposeEmailDialog
+                        trigger={<button type="button" className="text-primary hover:underline truncate">{c.email}</button>}
+                        defaultTo={c.email}
+                        defaultSubject={`Ansonia – ${partner.name}`}
+                        partnerId={partner.id}
+                        partnerContactId={c.id}
+                      />
+                      <CopyButton value={c.email} label="Email" />
+                    </>
+                  ) : <span>--</span>}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">Phone:</span>
+                  <span>{c.phone || "--"}</span>
+                </div>
+                {c.firm_location && (
+                  <div className="flex items-center gap-1 text-muted-foreground">
+                    <MapPin className="h-3 w-3" /> {c.firm_location}
+                  </div>
+                )}
+              </div>
+              {(c.ansonia_poc || c.linkedin_url) && (
+                <div className="flex items-center gap-2 pt-0.5">
+                  {c.ansonia_poc && (
+                    <span className="text-[10px] font-medium bg-muted px-1.5 py-0.5 rounded border">POC: {c.ansonia_poc}</span>
+                  )}
+                  {c.linkedin_url && safeExternalUrl(c.linkedin_url) && (
+                    <a href={safeExternalUrl(c.linkedin_url)!} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80" aria-label="LinkedIn">
+                      <Linkedin className="h-3.5 w-3.5" />
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground text-center py-4">
+          {contacts?.length ? "No contacts match." : "No contacts on file."}
+        </p>
+      )}
+    </RecordSection>
   );
 }
 
