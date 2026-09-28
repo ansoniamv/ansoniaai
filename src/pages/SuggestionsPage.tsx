@@ -7,7 +7,6 @@ import {
   useRejectSuggestion,
   useAnalyzePartnerEmails,
   useUnattributedAtlasMessages,
-  useAssignMessagePartner,
   useBulkApproveHighConfidence,
   useComputePartnerWarmth,
   type PartnerSuggestion,
@@ -18,15 +17,13 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Check, ChevronsUpDown } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Check } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { AlertTriangle, ExternalLink, Lock, Sparkles, X, Pencil, Zap, Activity } from "lucide-react";
 import { AtlasAutomationCard } from "@/components/AtlasAutomationCard";
 import { SuggestionEvidencePanel } from "@/components/SuggestionEvidencePanel";
+import { AtlasUnattributedInbox } from "@/components/AtlasUnattributedInbox";
 
 const TYPE_LABEL: Record<string, string> = {
   warmth_change: "Warmth",
@@ -370,115 +367,8 @@ function SuggestionCard({ s, partnerName, manualFields }: { s: PartnerSuggestion
   );
 }
 
-function PartnerAssignRow({
-  partners,
-  value,
-  onChange,
-  onAssign,
-  disabled,
-}: {
-  partners: { id: string; name: string }[];
-  value: string;
-  onChange: (v: string) => void;
-  onAssign: () => void;
-  disabled: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const selectedPartner = partners.find((p) => p.id === value);
-  return (
-    <div className="flex items-center gap-2">
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            role="combobox"
-            aria-expanded={open}
-            className="h-8 text-xs w-72 justify-between font-normal"
-          >
-            <span className={cn("truncate", !selectedPartner && "text-muted-foreground")}>
-              {selectedPartner ? selectedPartner.name : "Assign to partner…"}
-            </span>
-            <ChevronsUpDown className="h-3.5 w-3.5 opacity-50 shrink-0 ml-1" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-72 p-0" align="start">
-          <Command>
-            <CommandInput placeholder="Search partners…" className="h-9" />
-            <CommandList>
-              <CommandEmpty>No partners found.</CommandEmpty>
-              <CommandGroup>
-                {partners.map((p) => (
-                  <CommandItem
-                    key={p.id}
-                    value={p.name}
-                    onSelect={() => {
-                      onChange(p.id);
-                      setOpen(false);
-                    }}
-                  >
-                    <Check className={cn("mr-2 h-3.5 w-3.5", value === p.id ? "opacity-100" : "opacity-0")} />
-                    {p.name}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-      <Button size="sm" disabled={disabled} onClick={onAssign}>Assign</Button>
-    </div>
-  );
-}
-
-function UnattributedList() {
-  const { data: messages, isLoading } = useUnattributedAtlasMessages();
-  const { data: partners } = usePartners();
-  const assign = useAssignMessagePartner();
-  const [selected, setSelected] = useState<Record<string, string>>({});
-
-  if (isLoading) return <div className="text-sm text-muted-foreground p-4">Loading…</div>;
-  if (!messages || messages.length === 0) {
-    return <div className="text-sm text-muted-foreground p-4">No unattributed Atlas messages.</div>;
-  }
-
-  return (
-    <div className="space-y-2">
-      {messages.map((m: any) => (
-        <Card key={m.id}>
-          <CardContent className="pt-4 pb-4 space-y-2">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium truncate">{m.subject || "(no subject)"}</div>
-                <div className="text-xs text-muted-foreground">
-                  From {m.from_name || m.from_email} • {new Date(m.received_at).toLocaleString()}
-                </div>
-                {m.preview && <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{m.preview}</div>}
-              </div>
-              {safeExternalUrl(m.web_link) && (
-                <a href={safeExternalUrl(m.web_link)!} target="_blank" rel="noreferrer" className="text-xs text-primary shrink-0">
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              )}
-            </div>
-            <PartnerAssignRow
-              partners={partners || []}
-              value={selected[m.id] || ""}
-              onChange={(v) => setSelected((s) => ({ ...s, [m.id]: v }))}
-              onAssign={async () => {
-                await assign.mutateAsync({ id: m.id, partnerId: selected[m.id] });
-                toast.success("Assigned. Re-run analyzer to generate suggestions.");
-              }}
-              disabled={!selected[m.id] || assign.isPending}
-            />
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
-}
-
 export default function SuggestionsPage() {
-  const [statusTab, setStatusTab] = useState<"pending" | "history" | "unattributed">("pending");
+  const [statusTab, setStatusTab] = useState<"unattributed" | "pending" | "history">("unattributed");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [partnerFilter, setPartnerFilter] = useState<string>("all");
   const [confFilter, setConfFilter] = useState<string>("all");
@@ -489,6 +379,7 @@ export default function SuggestionsPage() {
 
   const { data: pending } = usePartnerSuggestions({ status: "pending" });
   const { data: history } = usePartnerSuggestions({ limit: 300 });
+  const { data: unattributed } = useUnattributedAtlasMessages();
 
   const analyze = useAnalyzePartnerEmails();
   const warmth = useComputePartnerWarmth();
@@ -526,7 +417,7 @@ export default function SuggestionsPage() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-4">
+    <div className={`${statusTab === "unattributed" ? "max-w-7xl" : "max-w-5xl"} mx-auto p-6 space-y-4`}>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Atlas Inbox</h1>
@@ -549,50 +440,55 @@ export default function SuggestionsPage() {
       <AtlasAutomationCard />
 
 
-      <div className="flex items-center gap-2 flex-wrap">
-        <Select value={typeFilter} onValueChange={setTypeFilter}>
-          <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="All types" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All types</SelectItem>
-            {Object.entries(TYPE_LABEL).map(([k, v]) => (
-              <SelectItem key={k} value={k}>{v}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={partnerFilter} onValueChange={setPartnerFilter}>
-          <SelectTrigger className="w-56 h-8 text-xs"><SelectValue placeholder="All partners" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All partners</SelectItem>
-            {(partners || []).map((p) => (
-              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={confFilter} onValueChange={setConfFilter}>
-          <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="Confidence" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Any confidence</SelectItem>
-            <SelectItem value="high">High (≥80%)</SelectItem>
-            <SelectItem value="med">Medium (60-80%)</SelectItem>
-            <SelectItem value="low">Low (&lt;60%)</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={dealFilter} onValueChange={setDealFilter}>
-          <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="Deal link" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Any deal link</SelectItem>
-            <SelectItem value="linked">Deal linked</SelectItem>
-            <SelectItem value="unlinked">Unlinked</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <Tabs value={statusTab} onValueChange={(v) => setStatusTab(v as any)}>
+      <Tabs value={statusTab} onValueChange={(v) => setStatusTab(v as typeof statusTab)}>
         <TabsList>
-          <TabsTrigger value="pending">Pending ({filteredPending.length})</TabsTrigger>
+          <TabsTrigger value="unattributed">Unattributed{unattributed ? ` (${unattributed.length})` : ""}</TabsTrigger>
+          <TabsTrigger value="pending">Pending changes ({filteredPending.length})</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
-          <TabsTrigger value="unattributed">Unattributed</TabsTrigger>
         </TabsList>
+
+        {statusTab !== "unattributed" && (
+          <div className="flex items-center gap-2 flex-wrap pt-4">
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="All types" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                {Object.entries(TYPE_LABEL).map(([k, v]) => (
+                  <SelectItem key={k} value={k}>{v}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={partnerFilter} onValueChange={setPartnerFilter}>
+              <SelectTrigger className="w-56 h-8 text-xs"><SelectValue placeholder="All partners" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All partners</SelectItem>
+                {(partners || []).map((p) => (
+                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={confFilter} onValueChange={setConfFilter}>
+              <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="Confidence" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any confidence</SelectItem>
+                <SelectItem value="high">High (≥80%)</SelectItem>
+                <SelectItem value="med">Medium (60-80%)</SelectItem>
+                <SelectItem value="low">Low (&lt;60%)</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={dealFilter} onValueChange={setDealFilter}>
+              <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="Deal link" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any deal link</SelectItem>
+                <SelectItem value="linked">Deal linked</SelectItem>
+                <SelectItem value="unlinked">Unlinked</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        <TabsContent value="unattributed" className="pt-4">
+          <AtlasUnattributedInbox />
+        </TabsContent>
         <TabsContent value="pending" className="pt-4">
           {grouped.size === 0 && (
             <div className="text-sm text-muted-foreground text-center py-12">
@@ -663,9 +559,6 @@ export default function SuggestionsPage() {
               </Card>
             );
           })}
-        </TabsContent>
-        <TabsContent value="unattributed" className="pt-4">
-          <UnattributedList />
         </TabsContent>
       </Tabs>
     </div>
