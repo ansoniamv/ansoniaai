@@ -74,15 +74,18 @@ export function EmailMessageDetail({
   linking,
   partnerPlaceholder = "Link partner",
   notice,
+  tagging,
 }: {
   msg: OutlookMessage;
   partners: Array<{ id: string; name: string }>;
   deals: Array<{ id: string; property_name: string }>;
-  onPartnerChange: (partnerId: string | null) => void;
+  onPartnerChange?: (partnerId: string | null) => void;
   linking: boolean;
   partnerPlaceholder?: string;
   /** Optional line under the tagging controls (e.g. what tagging will trigger). */
   notice?: ReactNode;
+  /** Replaces the default save-on-click partner / deal controls. */
+  tagging?: ReactNode;
 }) {
   const { data: bodyRow, isLoading: bodyLoading } = useOutlookMessageBody(msg.id);
   const to = recipients(msg.to_recipients);
@@ -112,17 +115,19 @@ export function EmailMessageDetail({
           {msg.received_at && format(new Date(msg.received_at), "PPp")}
         </div>
 
-        <div className="flex flex-wrap gap-2 pt-2">
-          <LinkCombobox
-            kind="partner"
-            items={partners.map((p) => ({ id: p.id, label: p.name }))}
-            value={msg.partner_id}
-            onChange={onPartnerChange}
-            disabled={linking}
-            placeholder={partnerPlaceholder}
-          />
-          <DealMultiLink messageId={msg.id} fallbackDealId={msg.deal_id} deals={deals} />
-        </div>
+        {tagging ?? (
+          <div className="flex flex-wrap gap-2 pt-2">
+            <LinkCombobox
+              kind="partner"
+              items={partners.map((p) => ({ id: p.id, label: p.name }))}
+              value={msg.partner_id}
+              onChange={(v) => onPartnerChange?.(v)}
+              disabled={linking}
+              placeholder={partnerPlaceholder}
+            />
+            <DealMultiLink messageId={msg.id} fallbackDealId={msg.deal_id} deals={deals} />
+          </div>
+        )}
         {notice && <div className="text-xs text-muted-foreground">{notice}</div>}
       </div>
 
