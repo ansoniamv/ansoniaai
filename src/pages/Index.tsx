@@ -43,8 +43,15 @@ const ACTIVE_STATUSES: readonly DealStatus[] = SHARED_ACTIVE_STATUSES;
 const INACTIVE_STATUSES = SHARED_INACTIVE_STATUSES;
 const ON_HOLD_STATUS: DealStatus = "On Hold/Tracking";
 type PipelineSection = "main" | "hold";
-const valueAddLevels: ValueAddLevel[] = ["High", "Medium", "Low"];
+// The value_add_level enum has no TBD; the list shows an unset value as TBD and
+// saves TBD back as null.
+const valueAddLevels: (ValueAddLevel | "TBD")[] = ["High", "Medium", "Low", "TBD"];
 const interestLevels: InterestLevel[] = ["High", "Med", "Low", "TBD"];
+// Sort order for level columns: High first, TBD/unset last — not alphabetical.
+const LEVEL_SORT_RANK: Record<string, Record<string, number>> = {
+  interest_level: { High: 0, Med: 1, Low: 2, TBD: 3 },
+  value_add_potential: { High: 0, Medium: 1, Low: 2, TBD: 3 },
+};
 const analystGrades = ["A", "B", "C", "Pass"] as const;
 
 const formatMillions = (value: number | null) =>
@@ -65,6 +72,8 @@ type ColumnDef = {
   editable?: boolean;
   editType?: "text" | "number" | "select" | "switch" | "date" | "cfo";
   editOptions?: string[];
+  // Select option that stands for a null value in the database.
+  nullOption?: string;
   fieldKey?: keyof Deal;
 };
 
@@ -472,8 +481,11 @@ const COLUMNS: ColumnDef[] = [
   },
   {
     key: "value_add_potential", label: "Value-Add", defaultVisible: false,
-    render: (d) => d.value_add_potential || "—",
-    editable: true, editType: "select", editOptions: valueAddLevels, fieldKey: "value_add_potential",
+    sortKey: "value_add_potential",
+    render: (d) =>
+      d.value_add_potential || <span className="text-muted-foreground">TBD</span>,
+    editable: true, editType: "select", editOptions: valueAddLevels, nullOption: "TBD",
+    fieldKey: "value_add_potential",
   },
   {
     key: "area_median_income", label: COLUMN_LABELS.area_median_income, defaultVisible: false,
@@ -667,11 +679,18 @@ function InlineEditCell({
       );
     }
     if (column.editType === "select" && column.editOptions) {
+      // Must stay controlled (value, not defaultValue): Radix fires an
+      // uncontrolled Select's onValueChange from an effect, and closing the
+      // menu unmounts this editor first — so the pick was silently dropped.
+      const current = value === "" || value == null ? column.nullOption ?? "" : String(value);
       return (
         <Select
-          defaultValue={String(value || "")}
+          value={current}
           onValueChange={(v) => {
-            onSave(deal.id, column.fieldKey!, v);
+            const next = v === column.nullOption ? null : v;
+            if (next !== (deal[column.fieldKey!] ?? null)) {
+              onSave(deal.id, column.fieldKey!, next);
+            }
             setEditing(false);
           }}
           open={true}
@@ -932,7 +951,7 @@ export default function Index() {
       result = result.filter((d) => !INACTIVE_STATUSES.includes(d.status));
     }
 
-    const interestRank: Record<string, number> = { High: 0, Med: 1, Low: 2, TBD: 3 };
+    const levelRank = LEVEL_SORT_RANK[sortKey];
 
     result = [...result].sort((a, b) => {
       // Primary: active deals always on top
@@ -943,9 +962,9 @@ export default function Index() {
       // Secondary: user-selected sort
       let aVal: any = (a as any)[sortKey];
       let bVal: any = (b as any)[sortKey];
-      if (sortKey === "interest_level") {
-        aVal = interestRank[(aVal as string) || "TBD"] ?? 3;
-        bVal = interestRank[(bVal as string) || "TBD"] ?? 3;
+      if (levelRank) {
+        aVal = levelRank[(aVal as string) || "TBD"] ?? levelRank.TBD;
+        bVal = levelRank[(bVal as string) || "TBD"] ?? levelRank.TBD;
       }
       if (aVal == null && bVal == null) return 0;
       if (aVal == null) return 1;

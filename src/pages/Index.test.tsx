@@ -35,6 +35,28 @@ vi.mock("@/components/ui/popover", () => {
   };
 });
 
+// Same popper cost for Select, so position its menu item-aligned. Root and
+// Item stay real Radix — that is where the dropped-pick bug lived.
+vi.mock("@/components/ui/select", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/ui/select")>();
+  const R = await import("@radix-ui/react-select");
+  return {
+    ...actual,
+    SelectContent: ({ children }: { children?: ReactNode }) => (
+      <R.Portal>
+        <R.Content position="item-aligned">
+          <R.Viewport>{children}</R.Viewport>
+        </R.Content>
+      </R.Portal>
+    ),
+  };
+});
+
+// jsdom gaps the real Radix Select touches.
+Element.prototype.scrollIntoView ??= () => {};
+Element.prototype.hasPointerCapture ??= () => false;
+Element.prototype.releasePointerCapture ??= () => {};
+
 import Index from "./Index";
 
 function deal(id: string, property_name: string, status: string, extra: Partial<Deal> = {}): Deal {
@@ -126,5 +148,54 @@ describe("Pipeline page", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
     expect(mutate.mock.calls[0][0]).toEqual({ id: "2", cfo_date: "2026-11-03", cfo_note: null });
+  });
+
+  // Real Radix Select (not mocked): the bug was inside it. An uncontrolled
+  // Select reports the pick from an effect, after the editor had unmounted.
+  const pickFromCell = async (cell: HTMLElement, option: string) => {
+    fireEvent.click(cell);
+    const item = await screen.findByRole("option", { name: option });
+    fireEvent.keyDown(item, { key: "Enter" });
+  };
+  const rowOf = (name: string) => screen.getByText(name).closest("tr") as HTMLElement;
+  const columnIndex = (label: string) =>
+    within(screen.getAllByRole("table")[0])
+      .getAllByRole("columnheader")
+      .findIndex((th) => th.textContent?.includes(label));
+  const cellIn = (name: string, label: string) =>
+    within(rowOf(name)).getAllByRole("cell")[columnIndex(label)].firstElementChild as HTMLElement;
+
+  it("saves an Interest pick from the inline dropdown", async () => {
+    mockDeals[0] = { ...mockDeals[0], interest_level: "TBD" } as Deal;
+    renderPage();
+    await pickFromCell(cellIn("Elliot Pioneer", "Interest"), "High");
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+    expect(mutate.mock.calls[0][0]).toEqual({ id: "1", interest_level: "High" });
+  });
+
+  it("saves Value-Add picks, with TBD stored as null", async () => {
+    mockDeals[0] = { ...mockDeals[0], value_add_potential: null } as Deal;
+    mockDeals[1] = { ...mockDeals[1], value_add_potential: "Low" } as Deal;
+    renderPage();
+    await pickFromCell(cellIn("Elliot Pioneer", "Value-Add"), "Medium");
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+    expect(mutate.mock.calls[0][0]).toEqual({ id: "1", value_add_potential: "Medium" });
+
+    await pickFromCell(cellIn("Miro Apartments", "Value-Add"), "TBD");
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2));
+    expect(mutate.mock.calls[1][0]).toEqual({ id: "2", value_add_potential: null });
+  });
+
+  it.each([
+    ["Interest", "interest_level", ["Low", "TBD", "High", "Med"]],
+    ["Value-Add", "value_add_potential", ["Low", null, "High", "Medium"]],
+  ])("sorts %s High → Med → Low → TBD", (label, field, values) => {
+    mockDeals = ["A", "B", "C", "D"].map((n, i) =>
+      deal(String(i), `Deal ${n}`, "Screening", { [field]: values[i] } as Partial<Deal>)
+    );
+    renderPage();
+    fireEvent.click(within(screen.getAllByRole("columnheader")[columnIndex(label)]).getByRole("button"));
+    const order = screen.getAllByText(/^Deal [A-D]$/).map((el) => el.textContent);
+    expect(order).toEqual(["Deal C", "Deal D", "Deal A", "Deal B"]);
   });
 });
