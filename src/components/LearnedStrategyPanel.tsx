@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Save, RefreshCw, Sparkles, Pencil, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { effectiveFeedback, LEARNING_ACTIONS } from "../../supabase/functions/_shared/feedbackLearning";
 
 type LearnedRow = {
   id: string;
@@ -16,6 +17,8 @@ type LearnedRow = {
 };
 
 type Feedback = {
+  inbox_deal_id: string | null;
+  action: string;
   category: string | null;
   reason_text: string | null;
   deal_snapshot: any;
@@ -34,11 +37,12 @@ export function LearnedStrategyPanel() {
   const load = async () => {
     const [{ data: ls }, { data: fb }, { data: { user } }] = await Promise.all([
       supabase.from("learned_strategy").select("*").order("updated_at", { ascending: false }).limit(1).maybeSingle(),
-      supabase.from("deal_feedback").select("category, reason_text, deal_snapshot, created_at").eq("action", "deny").order("created_at", { ascending: false }).limit(100),
+      supabase.from("deal_feedback").select("inbox_deal_id, action, category, reason_text, deal_snapshot, created_at").in("action", [...LEARNING_ACTIONS]).order("created_at", { ascending: false }).limit(100),
       supabase.auth.getUser(),
     ]);
     setRow(ls as LearnedRow | null);
-    setFeedback((fb ?? []) as Feedback[]);
+    // Denials later restored no longer count — same rule the learner applies.
+    setFeedback(effectiveFeedback((fb ?? []) as Feedback[]).denials);
     setDraft(ls?.content ?? "");
     if (user) {
       const { data: roles } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
