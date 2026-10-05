@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { safeExternalUrl } from "@/lib/safeUrl";
 import { Loader2, MapPin, RefreshCw } from "lucide-react";
@@ -282,13 +282,24 @@ export function DemographicsPanel({ dealId, address }: { dealId: string; address
     }
   };
 
-  // Auto-trigger on first open if no enrichment exists
-  useEffect(() => {
-    if (!isLoading && !enrichment && address && !running) {
-      run(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading, enrichment, address]);
+  // Enrichment is NOT triggered by opening a deal. It used to be, and that one
+  // effect was the single largest line on the ArcGIS bill: every page view of a
+  // deal with no cached enrichment silently spent ~$4 of credits, before anyone
+  // had decided the deal was worth anything.
+  //
+  // Measured on 29 Sep 2026: 14 enrichments in 4m13s as someone clicked through
+  // the board, $56 in one afternoon and 22% of the month's Esri spend. Nine of
+  // those fourteen deals were deleted shortly afterwards, so $36 of it bought
+  // data for properties nobody kept.
+  //
+  // The effect also raced itself: `running` was read from a stale closure and
+  // was not in the dependency array, so two passes could both see false and fire
+  // concurrently. 22 deals were enriched twice in September, the pairs landing
+  // 3ms to 0.8s apart, which is $88 of exact duplicates.
+  //
+  // The panel already has the right affordance: an explicit "Enrich with
+  // Demographics" button, and an empty state that points at it. Removing the
+  // effect restores that design rather than adding anything.
 
   const rings = (enrichment?.rings as Rings | undefined) ?? null;
   const schools = ((enrichment as any)?.schools as SchoolsData) ?? null;
@@ -329,7 +340,7 @@ export function DemographicsPanel({ dealId, address }: { dealId: string; address
           </div>
         )}
         {!rings && !running && !isLoading && (
-          <p className="text-sm text-muted-foreground">No demographic data yet. Click "Enrich with Demographics" to pull from ArcGIS.</p>
+          <p className="text-sm text-muted-foreground">No demographic data yet. Click &quot;Enrich with Demographics&quot; to pull 1 / 3 / 5-mile rings from ArcGIS. Each pull spends ArcGIS credits, so it runs only when you ask for it.</p>
         )}
 
         {rings && (
