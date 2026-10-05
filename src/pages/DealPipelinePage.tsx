@@ -36,6 +36,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/useAuth";
 import DOMPurify from "dompurify";
+import { DUPLICATE_CATEGORY } from "../../supabase/functions/_shared/feedbackLearning";
 
 const DENIAL_CATEGORIES = [
   "Market / Geography",
@@ -45,6 +46,7 @@ const DENIAL_CATEGORIES = [
   "Condition / Vintage",
   "Sponsor / Operator",
   "Timing",
+  DUPLICATE_CATEGORY,
   "Other",
 ] as const;
 
