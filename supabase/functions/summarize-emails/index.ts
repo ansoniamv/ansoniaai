@@ -69,6 +69,9 @@ async function callLLM(
   try {
     res = await completeText(prompt, {
       model: DEAL_INBOX_MODEL,
+      supabase: ctx?.supabase,
+      // Fan-out and backfill both land here; nobody is watching a single email.
+      priority: "background",
       allowFallback: false,
       system: opts.system,
       maxTokens: opts.maxTokens,
@@ -111,6 +114,8 @@ async function callVisionLLM(
   try {
     res = await completeVision(prompt, imageUrls, {
       model: DEAL_INBOX_MODEL,
+      supabase: ctx?.supabase,
+      priority: "background",
       allowFallback: false,
       system: opts.system,
       maxTokens: opts.maxTokens,
@@ -165,7 +170,10 @@ function extractImageRefs(html: string | null | undefined): { urls: string[]; ci
   while ((m = re.exec(html)) !== null) {
     const src = (m[1] || "").trim();
     if (!src) continue;
-    if (/^https?:\/\//i.test(src)) {
+    // HTTPS only. The API rejects http:// outright ("Only HTTPS URLs are
+    // supported"), so sending one buys a paid round trip to learn what the
+    // scheme already told us. 23 of those in a single drain.
+    if (/^https:\/\//i.test(src)) {
       // Skip tiny tracking pixels and common icons by extension hint only
       if (/(spacer|pixel|tracking|1x1|blank)\.(gif|png)/i.test(src)) continue;
       // Skip URLs the vision provider consistently rejects: spaces (Invalid URL),
@@ -175,6 +183,12 @@ function extractImageRefs(html: string | null | undefined): { urls: string[]; ci
       if (/outlook\.office\.com\/mail\//i.test(src)) continue;
       if (/(logo|icon|button|add[\s_-]?to[\s_-]?calendar|facebook|twitter|linkedin|instagram|youtube)/i.test(src)) continue;
       if (/rechat\.imgix\.net|salesforce-experience\.com/i.test(src)) continue;
+      // Hosts observed returning "This URL is disallowed by the website's
+      // robots.txt file" — 318 failures in one drain, all permanent. Each one
+      // cost a text-extraction call on the same row before it was reached.
+      if (/(^|\.)(?:constantcontact\.com|mailchimp\.com|list-manage\.com|hubspot\.com|hs-sites\.com|sendgrid\.net|exacttarget\.com|marketo\.com|rcm1\.com|crexi\.com|buildout\.com)\//i.test(src)) continue;
+      // Non-image extensions the fetcher will reject on media type.
+      if (/\.(?:svg|webp|avif|bmp|tiff?)(?:[?#]|$)/i.test(src)) continue;
       if (!seenUrl.has(src)) { seenUrl.add(src); urls.push(src); }
     } else if (/^cid:/i.test(src)) {
       const cid = src.replace(/^cid:/i, "").trim();
@@ -198,8 +212,12 @@ async function fetchOutlookInlineImages(
     const json = await res.json();
     const items = Array.isArray(json?.value) ? json.value : [];
     for (const it of items) {
-      const contentType = String(it?.contentType ?? "");
-      if (!contentType.startsWith("image/")) continue;
+      const contentType = String(it?.contentType ?? "").split(";")[0].trim().toLowerCase();
+      // The API accepts only these four. Anything else — including an image/*
+      // the model cannot decode — is a guaranteed 400 on a paid call, so it is
+      // dropped here rather than sent and rejected.
+      const ACCEPTED = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+      if (!ACCEPTED.includes(contentType)) continue;
       const contentId = String(it?.contentId ?? "").trim();
       const b64 = it?.contentBytes;
       if (!contentId || typeof b64 !== "string") continue;
@@ -334,7 +352,20 @@ const VISION_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 };
 
-/**
+/**
+ * True when a vision failure will fail identically every time.
+ *
+ * The distinction matters because the error handler leaves vision_checked false
+ * so transient failures retry. robots.txt, scheme and media-type rejections are
+ * properties of the image, not of the moment — retrying them is a permanent
+ * loop that pays for a text extraction on every pass.
+ */
+function isPermanentVisionFailure(err: unknown): boolean {
+  const m = String((err as { message?: string })?.message ?? err);
+  return /robots\.txt|Only HTTPS URLs are supported|image\.source\.base64\.media_type|could not process image|unsupported image/i.test(m);
+}
+
+/**
  * Remove anything that looks like a fence marker so untrusted content cannot
  * close the fence and continue as if it were instruction text.
  */
@@ -453,7 +484,7 @@ Deno.serve(async (req) => {
     const oldestFirst = !!(body.backfill || body.oldest);
     let q = supabase
       .from("deal_emails")
-      .select("id, deal_id, subject, body, received_at, summary, extracted_fields, email_message_id, vision_checked")
+      .select("id, deal_id, subject, body, received_at, summary, extracted_fields, email_message_id, vision_checked, vision_attempts")
       // Steady state is newest-first: fresh broker mail is what someone is waiting
       // on. A drain flips to oldest-first, so the rows the nightly batch keeps
       // outranking are exactly the ones it reaches first. `oldest` gives that
@@ -506,7 +537,10 @@ Deno.serve(async (req) => {
     }
     if (body.deal_id) q = q.eq("deal_id", body.deal_id);
     if (!body.force) {
-      q = q.or("summary.is.null,extracted_fields.is.null,vision_checked.eq.false");
+      // vision_attempts caps the retry loop: a row that has failed twice is no
+      // longer "needs a vision pass", or it is re-selected on every batch for
+      // ever and pays for a text extraction each time.
+      q = q.or("summary.is.null,extracted_fields.is.null,and(vision_checked.eq.false,vision_attempts.lt.2)");
     }
 
     const { data: emails, error: emailErr } = await q;
@@ -531,7 +565,7 @@ Deno.serve(async (req) => {
         const cleanBody = stripHtml(rawBody);
         const needSummary = !e.summary || body.force;
         const needExtract = !e.extracted_fields || body.force;
-        const needVision = !e.vision_checked || body.force;
+        const needVision = (!e.vision_checked && Number(e.vision_attempts ?? 0) < 2) || body.force;
         if (!needSummary && !needExtract && !needVision) continue;
 
         const update: Record<string, unknown> = {};
@@ -601,9 +635,22 @@ Deno.serve(async (req) => {
               }
               // Mark checked whether or not vision returned anything useful.
               update.vision_checked = true;
-            } catch (err) {
-              // Transient error — leave vision_checked false so it retries.
-              console.error(`[vision] error ${e.id}`, err);
+            } catch (err) {
+              // A vision failure must never cost the email its summary: the text
+              // extraction above has already run and is in `update`, which is
+              // written below regardless of what happens here.
+              const attempts = Number(e.vision_attempts ?? 0) + 1;
+              const permanent = isPermanentVisionFailure(err);
+              update.vision_attempts = attempts;
+              update.vision_error = String((err as { message?: string })?.message ?? err).slice(0, 500);
+              // Permanent failures, and anything that has now failed twice, stop
+              // being candidates. Only a genuinely transient first failure retries.
+              if (permanent || attempts >= 2) update.vision_checked = true;
+              visionSkipped++;
+              console.error(
+                `[vision] ${permanent ? "permanent" : "transient"} failure ${e.id} ` +
+                `attempt=${attempts} checked=${update.vision_checked ?? false}`, err,
+              );
             }
           }
         }

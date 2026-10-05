@@ -3,6 +3,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { completeJSON } from "../_shared/ai.ts";
 import { isAnthropicConfigured } from "../_shared/anthropic.ts";
+import { ATLAS_MODEL } from "../_shared/featureModels.ts";
 import { requireUserOrService } from "../_shared/auth.ts";
 
 const corsHeaders = {
@@ -181,7 +182,11 @@ Body:
 ${text}`;
   try {
     // Routed through _shared/ai.ts (Anthropic only).
-    const { parsed } = await completeJSON<any>(prompt, { maxTokens: 4000 });
+    const { parsed } = await completeJSON<any>(prompt, {
+      model: ATLAS_MODEL,
+      maxTokens: 4000,
+      priority: "background",
+    });
     if (!parsed || typeof parsed !== "object") return null;
     if (typeof parsed.confidence === "number" && parsed.confidence < 0.5) return null;
     const intent = String(parsed.intent || "none");

@@ -10,6 +10,29 @@ const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 /** Every AI call in the platform runs on this model unless explicitly overridden. */
 export const DEFAULT_MODEL = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-opus-5";
 
+/**
+ * Per-model capability flags.
+ *
+ * Only `effort` matters so far, and only because Haiku 4.5 rejects it outright:
+ * sending output_config.effort to Haiku is a 400 on every call, not a degraded
+ * response. Four call sites pass effort: "low", so routing any of them to Haiku
+ * without this would fail 100% of the time.
+ *
+ * Keyed by prefix so a dated snapshot (claude-haiku-4-5-20251001) matches the
+ * same entry as the alias. Anything not listed is assumed to support effort,
+ * which is true of every current Opus/Sonnet/Fable model.
+ */
+const MODEL_CAPABILITIES: Array<{ prefix: string; effort: boolean }> = [
+  { prefix: "claude-haiku-", effort: false },
+  { prefix: "claude-sonnet-4-5", effort: false },
+];
+
+/** True when the model accepts output_config.effort. */
+export function supportsEffort(model: string): boolean {
+  const hit = MODEL_CAPABILITIES.find((c) => model.startsWith(c.prefix));
+  return hit ? hit.effort : true;
+}
+
 const API_URL = "https://api.anthropic.com/v1/messages";
 const API_VERSION = "2023-06-01";
 
@@ -112,9 +135,13 @@ export async function callClaudeRaw(req: ClaudeRequest): Promise<ClaudeResponse>
   if (req.system) body.system = req.system;
   if (req.tools?.length) body.tools = req.tools;
   // effort and format both live under output_config; merge rather than clobber.
-  if (req.effort || req.schema) {
+  // effort is dropped for models that reject it rather than passed through and
+  // 400ing — the caller asked for cheap reasoning, and the right answer on a
+  // model with no effort control is to run without one, not to fail.
+  const effort = req.effort && supportsEffort(model) ? req.effort : undefined;
+  if (effort || req.schema) {
     body.output_config = {
-      ...(req.effort ? { effort: req.effort } : {}),
+      ...(effort ? { effort } : {}),
       ...(req.schema ? { format: { type: "json_schema", schema: req.schema } } : {}),
     };
   }

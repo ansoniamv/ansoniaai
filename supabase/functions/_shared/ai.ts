@@ -19,6 +19,7 @@ import {
   isAnthropicConfigured,
   AnthropicNotConfiguredError,
 } from "./anthropic.ts";
+import { assertWithinBudget, type CallPriority } from "./aiBudget.ts";
 
 export interface CompleteOptions {
   system?: string;
@@ -41,6 +42,17 @@ export interface CompleteOptions {
   allowFallback?: boolean;
   /** JSON Schema constraining the response. Anthropic enforces it server-side. */
   schema?: Record<string, unknown>;
+  /**
+   * Who is waiting. "background" (the default) is refused at the daily cap;
+   * "interactive" only at the monthly one, so scheduled work cannot make the
+   * product look broken to someone who just clicked a button.
+   */
+  priority?: CallPriority;
+  /**
+   * Supabase client used to read current spend. Omitting it skips the budget
+   * check — a caller with no client cannot be metered.
+   */
+  supabase?: any;
 }
 
 export interface CompleteResult {
@@ -63,6 +75,7 @@ function assertConfigured(): void {
  */
 export async function completeText(prompt: string, opts: CompleteOptions = {}): Promise<CompleteResult> {
   assertConfigured();
+  await assertWithinBudget(opts.supabase, opts.priority ?? "background");
   const res = await callClaude(prompt, {
     system: opts.system,
     model: opts.model,
@@ -84,6 +97,7 @@ export async function completeVision(
   opts: CompleteOptions = {},
 ): Promise<CompleteResult> {
   assertConfigured();
+  await assertWithinBudget(opts.supabase, opts.priority ?? "background");
 
   const content: any[] = [];
   for (const url of imageUrls) {
