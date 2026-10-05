@@ -791,6 +791,7 @@ export type Database = {
           broker: string | null
           building_quality_score: number | null
           cfo_date: string | null
+          cfo_note: string | null
           city: string | null
           classic_units_remaining: number | null
           concessions_history: Json | null
@@ -945,6 +946,7 @@ export type Database = {
           broker?: string | null
           building_quality_score?: number | null
           cfo_date?: string | null
+          cfo_note?: string | null
           city?: string | null
           classic_units_remaining?: number | null
           concessions_history?: Json | null
@@ -1099,6 +1101,7 @@ export type Database = {
           broker?: string | null
           building_quality_score?: number | null
           cfo_date?: string | null
+          cfo_note?: string | null
           city?: string | null
           classic_units_remaining?: number | null
           concessions_history?: Json | null

@@ -8,28 +8,29 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import { initialAuthLinkParams } from "@/lib/authLinkParams";
 
 const schema = z.string().min(8, "Password must be at least 8 characters").max(200);
 
-function parseHashParams(): Record<string, string> {
-  const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
-  const search = window.location.search.startsWith("?") ? window.location.search.slice(1) : window.location.search;
-  const out: Record<string, string> = {};
-  for (const part of [hash, search]) {
-    if (!part) continue;
-    for (const kv of part.split("&")) {
-      const [k, v] = kv.split("=");
-      if (k) out[decodeURIComponent(k)] = decodeURIComponent(v ?? "");
-    }
-  }
-  return out;
-}
+// Link types this page accepts. "invite" is an admin invitation (the first
+// password, which activates the account); "recovery" is a forgotten-password reset.
+type LinkType = "invite" | "recovery";
+const LINK_TYPES: readonly string[] = ["invite", "recovery"];
 
 export default function ResetPasswordPage() {
   const navigate = useNavigate();
+  const params = initialAuthLinkParams;
+  const [linkType, setLinkType] = useState<LinkType | null>(
+    LINK_TYPES.includes(params.type) ? (params.type as LinkType) : null,
+  );
+  // Scanner-safe links carry a token_hash instead of a live session. Nothing is
+  // verified until the person clicks Continue, so a mail scanner that pre-opens
+  // the link (Microsoft Safe Links does) can no longer burn the one-time token.
+  const tokenHash = params.token_hash && linkType ? params.token_hash : null;
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [ready, setReady] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [resendEmail, setResendEmail] = useState("");
@@ -37,7 +38,6 @@ export default function ResetPasswordPage() {
 
   useEffect(() => {
     // Check URL for error params from Supabase auth redirect
-    const params = parseHashParams();
     if (params.error || params.error_code || params.error_description) {
       const code = params.error_code || params.error || "";
       const desc = params.error_description?.replace(/\+/g, " ") || "";
@@ -52,7 +52,11 @@ export default function ResetPasswordPage() {
       return;
     }
 
+    // Waiting for the person to click Continue; see verifyLink.
+    if (tokenHash) return;
+
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") setLinkType((t) => t ?? "recovery");
       if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") setReady(true);
     });
     supabase.auth.getSession().then(({ data }) => {
@@ -70,7 +74,27 @@ export default function ResetPasswordPage() {
       sub.subscription.unsubscribe();
       clearTimeout(t);
     };
-  }, []);
+  }, [params, tokenHash]);
+
+  const verifyLink = async () => {
+    if (!tokenHash || !linkType) return;
+    setVerifying(true);
+    const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: linkType });
+    setVerifying(false);
+    if (error) {
+      setLinkError(
+        /expired/i.test(error.message)
+          ? "This invite/reset link has expired. Request a new one below."
+          : "This link is no longer valid. It may have already been used. Request a new one below.",
+      );
+      return;
+    }
+    // Drop the spent token from the address bar and history.
+    window.history.replaceState(null, "", window.location.pathname);
+    setReady(true);
+  };
+
+  const isInvite = linkType === "invite";
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,7 +114,7 @@ export default function ResetPasswordPage() {
       toast.error(error.message);
       return;
     }
-    toast.success("Password updated. Welcome!");
+    toast.success(isInvite ? "Your account is ready. Welcome!" : "Password updated.");
     navigate("/", { replace: true });
   };
 
@@ -102,6 +126,8 @@ export default function ResetPasswordPage() {
       return;
     }
     setResending(true);
+    // Works for invitees too: a recovery link also confirms an invited address
+    // that never finished setup. Unknown addresses get no email and no signal.
     const { error } = await supabase.auth.resetPasswordForEmail(emailParsed.data, {
       redirectTo: `${window.location.origin}/reset-password`,
     });
@@ -113,18 +139,25 @@ export default function ResetPasswordPage() {
     toast.success("If the email is registered, a new link was sent. Check your inbox.");
   };
 
+  const title = isInvite ? "Create your account" : linkType === "recovery" ? "Reset your password" : "Set your password";
+  const description = linkError
+    ? "Link issue"
+    : ready
+      ? isInvite
+        ? "You've been invited to Ansonia Acquisitions. Choose a password to activate your account."
+        : "Choose a new password for your account."
+      : tokenHash
+        ? isInvite
+          ? "You've been invited to Ansonia Acquisitions. Continue to create your password."
+          : "Continue to choose a new password."
+        : "Validating link…";
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="max-w-md w-full">
         <CardHeader>
-          <CardTitle>Set your password</CardTitle>
-          <CardDescription>
-            {linkError
-              ? "Link issue"
-              : ready
-                ? "Choose a password to finish setting up your account."
-                : "Validating link…"}
-          </CardDescription>
+          <CardTitle>{title}</CardTitle>
+          <CardDescription>{description}</CardDescription>
         </CardHeader>
         <CardContent>
           {linkError ? (
@@ -158,11 +191,16 @@ export default function ResetPasswordPage() {
                 </button>
               </form>
             </div>
+          ) : tokenHash && !ready ? (
+            <Button className="w-full" onClick={verifyLink} disabled={verifying}>
+              {verifying && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Continue
+            </Button>
           ) : (
             ready && (
               <form onSubmit={submit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="password">New password</Label>
+                  <Label htmlFor="password">{isInvite ? "Password" : "New password"}</Label>
                   <Input
                     id="password"
                     type="password"
@@ -171,6 +209,7 @@ export default function ResetPasswordPage() {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                   />
+                  <p className="text-xs text-muted-foreground">At least 8 characters.</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="confirm">Confirm password</Label>
@@ -185,7 +224,7 @@ export default function ResetPasswordPage() {
                 </div>
                 <Button type="submit" className="w-full" disabled={submitting}>
                   {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Save password
+                  {isInvite ? "Create account" : "Save password"}
                 </Button>
               </form>
             )

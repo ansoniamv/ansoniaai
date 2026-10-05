@@ -1,5 +1,18 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+// Admin-only: invite a teammate by email. This is the ONLY way an account gets
+// created — public signup is disabled in Supabase Auth settings, and
+// handle_new_user leaves any other new auth user 'pending' (no data access).
+//
+// The invitee gets an email, follows the link to /reset-password, and sets their
+// own password there. Re-sending to someone who never finished setup is the same
+// call; someone who already has a password gets a 409 and should use a reset.
+import { corsFor, requireRole } from "../_shared/auth.ts";
+
+const COMPANY_DOMAIN = "@ansoniaproperties.com";
+
+// Where invite links land. Taken from config, never from the request, so a
+// caller cannot point the emailed link somewhere else. An allowlisted Origin
+// (ALLOWED_ORIGINS, e.g. localhost during development) may override it.
+const APP_URL = (Deno.env.get("APP_URL") ?? "https://ansoniaai.vercel.app").replace(/\/+$/, "");
 
 interface InviteBody {
   email: string;
@@ -7,71 +20,75 @@ interface InviteBody {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const cors = corsFor(req);
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { ...cors, "Content-Type": "application/json" },
+    });
+
+  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   try {
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-    const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const auth = await requireRole(req, "admin");
+    if (!auth.ok) return auth.response;
+    const { admin, user: caller } = auth;
 
-    const authHeader = req.headers.get("Authorization") ?? "";
-    if (!authHeader.startsWith("Bearer ")) {
-      return json({ error: "Missing auth" }, 401);
-    }
-
-    // Verify caller and check admin
-    const userClient = createClient(SUPABASE_URL, ANON, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: userData, error: userErr } = await userClient.auth.getUser();
-    if (userErr || !userData.user) return json({ error: "Unauthorized" }, 401);
-
-    const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
-    const { data: isAdminData, error: roleErr } = await admin.rpc("has_role", {
-      _user_id: userData.user.id,
-      _role: "admin",
-    });
-    if (roleErr) return json({ error: roleErr.message }, 500);
-    if (!isAdminData) return json({ error: "Admins only" }, 403);
-
-    const body = (await req.json()) as InviteBody;
+    const body = (await req.json().catch(() => ({}))) as InviteBody;
     const email = (body.email ?? "").trim().toLowerCase();
-    const full_name = body.full_name?.trim() || null;
+    const full_name = body.full_name?.trim().slice(0, 120) || null;
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 255) {
       return json({ error: "Invalid email" }, 400);
     }
+    if (!email.endsWith(COMPANY_DOMAIN)) {
+      return json({ error: `Only ${COMPANY_DOMAIN} addresses can be invited.` }, 400);
+    }
 
-    const origin = req.headers.get("origin") ?? undefined;
-    const redirectTo = origin ? `${origin}/reset-password` : undefined;
+    const allowedOrigin = (cors as Record<string, string>)["Access-Control-Allow-Origin"];
+    const base = allowedOrigin && allowedOrigin !== "*" ? allowedOrigin : APP_URL;
 
     const { data: invited, error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
       data: full_name ? { full_name } : undefined,
-      redirectTo,
+      redirectTo: `${base}/reset-password`,
     });
-    if (inviteErr) return json({ error: inviteErr.message }, 400);
+    if (inviteErr) {
+      // GoTrue re-sends to an invitee who never confirmed, and refuses only once
+      // the address belongs to an active account.
+      if (/already been registered|already registered|email_exists/i.test(inviteErr.message)) {
+        return json(
+          { error: "already_active", message: "This person already has an active account. Send a password reset instead." },
+          409,
+        );
+      }
+      if (/rate limit/i.test(inviteErr.message)) {
+        return json({ error: "Too many emails sent recently. Try again in a few minutes." }, 429);
+      }
+      console.error("admin-invite-user: invite failed", inviteErr);
+      return json({ error: "Could not send the invite." }, 502);
+    }
 
-    // Auto-approve invited users (admin vouched for them)
+    // The admin vouched for them, so approve the profile handle_new_user created
+    // as 'pending'. Retry-safe: re-sending an invite just re-approves.
     if (invited.user) {
-      await admin
+      const { error: profErr } = await admin
         .from("profiles")
         .update({
           status: "approved",
           approved_at: new Date().toISOString(),
-          approved_by: userData.user.id,
-          full_name: full_name ?? undefined,
+          approved_by: caller.id,
+          ...(full_name ? { full_name } : {}),
         })
         .eq("id", invited.user.id);
+      if (profErr) {
+        console.error("admin-invite-user: approve failed", profErr);
+        return json({ error: "Invite sent, but approving the account failed. Approve them from the users list." }, 500);
+      }
     }
 
     return json({ ok: true, user_id: invited.user?.id });
   } catch (e) {
-    return json({ error: (e as Error).message }, 500);
+    console.error("admin-invite-user: unexpected", e);
+    return json({ error: "Could not send the invite." }, 500);
   }
 });
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}

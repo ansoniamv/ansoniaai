@@ -24,12 +24,16 @@ type AnyDeal = {
   fit_score: number | null;
   fit_rationale: string | null;
   email_received_at: string | null;
-  reviewed: boolean | null;
   email_count: number | null;
   gate_status: string | null;
   gate_reason: string | null;
   assigned_to: string | null;
   email_thread_summary: string | null;
+  denied?: boolean | null;
+  denial_category?: string | null;
+  denial_reason?: string | null;
+  denied_by?: string | null;
+  denied_at?: string | null;
 };
 
 const HEADER_FILL = { fgColor: { rgb: "002752" } };
@@ -87,27 +91,27 @@ function styleSheet(
 const sanitizeSheetName = (name: string) =>
   name.replace(/[\\/?*[\]:]/g, "-").slice(0, 31);
 
-export function exportInboxDay({
-  dayKey,
+export function exportInboxSection({
+  title,
   deals,
-  filtered,
   teamById,
 }: {
-  dayKey: string;
+  title: string;
   deals: AnyDeal[];
-  filtered: AnyDeal[];
   teamById: Map<string, TeamMember>;
 }) {
   const wb = XLSX.utils.book_new();
+  const withDenial = deals.some((d) => d.denied);
 
-  const dealsHeaders = [
+  const headers = [
     "Property", "Address", "City", "State", "MSA", "Units", "Year Built", "Avg SF", "Occupancy %", "Asset Class",
     "Strategy", "Fit Score", "Fit Tier", "Gate Status", "Gate Reason",
     "Offers Due", "Broker Firm", "Broker Contact", "Broker Email",
-    "Email Received", "# Emails", "Assigned To", "Reviewed",
+    "Email Received", "# Emails", "Assigned To",
     "Fit Rationale", "Email Thread Summary",
+    ...(withDenial ? ["Denial Category", "Denial Reason", "Denied By", "Denied At"] : []),
   ];
-  const dealsRows = deals.map((d) => [
+  const rows = deals.map((d) => [
     d.property_name ?? "",
     d.address ?? "",
     d.location_city ?? "",
@@ -130,35 +134,19 @@ export function exportInboxDay({
     toDate(d.email_received_at),
     d.email_count ?? "",
     d.assigned_to ? (teamById.get(d.assigned_to)?.full_name ?? "") : "",
-    d.reviewed ? "Yes" : "No",
     d.fit_rationale ?? "",
     d.email_thread_summary ?? "",
+    ...(withDenial
+      ? [d.denial_category ?? "", d.denial_reason ?? "", d.denied_by ?? "", toDate(d.denied_at ?? null)]
+      : []),
   ]);
-  const wsDeals = XLSX.utils.aoa_to_sheet([dealsHeaders, ...dealsRows]);
-  styleSheet(wsDeals, dealsHeaders, [
-    34, 28, 16, 8, 22, 8, 10, 10, 12, 16, 16, 10, 12, 14, 36, 14, 24, 22, 28, 16, 10, 20, 10, 48, 60,
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  styleSheet(ws, headers, [
+    34, 28, 16, 8, 22, 8, 10, 10, 12, 16, 16, 10, 12, 14, 36, 14, 24, 22, 28, 16, 10, 20, 48, 60,
+    ...(withDenial ? [20, 48, 28, 14] : []),
   ]);
-  const sheetName = sanitizeSheetName(dayKey === "undated" ? "Undated" : dayKey);
-  XLSX.utils.book_append_sheet(wb, wsDeals, sheetName);
+  XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(title));
 
-  const filtHeaders = [
-    "Property", "Address", "City", "State", "Asset Class", "Broker Firm", "Filter Reason", "Email Received",
-  ];
-  const filtRows = filtered.map((d) => [
-    d.property_name ?? "",
-    d.address ?? "",
-    d.location_city ?? "",
-    d.location_state ?? "",
-    d.asset_class ?? "",
-    d.broker_firm ?? "",
-    d.gate_reason ?? "",
-    toDate(d.email_received_at),
-  ]);
-  const wsFilt = XLSX.utils.aoa_to_sheet([filtHeaders, ...filtRows]);
-  styleSheet(wsFilt, filtHeaders, [34, 28, 16, 8, 16, 24, 48, 16]);
-  XLSX.utils.book_append_sheet(wb, wsFilt, "Filtered (screened out)");
-
-  const datePart = dayKey === "undated" ? "undated" : dayKey;
-  const filename = `Ansonia-Deal-Inbox-${datePart === "undated" ? "undated" : format(parseISO(dayKey), "yyyy-MM-dd")}.xlsx`;
-  XLSX.writeFile(wb, filename);
+  const slug = title.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  XLSX.writeFile(wb, `Ansonia-Deal-Inbox-${slug}-${format(new Date(), "yyyy-MM-dd")}.xlsx`);
 }

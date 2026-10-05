@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { ExportPipelineDialog } from "@/components/ExportPipelineDialog";
 import { Link, useNavigate } from "react-router-dom";
-import { Plus, Search, ArrowUpDown, Settings2, Maximize2, Minimize2, GripVertical, Info, Download } from "lucide-react";
+import { Plus, Search, ArrowUpDown, Settings2, Maximize2, Minimize2, GripVertical, Info, Download, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ColumnManagerDialog } from "@/components/ColumnManagerDialog";
+import { Calendar } from "@/components/ui/calendar";
+import { cfoDateToLocal, cfoToInput, formatCfoDate, localToCfoDate, parseCfoInput, type CfoValue } from "@/lib/cfo";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { DealStatusBadge } from "@/components/DealStatusBadge";
@@ -39,8 +41,17 @@ type InterestLevel = "High" | "Med" | "Low" | "TBD";
 const dealStatuses: readonly DealStatus[] = DEAL_STATUSES;
 const ACTIVE_STATUSES: readonly DealStatus[] = SHARED_ACTIVE_STATUSES;
 const INACTIVE_STATUSES = SHARED_INACTIVE_STATUSES;
-const valueAddLevels: ValueAddLevel[] = ["High", "Medium", "Low"];
+const ON_HOLD_STATUS: DealStatus = "On Hold/Tracking";
+type PipelineSection = "main" | "hold";
+// The value_add_level enum has no TBD; the list shows an unset value as TBD and
+// saves TBD back as null.
+const valueAddLevels: (ValueAddLevel | "TBD")[] = ["High", "Medium", "Low", "TBD"];
 const interestLevels: InterestLevel[] = ["High", "Med", "Low", "TBD"];
+// Sort order for level columns: High first, TBD/unset last — not alphabetical.
+const LEVEL_SORT_RANK: Record<string, Record<string, number>> = {
+  interest_level: { High: 0, Med: 1, Low: 2, TBD: 3 },
+  value_add_potential: { High: 0, Medium: 1, Low: 2, TBD: 3 },
+};
 const analystGrades = ["A", "B", "C", "Pass"] as const;
 
 const formatMillions = (value: number | null) =>
@@ -59,8 +70,10 @@ type ColumnDef = {
   sortKey?: string;
   render: (deal: Deal) => React.ReactNode;
   editable?: boolean;
-  editType?: "text" | "number" | "select" | "switch" | "date";
+  editType?: "text" | "number" | "select" | "switch" | "date" | "cfo";
   editOptions?: string[];
+  // Select option that stands for a null value in the database.
+  nullOption?: string;
   fieldKey?: keyof Deal;
 };
 
@@ -179,6 +192,103 @@ const PropertyNameCell = ({ deal }: { deal: Deal }) => {
   );
 };
 
+// CFO cell: a date, a note ("Off Market"), or both. See src/lib/cfo.ts.
+const CfoCell = ({ deal }: { deal: Deal }) => {
+  const date = deal.cfo_date ? formatCfoDate(deal.cfo_date) : null;
+  const note = deal.cfo_note?.trim() || null;
+  if (!date && !note) return <>—</>;
+  if (!note) return <>{date}</>;
+  if (!date) return <span className="block truncate" title={note}>{note}</span>;
+  return (
+    <span className="inline-flex max-w-full flex-col leading-tight" title={note}>
+      <span>{date}</span>
+      <span className="truncate text-[10px] text-muted-foreground">{note}</span>
+    </span>
+  );
+};
+
+function CfoEditor({
+  deal,
+  initialText,
+  onCommit,
+  onCancel,
+}: {
+  deal: Deal;
+  initialText: string;
+  onCommit: (next: CfoValue) => void;
+  onCancel: () => void;
+}) {
+  const [text, setText] = useState(initialText);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const done = useRef(false);
+  const selected = cfoDateToLocal(deal.cfo_date);
+
+  const finish = (next: CfoValue | null) => {
+    if (done.current) return;
+    done.current = true;
+    if (next) onCommit(next);
+    else onCancel();
+  };
+  const commitText = () => finish(parseCfoInput(text));
+
+  return (
+    <Popover open onOpenChange={(open) => { if (!open) commitText(); }}>
+      <PopoverTrigger asChild>
+        <div className="rounded px-1 -mx-1 ring-2 ring-primary/50 bg-primary/5">
+          <CfoCell deal={deal} />
+        </div>
+      </PopoverTrigger>
+      <PopoverContent
+        align="center"
+        className="w-auto p-0"
+        onClick={(e) => e.stopPropagation()}
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          const el = inputRef.current;
+          if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+        }}
+        onEscapeKeyDown={(e) => { e.preventDefault(); finish(null); }}
+      >
+        <div className="space-y-1 border-b border-hairline p-2">
+          <Input
+            ref={inputRef}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitText(); } }}
+            placeholder="10/15/26 or Off Market"
+            className="h-8 text-sm"
+          />
+          <p className="text-[10px] text-muted-foreground">
+            Type a date or any text · Enter to save · Esc to cancel
+          </p>
+        </div>
+        <Calendar
+          mode="single"
+          selected={selected}
+          defaultMonth={selected}
+          onSelect={(day) => {
+            if (!day) return;
+            // Picking a date replaces a text-only CFO ("Off Market" no longer
+            // applies) but keeps a note that was riding alongside a date.
+            const typed = parseCfoInput(text);
+            finish({ cfo_date: localToCfoDate(day), cfo_note: typed.cfo_date ? typed.cfo_note : null });
+          }}
+        />
+        <div className="flex justify-end border-t border-hairline p-1.5">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-xs"
+            onClick={() => finish({ cfo_date: null, cfo_note: null })}
+          >
+            Clear
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function StatusSelectCell({ deal }: { deal: Deal }) {
   const updateDeal = useUpdateDeal();
   return (
@@ -228,12 +338,8 @@ const COLUMNS: ColumnDef[] = [
   {
     key: "cfo_date", label: "CFO", defaultVisible: true,
     sortKey: "cfo_date",
-    render: (d) => {
-      if (!d.cfo_date) return "—";
-      const [y, m, day] = d.cfo_date.split("-");
-      return `${Number(m)}/${Number(day)}/${y.slice(-2)}`;
-    },
-    editable: true, editType: "date", fieldKey: "cfo_date",
+    render: (d) => <CfoCell deal={d} />,
+    editable: true, editType: "cfo", fieldKey: "cfo_date",
   },
   {
     key: "ai_score", label: COLUMN_LABELS.ai_score, defaultVisible: true,
@@ -375,8 +481,11 @@ const COLUMNS: ColumnDef[] = [
   },
   {
     key: "value_add_potential", label: "Value-Add", defaultVisible: false,
-    render: (d) => d.value_add_potential || "—",
-    editable: true, editType: "select", editOptions: valueAddLevels, fieldKey: "value_add_potential",
+    sortKey: "value_add_potential",
+    render: (d) =>
+      d.value_add_potential || <span className="text-muted-foreground">TBD</span>,
+    editable: true, editType: "select", editOptions: valueAddLevels, nullOption: "TBD",
+    fieldKey: "value_add_potential",
   },
   {
     key: "area_median_income", label: COLUMN_LABELS.area_median_income, defaultVisible: false,
@@ -423,7 +532,7 @@ function InlineEditCell({
 }: {
   deal: Deal;
   column: ColumnDef;
-  onSave: (dealId: string, field: string, value: any) => void;
+  onSave: (dealId: string, field: string, value: any, extra?: Record<string, unknown>) => void;
   onNavigate: () => void;
   isActive: boolean;
   onActivate: () => void;
@@ -456,8 +565,15 @@ function InlineEditCell({
       onSave(deal.id, column.fieldKey, !raw);
       return;
     }
-    setValue(raw ?? "");
+    setValue(column.editType === "cfo" ? cfoToInput(deal) : raw ?? "");
     setEditing(true);
+  };
+
+  const saveCfo = (next: CfoValue) => {
+    if (next.cfo_date !== (deal.cfo_date ?? null) || next.cfo_note !== (deal.cfo_note ?? null)) {
+      onSave(deal.id, "cfo_date", next.cfo_date, { cfo_note: next.cfo_note });
+    }
+    setEditing(false);
   };
 
 
@@ -542,7 +658,7 @@ function InlineEditCell({
         return;
       }
       // Printable character — start editing with that character as initial value
-      if (column.editType === "text" || column.editType === "number") {
+      if (column.editType === "text" || column.editType === "number" || column.editType === "cfo") {
         e.preventDefault();
         setValue(e.key);
         setEditing(true);
@@ -552,12 +668,29 @@ function InlineEditCell({
 
 
   if (editing && column.editable) {
+    if (column.editType === "cfo") {
+      return (
+        <CfoEditor
+          deal={deal}
+          initialText={String(value ?? "")}
+          onCommit={saveCfo}
+          onCancel={() => setEditing(false)}
+        />
+      );
+    }
     if (column.editType === "select" && column.editOptions) {
+      // Must stay controlled (value, not defaultValue): Radix fires an
+      // uncontrolled Select's onValueChange from an effect, and closing the
+      // menu unmounts this editor first — so the pick was silently dropped.
+      const current = value === "" || value == null ? column.nullOption ?? "" : String(value);
       return (
         <Select
-          defaultValue={String(value || "")}
+          value={current}
           onValueChange={(v) => {
-            onSave(deal.id, column.fieldKey!, v);
+            const next = v === column.nullOption ? null : v;
+            if (next !== (deal[column.fieldKey!] ?? null)) {
+              onSave(deal.id, column.fieldKey!, next);
+            }
             setEditing(false);
           }}
           open={true}
@@ -756,14 +889,15 @@ export default function Index() {
   const [draggedCol, setDraggedCol] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const resizingRef = useRef<{ key: string; startX: number; startW: number } | null>(null);
-  const [activeCell, setActiveCell] = useState<{ row: number; col: number } | null>(null);
+  const [activeCell, setActiveCell] = useState<{ section: PipelineSection; row: number; col: number } | null>(null);
+  const [holdCollapsed, setHoldCollapsed] = useUserPreference<boolean>("pipeline.onHoldCollapsed", false);
 
 
 
 
   const handleInlineSave = useCallback(
-    (dealId: string, field: string, value: any) => {
-      const payload: any = { id: dealId, [field]: value };
+    (dealId: string, field: string, value: any, extra?: Record<string, unknown>) => {
+      const payload: any = { id: dealId, [field]: value, ...extra };
 
       if (field === "asking_price" && value != null) {
         payload.estimated_equity = parseFloat((Number(value) * 0.35).toFixed(1));
@@ -817,7 +951,7 @@ export default function Index() {
       result = result.filter((d) => !INACTIVE_STATUSES.includes(d.status));
     }
 
-    const interestRank: Record<string, number> = { High: 0, Med: 1, Low: 2, TBD: 3 };
+    const levelRank = LEVEL_SORT_RANK[sortKey];
 
     result = [...result].sort((a, b) => {
       // Primary: active deals always on top
@@ -828,9 +962,9 @@ export default function Index() {
       // Secondary: user-selected sort
       let aVal: any = (a as any)[sortKey];
       let bVal: any = (b as any)[sortKey];
-      if (sortKey === "interest_level") {
-        aVal = interestRank[(aVal as string) || "TBD"] ?? 3;
-        bVal = interestRank[(bVal as string) || "TBD"] ?? 3;
+      if (levelRank) {
+        aVal = levelRank[(aVal as string) || "TBD"] ?? levelRank.TBD;
+        bVal = levelRank[(bVal as string) || "TBD"] ?? levelRank.TBD;
       }
       if (aVal == null && bVal == null) return 0;
       if (aVal == null) return 1;
@@ -841,6 +975,16 @@ export default function Index() {
     });
     return result;
   }, [deals, enrichmentsMap, search, statusFilter, showInactive, sortKey, sortAsc]);
+
+  // On Hold deals get their own table below the pipeline, so the main list is
+  // only what's being actively worked. Same filters and sort apply to both.
+  const sectionRows = useMemo(
+    () => ({
+      main: filtered.filter((d) => d.status !== ON_HOLD_STATUS),
+      hold: filtered.filter((d) => d.status === ON_HOLD_STATUS),
+    }),
+    [filtered]
+  );
 
   // How many rows this view is currently suppressing (surfaced inline, never silent)
   const hiddenInactiveCount = useMemo(() => {
@@ -902,8 +1046,8 @@ export default function Index() {
 
 
   const handleCellMove = useCallback(
-    (dir: string, ctrl: boolean, rowIdx: number, colIdx: number) => {
-      const rowCount = filtered.length;
+    (section: PipelineSection, dir: string, ctrl: boolean, rowIdx: number, colIdx: number) => {
+      const rowCount = sectionRows[section].length;
       const colCount = activeColumns.length;
       let r = rowIdx;
       let c = colIdx;
@@ -913,9 +1057,9 @@ export default function Index() {
         case "down": r = ctrl ? rowCount - 1 : Math.min(r + 1, rowCount - 1); break;
         case "up": r = ctrl ? 0 : Math.max(r - 1, 0); break;
       }
-      setActiveCell({ row: r, col: c });
+      setActiveCell({ section, row: r, col: c });
     },
-    [filtered.length, activeColumns.length]
+    [sectionRows, activeColumns.length]
   );
 
   const handleDragStart = (e: React.DragEvent<HTMLTableCellElement>, key: string) => {
@@ -987,6 +1131,83 @@ export default function Index() {
       <span>{label}</span>
     );
 
+  // Both sections (pipeline + On Hold) share columns, widths, order and sort.
+  const renderDealTable = (rows: Deal[], section: PipelineSection) => (
+    <div className={`surface-card overflow-x-scroll ${isFullscreen && section === "main" ? "flex-1 mt-4" : ""}`}>
+      <Table style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
+        <colgroup>
+          {activeColumns.map((col) => (
+            <col key={col.key} style={{ width: columnWidths[col.key] ? `${columnWidths[col.key]}px` : undefined, minWidth: 60 }} />
+          ))}
+        </colgroup>
+        <TableHeader>
+          <TableRow className="border-hairline hover:bg-transparent">
+             {activeColumns.map((col) => {
+              const isDragged = draggedCol === col.key;
+              const isDropTarget = dragOverCol === col.key && draggedCol && draggedCol !== col.key;
+              const draggedIdx = draggedCol ? columnOrder.indexOf(draggedCol) : -1;
+              const targetIdx = columnOrder.indexOf(col.key);
+              const dropSide = draggedIdx < targetIdx ? "right" : "left";
+              const isPinned = col.key === "property_name";
+              return (
+                <TableHead
+                  key={col.key}
+                  className={`relative select-none group transition-all duration-150 h-9 text-[11px] uppercase tracking-[0.12em] font-semibold text-muted-foreground ${col.key !== "property_name" ? "text-center" : "text-left"} ${isDragged ? "opacity-30 scale-95" : ""} ${isDropTarget ? "bg-primary/10" : ""} ${isPinned ? "sticky left-0 z-20 bg-card shadow-[1px_0_0_0_hsl(var(--hairline))]" : ""}`}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, col.key)}
+                  onDragOver={(e) => handleDragOver(e, col.key)}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => handleDrop(e, col.key)}
+                  onDragEnd={handleDragEnd}
+                >
+                  {isDropTarget && (
+                    <div className={`absolute top-1 bottom-1 w-0.5 bg-primary rounded-full z-20 ${dropSide === "left" ? "left-0" : "right-0"}`} />
+                  )}
+                  <div className={`flex items-center gap-1 ${col.key !== "property_name" ? "justify-center" : ""}`}>
+                    <GripVertical className={`h-3 w-3 shrink-0 transition-colors ${isDragged ? "text-primary" : "text-muted-foreground/30 group-hover:text-muted-foreground cursor-grab"}`} />
+                    <SortHeader label={col.label} sortKeyName={col.sortKey} />
+                  </div>
+                  <div
+                    className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/30 z-10"
+                    onMouseDown={(e) => {
+                      const th = (e.target as HTMLElement).parentElement;
+                      handleResizeStart(e, col.key, th?.offsetWidth || 120);
+                    }}
+                  />
+                </TableHead>
+              );
+            })}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((deal, thisRow) => (
+            <TableRow key={deal.id} className="border-hairline cursor-pointer group/row hover:bg-muted/40">
+              {activeColumns.map((col, colIdx) => {
+                const isPinned = col.key === "property_name";
+                return (
+                  <TableCell
+                    key={col.key}
+                    className={`py-1.5 overflow-hidden text-ellipsis text-[13px] ${col.key !== "property_name" ? "text-center" : "text-left"} ${isPinned ? "sticky left-0 z-10 bg-card group-hover/row:bg-muted/40 shadow-[1px_0_0_0_hsl(var(--hairline))]" : ""}`}
+                  >
+                    <InlineEditCell
+                      deal={deal}
+                      column={col}
+                      onSave={handleInlineSave}
+                      onNavigate={() => navigate(`/deals/${deal.id}`)}
+                      isActive={activeCell?.section === section && activeCell?.row === thisRow && activeCell?.col === colIdx}
+                      onActivate={() => setActiveCell({ section, row: thisRow, col: colIdx })}
+                      onMove={(dir, ctrl) => handleCellMove(section, dir, ctrl, thisRow, colIdx)}
+                    />
+                  </TableCell>
+                );
+              })}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+
   const containerClass = isFullscreen
     ? "fixed inset-0 z-50 bg-background p-6 overflow-auto flex flex-col"
     : "space-y-6";
@@ -995,7 +1216,8 @@ export default function Index() {
   const summary = useMemo(() => {
     const all = deals ?? [];
     const total = all.length;
-    const active = all.filter((d) => ACTIVE_STATUSES.includes(d.status)).length;
+    const onHold = all.filter((d) => d.status === ON_HOLD_STATUS).length;
+    const active = all.filter((d) => ACTIVE_STATUSES.includes(d.status)).length - onHold;
     const totalAsking = all.reduce((acc, d) => acc + (Number(d.asking_price) || 0), 0);
     const scored = all.filter((d) => d.ai_score != null);
     const avgScore = scored.length
@@ -1003,7 +1225,7 @@ export default function Index() {
       : null;
     const askingLabel =
       totalAsking >= 1000 ? `$${(totalAsking / 1000).toFixed(2)}B` : `$${totalAsking.toFixed(1)}M`;
-    return { total, active, askingLabel, avgScore };
+    return { total, active, onHold, askingLabel, avgScore };
   }, [deals]);
 
   return (
@@ -1016,6 +1238,8 @@ export default function Index() {
               <span>{summary.total} deals</span>
               <span className="mx-2 text-hairline">·</span>
               <span>{summary.active} active</span>
+              <span className="mx-2 text-hairline">·</span>
+              <span>{summary.onHold} on hold</span>
               <span className="mx-2 text-hairline">·</span>
               <span>{summary.askingLabel} total</span>
               <span className="mx-2 text-hairline">·</span>
@@ -1128,79 +1352,44 @@ export default function Index() {
           </p>
         </div>
       ) : (
-        <div className={`surface-card overflow-x-scroll ${isFullscreen ? "flex-1 mt-4" : ""}`}>
-          <Table style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
-            <colgroup>
-              {activeColumns.map((col) => (
-                <col key={col.key} style={{ width: columnWidths[col.key] ? `${columnWidths[col.key]}px` : undefined, minWidth: 60 }} />
-              ))}
-            </colgroup>
-            <TableHeader>
-              <TableRow className="border-hairline hover:bg-transparent">
-                 {activeColumns.map((col) => {
-                  const isDragged = draggedCol === col.key;
-                  const isDropTarget = dragOverCol === col.key && draggedCol && draggedCol !== col.key;
-                  const draggedIdx = draggedCol ? columnOrder.indexOf(draggedCol) : -1;
-                  const targetIdx = columnOrder.indexOf(col.key);
-                  const dropSide = draggedIdx < targetIdx ? "right" : "left";
-                  const isPinned = col.key === "property_name";
-                  return (
-                    <TableHead
-                      key={col.key}
-                      className={`relative select-none group transition-all duration-150 h-9 text-[11px] uppercase tracking-[0.12em] font-semibold text-muted-foreground ${col.key !== "property_name" ? "text-center" : "text-left"} ${isDragged ? "opacity-30 scale-95" : ""} ${isDropTarget ? "bg-primary/10" : ""} ${isPinned ? "sticky left-0 z-20 bg-card shadow-[1px_0_0_0_hsl(var(--hairline))]" : ""}`}
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, col.key)}
-                      onDragOver={(e) => handleDragOver(e, col.key)}
-                      onDragLeave={handleDragLeave}
-                      onDrop={(e) => handleDrop(e, col.key)}
-                      onDragEnd={handleDragEnd}
-                    >
-                      {isDropTarget && (
-                        <div className={`absolute top-1 bottom-1 w-0.5 bg-primary rounded-full z-20 ${dropSide === "left" ? "left-0" : "right-0"}`} />
-                      )}
-                      <div className={`flex items-center gap-1 ${col.key !== "property_name" ? "justify-center" : ""}`}>
-                        <GripVertical className={`h-3 w-3 shrink-0 transition-colors ${isDragged ? "text-primary" : "text-muted-foreground/30 group-hover:text-muted-foreground cursor-grab"}`} />
-                        <SortHeader label={col.label} sortKeyName={col.sortKey} />
-                      </div>
-                      <div
-                        className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/30 z-10"
-                        onMouseDown={(e) => {
-                          const th = (e.target as HTMLElement).parentElement;
-                          handleResizeStart(e, col.key, th?.offsetWidth || 120);
-                        }}
-                      />
-                    </TableHead>
-                  );
-                })}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((deal, thisRow) => (
-                <TableRow key={deal.id} className="border-hairline cursor-pointer group/row hover:bg-muted/40">
-                  {activeColumns.map((col, colIdx) => {
-                    const isPinned = col.key === "property_name";
-                    return (
-                      <TableCell
-                        key={col.key}
-                        className={`py-1.5 overflow-hidden text-ellipsis text-[13px] ${col.key !== "property_name" ? "text-center" : "text-left"} ${isPinned ? "sticky left-0 z-10 bg-card group-hover/row:bg-muted/40 shadow-[1px_0_0_0_hsl(var(--hairline))]" : ""}`}
-                      >
-                        <InlineEditCell
-                          deal={deal}
-                          column={col}
-                          onSave={handleInlineSave}
-                          onNavigate={() => navigate(`/deals/${deal.id}`)}
-                          isActive={activeCell?.row === thisRow && activeCell?.col === colIdx}
-                          onActivate={() => setActiveCell({ row: thisRow, col: colIdx })}
-                          onMove={(dir, ctrl) => handleCellMove(dir, ctrl, thisRow, colIdx)}
-                        />
-                      </TableCell>
-                    );
-                  })}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <>
+          {sectionRows.main.length > 0 ? (
+            renderDealTable(sectionRows.main, "main")
+          ) : (
+            <div className="surface-card border-dashed p-8 text-center text-sm text-muted-foreground">
+              No deals in the active pipeline match — {sectionRows.hold.length} on hold below.
+            </div>
+          )}
+
+          {sectionRows.hold.length > 0 && (
+            <section className="space-y-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setHoldCollapsed(!holdCollapsed)}
+                aria-expanded={!holdCollapsed}
+                className="flex items-center gap-2 text-left"
+              >
+                {holdCollapsed ? (
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                )}
+                <h2 className="font-display text-lg font-semibold text-foreground">On Hold / Tracking</h2>
+                <span className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground tabular-nums">
+                  {sectionRows.hold.length} {sectionRows.hold.length === 1 ? "deal" : "deals"}
+                </span>
+              </button>
+              {!holdCollapsed && (
+                <>
+                  <p className="-mt-1 text-xs text-muted-foreground">
+                    Parked and being tracked, not actively worked. Change a deal’s status to move it back up into the pipeline.
+                  </p>
+                  {renderDealTable(sectionRows.hold, "hold")}
+                </>
+              )}
+            </section>
+          )}
+        </>
       )}
 
       <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">

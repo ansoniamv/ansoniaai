@@ -60,34 +60,43 @@ notes and email history. This project's tables are empty. Moving that data needs
 a `pg_dump`/restore run from an account that can reach
 `fmodmsxhujqzkibjnggo`, which this token cannot.
 
-## Open item 1 — nobody can log in yet
+## Accounts — invite only
 
-`auth.users` is empty, the app has no signup UI, and `admin-invite-user`
-requires an existing admin. So there is a bootstrap gap.
+There is no self-service signup. The only way in is an admin invite:
 
-`handle_new_user` auto-approves and grants admin to exactly one hardcoded
-address: `dstevens@ansoniaproperties.com`. Signup is currently **enabled** so
-this is possible; pick one route:
+1. An admin enters the address in `/admin/users` → `admin-invite-user`
+   (admin role required, `@ansoniaproperties.com` only) calls
+   `auth.admin.inviteUserByEmail` and approves the new profile.
+2. The invitee opens the emailed link, lands on `/reset-password`, and chooses
+   a password (entered twice, min 8). That activates the account.
+3. "Resend invite" re-sends to anyone who never finished; for an active account
+   it sends a password reset instead.
 
-- Sign up once as `dstevens@ansoniaproperties.com` and you land approved + admin
-  automatically, then invite everyone else from `/admin/users`.
-- Or create your own user in Authentication → Users, then promote it:
+Three layers keep it that way:
 
-  ```sql
-  update public.profiles set status = 'approved', approved_at = now()
-  where lower(email) = 'you@ansoniaproperties.com';
+- **Auth setting:** Authentication → Sign In / Providers → Email → "Allow new
+  users to sign up" is **off** (`disable_signup = true`). `POST /auth/v1/signup`
+  is refused; admin invites still work.
+- **Trigger:** `handle_new_user` (`20260925143700`) rejects non-company
+  addresses and creates every profile `pending` except the seed admin
+  (`dstevens@ansoniaproperties.com`). Only the invite function approves, so a
+  user created any other way has no data access until an admin approves them.
+- **Redirect:** invite links go to `APP_URL` (function secret, default
+  `https://ansoniaai.vercel.app`) or an `ALLOWED_ORIGINS` origin — never an
+  arbitrary request `Origin`.
 
-  insert into public.user_roles (user_id, role)
-  select id, 'admin' from public.profiles
-  where lower(email) = 'you@ansoniaproperties.com'
-  on conflict do nothing;
-  ```
+Bootstrap, if `auth.users` is ever empty: create the user in Authentication →
+Users, then promote it:
 
-**Then turn signup off** — Authentication → Sign In / Providers → Email →
-uncheck "Allow new users to sign up". It is only open for the bootstrap. While
-it is open, anyone can `POST /auth/v1/signup` and get a valid `authenticated`
-JWT; the data layer holds because a `pending` profile fails every policy, but
-there is no reason to leave it open once you are in.
+```sql
+update public.profiles set status = 'approved', approved_at = now()
+where lower(email) = 'you@ansoniaproperties.com';
+
+insert into public.user_roles (user_id, role)
+select id, 'admin' from public.profiles
+where lower(email) = 'you@ansoniaproperties.com'
+on conflict do nothing;
+```
 
 ## Vercel — resolved, and live
 
@@ -250,7 +259,7 @@ regenerating the ArcGIS key is cheap.
 - The `is_approved()` gate itself: profiles default to `pending`, the
   self-update policy blocks self-approval with a `WITH CHECK` subquery, `anon`
   is revoked on the core tables, and there is no `signUp` call anywhere in
-  `src/`.
+  `src/` (accounts are invite-only; see above).
 - `ANTHROPIC_API_KEY` is read only from the edge-function environment. No key is
   `VITE_`-prefixed, and none appears in `dist/`.
 - `analyze-partner-emails` is the reference implementation for untrusted text: a

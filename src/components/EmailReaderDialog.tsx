@@ -2,9 +2,9 @@
  * Read-only Outlook message reader.
  *
  * Extracted verbatim from PartnerDetail.tsx so it can be reused without
- * importing the page module. Behaviour is unchanged.
+ * importing the page module. The body renders through EmailBody, the same
+ * sandboxed reader the inboxes use.
  */
-import DOMPurify from "dompurify";
 import { ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,11 +17,11 @@ import {
 } from "@/components/ui/dialog";
 import { safeExternalUrl } from "@/lib/safeUrl";
 import { useOutlookMessageBody, type OutlookMessage } from "@/hooks/useOutlook";
+import { EmailBody } from "@/components/EmailBody";
 
 export function EmailReaderDialog({ message, onClose }: { message: OutlookMessage | null; onClose: () => void }) {
   const { data: body, isLoading } = useOutlookMessageBody(message?.id);
   const open = !!message;
-  const html = body?.body_html ? DOMPurify.sanitize(body.body_html, { ADD_ATTR: ["target", "rel"] }) : null;
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
@@ -42,15 +42,13 @@ export function EmailReaderDialog({ message, onClose }: { message: OutlookMessag
         <div className="flex-1 overflow-y-auto border-t pt-4 -mx-6 px-6">
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Loading message…</p>
-          ) : html ? (
-            <div
-              className="prose prose-sm dark:prose-invert max-w-none break-words"
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
           ) : (
-            <pre className="whitespace-pre-wrap text-sm font-sans break-words">
-              {body?.body_text || message?.preview || "(empty message)"}
-            </pre>
+            <EmailBody
+              key={message?.id}
+              html={body?.body_html}
+              text={body?.body_text || message?.preview}
+              title={message?.subject || "Email message"}
+            />
           )}
         </div>
         {safeExternalUrl(message?.web_link) && (

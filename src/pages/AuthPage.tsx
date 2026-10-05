@@ -8,28 +8,15 @@ import { toast } from "sonner";
 import ansoniaLogoAsset from "@/assets/ansonia-logo.png.asset.json";
 const ansoniaLogo = ansoniaLogoAsset.url;
 
-const COMPANY_DOMAIN = "@ansoniaproperties.com";
-
 const schema = z.object({
   email: z.string().trim().email("Invalid email").max(255),
   password: z.string().min(8, "Password must be at least 8 characters").max(200),
 });
 
-// Signup is limited to company addresses. This check is only for a fast, clear
-// error — the real gate is the handle_new_user trigger, which aborts the insert
-// server-side, so bypassing this form achieves nothing.
-const signUpSchema = schema.extend({
-  email: z
-    .string()
-    .trim()
-    .email("Invalid email")
-    .max(255)
-    .refine((v) => v.toLowerCase().endsWith(COMPANY_DOMAIN), {
-      message: `Accounts are limited to ${COMPANY_DOMAIN} addresses`,
-    }),
-});
-
-type Mode = "signin" | "signup" | "forgot";
+// There is no self-service signup: accounts exist only when an admin invites
+// someone from /admin/users. Supabase's "Allow new users to sign up" is off as
+// well, so a direct POST to /auth/v1/signup is refused server-side.
+type Mode = "signin" | "forgot";
 
 export default function AuthPage() {
   const { user, loading } = useAuth();
@@ -64,40 +51,6 @@ export default function AuthPage() {
     navigate("/", { replace: true });
   };
 
-  const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const parsed = signUpSchema.safeParse({ email, password });
-    if (!parsed.success) {
-      toast.error(parsed.error.issues[0].message);
-      return;
-    }
-    setSubmitting(true);
-    const { data, error } = await supabase.auth.signUp({
-      email: parsed.data.email,
-      password: parsed.data.password,
-      options: { emailRedirectTo: `${window.location.origin}/` },
-    });
-    setSubmitting(false);
-    if (error) {
-      // The trigger raises a check_violation for a non-company domain; surface
-      // that plainly rather than the raw Postgres wording.
-      toast.error(
-        /check_violation|ansoniaproperties/i.test(error.message)
-          ? `Accounts are limited to ${COMPANY_DOMAIN} addresses.`
-          : error.message,
-      );
-      return;
-    }
-    // Email confirmation is on, so there is no session yet.
-    if (!data.session) {
-      toast.success("Check your email to confirm your account, then sign in.");
-      setMode("signin");
-      setPassword("");
-      return;
-    }
-    navigate("/", { replace: true });
-  };
-
   const handleForgot = async (e: React.FormEvent) => {
     e.preventDefault();
     const emailParsed = z.string().trim().email().safeParse(email);
@@ -115,7 +68,7 @@ export default function AuthPage() {
       return;
     }
     toast.success("If the email is registered, a reset link was sent.");
-    setForgotMode(false);
+    setMode("signin");
   };
 
   const labelCls =
@@ -160,7 +113,7 @@ export default function AuthPage() {
             className="text-center text-white text-sm mb-1"
             style={{ letterSpacing: "0.24em", fontWeight: 300 }}
           >
-            {mode === "forgot" ? "RESET PASSWORD" : mode === "signup" ? "CREATE ACCOUNT" : "SIGN IN"}
+            {forgotMode ? "RESET PASSWORD" : "SIGN IN"}
           </h1>
           <div
             className="mx-auto mb-8 h-px w-10 bg-[#6aa3d8]/60"
@@ -188,53 +141,6 @@ export default function AuthPage() {
                 />
               </div>
               <PrimaryButton submitting={submitting}>SEND RESET LINK</PrimaryButton>
-              <button
-                type="button"
-                onClick={() => setMode("signin")}
-                className="block w-full text-center text-xs text-[#6aa3d8]/80 hover:text-[#6aa3d8] transition-colors"
-                style={{ letterSpacing: "0.12em" }}
-              >
-                BACK TO SIGN IN
-              </button>
-            </form>
-          ) : mode === "signup" ? (
-            <form onSubmit={handleSignUp} className="space-y-5">
-              <div className="space-y-2">
-                <label htmlFor="signup-email" className={labelCls} style={{ letterSpacing: "0.12em" }}>
-                  Work Email
-                </label>
-                <input
-                  id="signup-email"
-                  type="email"
-                  autoComplete="email"
-                  placeholder={`you${COMPANY_DOMAIN}`}
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className={inputCls}
-                />
-                <p className="text-[10px] text-white/50" style={{ letterSpacing: "0.08em" }}>
-                  Must be a {COMPANY_DOMAIN} address
-                </p>
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="signup-password" className={labelCls} style={{ letterSpacing: "0.12em" }}>
-                  Password
-                </label>
-                <input
-                  id="signup-password"
-                  type="password"
-                  autoComplete="new-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className={inputCls}
-                />
-                <p className="text-[10px] text-white/50" style={{ letterSpacing: "0.08em" }}>
-                  At least 8 characters
-                </p>
-              </div>
-              <PrimaryButton submitting={submitting}>CREATE ACCOUNT</PrimaryButton>
               <button
                 type="button"
                 onClick={() => setMode("signin")}
@@ -291,14 +197,6 @@ export default function AuthPage() {
               >
                 FORGOT PASSWORD?
               </button>
-              <button
-                type="button"
-                onClick={() => setMode("signup")}
-                className="block w-full text-center text-xs text-[#6aa3d8]/80 hover:text-[#6aa3d8] transition-colors"
-                style={{ letterSpacing: "0.12em" }}
-              >
-                CREATE AN ACCOUNT
-              </button>
             </form>
           )}
 
@@ -306,7 +204,7 @@ export default function AuthPage() {
             className="text-[10px] text-white/50 text-center pt-8"
             style={{ letterSpacing: "0.12em" }}
           >
-            ACCESS IS LIMITED TO {COMPANY_DOMAIN.replace("@", "").toUpperCase()} EMAIL ADDRESSES.
+            ACCESS IS BY INVITATION ONLY. ASK AN ADMINISTRATOR FOR AN INVITE.
           </p>
         </div>
       </div>

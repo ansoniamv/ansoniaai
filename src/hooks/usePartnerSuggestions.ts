@@ -711,7 +711,7 @@ export function useUnattributedAtlasMessages() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("outlook_messages")
-        .select("id,message_id,subject,preview,from_email,from_name,to_recipients,received_at,web_link")
+        .select("id,message_id,conversation_id,subject,preview,from_email,from_name,to_recipients,received_at,is_read,has_attachments,web_link,partner_id,deal_id")
         .eq("source", "atlas")
         .is("partner_id", null)
         .order("received_at", { ascending: false })
