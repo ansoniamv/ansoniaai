@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveFeedback } from "../../supabase/functions/_shared/feedbackLearning";
+import { DUPLICATE_CATEGORY, effectiveFeedback } from "../../supabase/functions/_shared/feedbackLearning";
 
 const row = (inbox_deal_id: string | null, action: string, created_at: string) => ({ inbox_deal_id, action, created_at });
 
@@ -36,5 +36,15 @@ describe("effectiveFeedback", () => {
       "2026-09-15T00:00:00Z",
       "2026-09-01T00:00:00Z",
     ]);
+  });
+
+  it("a duplicate pass is not a fit signal and replaces the earlier decision", () => {
+    const { denials, restores } = effectiveFeedback([
+      row("a", "deny", "2026-10-01T00:00:00Z"),
+      { ...row("a", "deny", "2026-10-03T00:00:00Z"), category: DUPLICATE_CATEGORY },
+      { ...row("b", "deny", "2026-10-02T00:00:00Z"), category: "Too Small" },
+    ]);
+    expect(denials.map((r) => r.inbox_deal_id)).toEqual(["b"]);
+    expect(restores).toHaveLength(0);
   });
 });
