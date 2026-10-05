@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
     if (!partners) return new Response(JSON.stringify({ ok: true, count: 0 }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     const sinceIso = new Date(Date.now() - 90 * 86400000).toISOString();
-    let updated = 0; let suggestionsCreated = 0;
+    let updated = 0; let suggestionsCreated = 0; let autoApplied = 0;
 
     for (const p of partners) {
       const [msgRes, engRes, rejRes, pendRes] = await Promise.all([
@@ -176,6 +176,50 @@ Deno.serve(async (req) => {
 
       const summary = `Warmth: ${current || "unset"} → ${level}`;
       const rationaleText = rationale.join("; ");
+
+      // Warmth is DERIVED, not decided. It restates message dates and response
+      // times, so asking a human to approve it produces a queue nobody works —
+      // one that buries the proposals which do need judgement.
+      //
+      // Measured before this change: 321 warmth suggestions, 1 ever applied and
+      // 5 rejected. 287 of them (89%) proposed "Cold" across 143 partners, i.e.
+      // "we have not heard from them lately", re-proposed about twice each.
+      // Every other suggestion type is drawn from what partners actually said
+      // and runs at or near 100% accepted: contact_add 34/34, profile_fact_add
+      // 4/4, capital_status_change 2/2, avoided_market_add 2/2.
+      //
+      // It could not settle, either. relationship_strength only changed when a
+      // human applied a suggestion, so `current` stayed stale, `level` kept
+      // differing, and every run re-proposed for every partner — ~153 per run,
+      // every 30 minutes, each batch superseding the last.
+      //
+      // So write it directly when the field is not locked, and keep an applied
+      // row as the audit trail rather than a pending one as a chore. A human who
+      // set this field by hand expressed an intent the data cannot overrule, so
+      // those partners (2 of 233 today) still get a real suggestion.
+      if (!locked) {
+        const { error: writeErr } = await supabase.from("partners")
+          .update({ relationship_strength: level }).eq("id", p.id);
+        if (writeErr) {
+          console.error(`[warmth] partner=${p.id} write failed:`, writeErr.message);
+          continue;
+        }
+        await supabase.from("partner_suggestions").insert({
+          partner_id: p.id, type: "warmth_change", field: "relationship_strength",
+          current_value: current, proposed_value: level,
+          summary, rationale: rationaleText,
+          evidence: null, signals, confidence,
+          status: "applied", applied_at: new Date().toISOString(),
+        });
+        if (existingPending) {
+          await supabase.from("partner_suggestions")
+            .update({ status: "superseded", reviewed_at: new Date().toISOString() })
+            .eq("id", existingPending.id);
+        }
+        autoApplied++;
+        continue;
+      }
+
       const { data: inserted } = await supabase.from("partner_suggestions").insert({
         partner_id: p.id, type: "warmth_change", field: "relationship_strength",
         current_value: current, proposed_value: level,
@@ -190,7 +234,7 @@ Deno.serve(async (req) => {
       if (inserted) suggestionsCreated++;
     }
 
-    return new Response(JSON.stringify({ ok: true, partners: updated, suggestions: suggestionsCreated }),
+    return new Response(JSON.stringify({ ok: true, partners: updated, suggestions: suggestionsCreated, auto_applied: autoApplied }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
     console.error(e);
