@@ -4,6 +4,7 @@ import { format, parseISO } from "date-fns";
 import { ChevronDown, Filter, RefreshCw, Inbox, Mail, ShieldAlert, EyeOff, RotateCcw, Download } from "lucide-react";
 import { exportInboxSection } from "@/lib/exportInboxSection";
 import { bucketInboxDeals, inboxSectionFor, INBOX_SECTIONS } from "@/lib/inboxSections";
+import { buildPipelineNameSet, isAlreadyInPipeline } from "@/lib/pipelineDuplicates";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -722,6 +723,27 @@ function RestoreDialog({
 
 
 
+/**
+ * Property names already in the pipeline, normalised for comparison.
+ *
+ * Suggested Deals hides a deal once it has been accepted (accepted_deal_id), so
+ * the duplicates worth flagging are the ones NOT yet accepted: the same property
+ * arriving again on a different broker email. Every card shares one query key,
+ * so the board fetches this once rather than per card.
+ */
+function usePipelineNameSet(): Set<string> {
+  const { data } = useQuery({
+    queryKey: ["pipeline_deal_names"],
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("deals").select("property_name");
+      if (error) throw error;
+      return (data ?? []) as Array<{ property_name: string | null }>;
+    },
+  });
+  return useMemo(() => buildPipelineNameSet(data ?? []), [data]);
+}
+
 function DealCard({
   deal: d,
   onAccept,
@@ -743,6 +765,8 @@ function DealCard({
 }) {
   const t = tierKey(d.fit_tier);
   const inDenied = inboxSectionFor(d) === "denied";
+  const pipelineNames = usePipelineNameSet();
+  const alreadyInPipeline = isAlreadyInPipeline(d.property_name, pipelineNames);
   return (
     <div
       className={cn(
@@ -761,6 +785,14 @@ function DealCard({
                   <h3 className="font-display font-semibold text-[15px] text-foreground truncate">
                     {displayTitle(d)}
                   </h3>
+                  {alreadyInPipeline && (
+                    <span
+                      title="A deal with this property name is already in the pipeline."
+                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-[0.1em] bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-800"
+                    >
+                      In Pipeline
+                    </span>
+                  )}
                   {d.fit_tier == null && d.gate_status !== "filtered" && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-[0.1em] bg-muted text-muted-foreground border border-hairline">
                       Not yet scored
