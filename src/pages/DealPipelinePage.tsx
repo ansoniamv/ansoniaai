@@ -5,6 +5,7 @@ import { ChevronDown, Filter, RefreshCw, Inbox, Mail, ShieldAlert, EyeOff, Rotat
 import { exportInboxSection } from "@/lib/exportInboxSection";
 import { bucketInboxDeals, inboxSectionFor, INBOX_SECTIONS } from "@/lib/inboxSections";
 import { buildPipelineNameSet, isAlreadyInPipeline } from "@/lib/pipelineDuplicates";
+import { buildOwnedPlaceMap, ownedNearby, type OwnedProperty } from "@/lib/ownedAdjacency";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -744,6 +745,28 @@ function usePipelineNameSet(): Set<string> {
   return useMemo(() => buildPipelineNameSet(data ?? []), [data]);
 }
 
+/**
+ * Towns where Ansonia already owns, or used to own, a building.
+ *
+ * Sold assets are included deliberately: having operated in a town leaves the
+ * submarket knowledge behind even after the exit. Shares one query key with
+ * every card, so the board fetches this once.
+ */
+function useOwnedPlaces(): Map<string, OwnedProperty[]> {
+  const { data } = useQuery({
+    queryKey: ["owned_properties"],
+    staleTime: 30 * 60 * 1000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("owned_properties")
+        .select("name,city,state,status");
+      if (error) throw error;
+      return (data ?? []) as OwnedProperty[];
+    },
+  });
+  return useMemo(() => buildOwnedPlaceMap(data ?? []), [data]);
+}
+
 function DealCard({
   deal: d,
   onAccept,
@@ -767,6 +790,7 @@ function DealCard({
   const inDenied = inboxSectionFor(d) === "denied";
   const pipelineNames = usePipelineNameSet();
   const alreadyInPipeline = isAlreadyInPipeline(d.property_name, pipelineNames);
+  const ownedHere = ownedNearby(d.location_city, d.location_state, useOwnedPlaces());
   return (
     <div
       className={cn(
@@ -785,6 +809,14 @@ function DealCard({
                   <h3 className="font-display font-semibold text-[15px] text-foreground truncate">
                     {displayTitle(d)}
                   </h3>
+                  {ownedHere.length > 0 && (
+                    <span
+                      title={`Ansonia already owns here: ${ownedHere.map((o) => o.name + (o.status === "sold" ? " (sold)" : "")).join(", ")}`}
+                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-[0.1em] bg-emerald-100 text-emerald-900 border border-emerald-300 dark:bg-emerald-950 dark:text-emerald-200 dark:border-emerald-800"
+                    >
+                      We own here
+                    </span>
+                  )}
                   {alreadyInPipeline && (
                     <span
                       title="A deal with this property name is already in the pipeline."
