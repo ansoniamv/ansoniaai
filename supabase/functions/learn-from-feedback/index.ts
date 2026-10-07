@@ -3,7 +3,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { completeText } from "../_shared/ai.ts";
 import { logAiUsage } from "../_shared/logUsage.ts";
-import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
+import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 import {
   effectiveFeedback,
   LEARNING_ACTIONS,
@@ -17,8 +17,12 @@ Deno.serve(async (req) => {
 
   // Overwrites learned_strategy, which is injected into every subsequent
   // gate-deals and score-deals prompt.
-  const authz = await requireApprovedUser(req);
-  if (!authz.ok) return authz.response;
+  //
+  // Accepts the nightly cron as well as a user clicking Rebuild. Under
+  // requireApprovedUser this could only ever run by hand, which is why the note
+  // went stale between manual rebuilds while passes kept accumulating.
+  const authz = await requireUserOrService(req);
+  if (authz && !authz.ok) return authz.response;
 
   try {
     const supabase = createClient(

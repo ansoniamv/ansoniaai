@@ -52,6 +52,71 @@ const DENIAL_CATEGORIES = [
   "Other",
 ] as const;
 
+/**
+ * What to ask for on a pass, per category.
+ *
+ * The category alone is not a criterion. Measured on live data: 102 passes for
+ * Market / Geography spread across 19 states, and only 4 of them carried a
+ * written reason longer than 20 characters. Texas was the single most-rejected
+ * geography at 19 passes — while the firm owns three Texas assets and the thesis
+ * names Sunbelt expansion. Those passes were plainly about submarkets, but at
+ * ~5 per state nothing could tell which, because nobody wrote it down.
+ *
+ * So each category asks for the specific thing that would make it learnable, and
+ * the answer is required. The one exception is a duplicate pass, which is
+ * bookkeeping and is excluded from learning anyway.
+ */
+const MIN_REASON_CHARS = 15;
+
+const DEFAULT_REASON_PROMPT = {
+  label: "Why specifically?",
+  placeholder: "What about this deal made it a pass?",
+  hint: "",
+};
+
+const REASON_PROMPTS: Record<string, { label: string; placeholder: string; hint: string }> = {
+  "Market / Geography": {
+    label: "Which submarket, and what's wrong with it?",
+    placeholder: "e.g. Far north Houston — supply pipeline is 9% of stock and rents are flat",
+    hint: "Name the submarket, not just the state. We own in TX, IL and OH, so \"Texas\" on its own reads as a contradiction.",
+  },
+  "Too Small": {
+    label: "How small, and would scale fix it?",
+    placeholder: "e.g. 64 units, no adjacent assets to pair it with",
+    hint: "A unit count makes this learnable; \"too small\" on its own does not.",
+  },
+  "Condition / Vintage": {
+    label: "What vintage or condition, and why is it disqualifying?",
+    placeholder: "e.g. 1968 build, original plumbing stacks — capex swamps the rent upside",
+    hint: "We own 1971 and 1985 assets, so vintage alone is not the rule.",
+  },
+  "Pricing / Returns": {
+    label: "What price, and what does it imply?",
+    placeholder: "e.g. $240k/unit implies a 4.1% going-in cap against a 5.5% exit",
+    hint: "A number here is worth more than an adjective.",
+  },
+  "Asset Type": {
+    label: "What type, and why is it out of scope?",
+    placeholder: "e.g. Student housing by the bed — not our operating model",
+    hint: "",
+  },
+  "Sponsor / Operator": {
+    label: "What about the sponsor?",
+    placeholder: "e.g. First-time syndicator, no third-party PM in place",
+    hint: "",
+  },
+  Timing: {
+    label: "What's the timing problem?",
+    placeholder: "e.g. Best-and-final is Friday; we cannot underwrite a T12 we have not seen",
+    hint: "",
+  },
+  Other: {
+    label: "What's the reason?",
+    placeholder: "Describe it plainly — this is the one the categories do not cover.",
+    hint: "If this keeps recurring, it probably deserves its own category.",
+  },
+};
+
 type InboxDeal = {
   id: string;
   property_name: string | null;
@@ -584,7 +649,14 @@ function DenyDialog({
   }, [deal?.id]);
 
   const open = deal !== null;
-  const canSubmit = !!category && !saving;
+  const prompt = category ? REASON_PROMPTS[category] ?? DEFAULT_REASON_PROMPT : null;
+  // A duplicate pass is bookkeeping and teaches nothing, so it needs no reason.
+  // Everything else does: the category alone cannot say WHICH submarket, WHAT
+  // vintage or HOW small, and without that the learned note has nothing to work
+  // with beyond the label the analyst clicked.
+  const reasonRequired = !!category && category !== DUPLICATE_CATEGORY;
+  const reasonLongEnough = reason.trim().length >= MIN_REASON_CHARS;
+  const canSubmit = !!category && (!reasonRequired || reasonLongEnough) && !saving;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -631,15 +703,26 @@ function DenyDialog({
 
           <div>
             <Label className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground">
-              Reasoning (what specifically?) <span className="text-muted-foreground/70">(optional)</span>
+              {prompt ? prompt.label : "Reasoning (what specifically?)"}{" "}
+              {reasonRequired
+                ? <span className="text-primary">(required)</span>
+                : <span className="text-muted-foreground/70">(optional)</span>}
             </Label>
             <Textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. Tertiary market we don't cover; vintage too old for our value-add profile; pricing implies sub-5% going-in cap…"
+              placeholder={prompt ? prompt.placeholder : "Pick a category first…"}
               rows={4}
               className="mt-2"
             />
+            {prompt?.hint && (
+              <p className="mt-1.5 text-[11px] text-muted-foreground">{prompt.hint}</p>
+            )}
+            {reasonRequired && !reasonLongEnough && reason.trim().length > 0 && (
+              <p className="mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                A few more words — {MIN_REASON_CHARS} characters minimum.
+              </p>
+            )}
           </div>
         </div>
 
