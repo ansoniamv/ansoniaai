@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DUPLICATE_CATEGORY, effectiveFeedback } from "../../supabase/functions/_shared/feedbackLearning";
+import { DUPLICATE_CATEGORY, effectiveFeedback, FEEDBACK_SCAN_LIMIT, MAX_LEARNING_EXAMPLES } from "../../supabase/functions/_shared/feedbackLearning";
 
 const row = (inbox_deal_id: string | null, action: string, created_at: string) => ({ inbox_deal_id, action, created_at });
 
@@ -46,5 +46,44 @@ describe("effectiveFeedback", () => {
     ]);
     expect(denials.map((r) => r.inbox_deal_id)).toEqual(["b"]);
     expect(restores).toHaveLength(0);
+  });
+});
+
+describe("the scan window", () => {
+  it("is wide enough that duplicate passes cannot crowd out real reasons", () => {
+    // Reproduces the live failure: a run of duplicate passes followed by the
+    // real denials. On a 100-row window these were the only rows visible and
+    // the strategy note was built from 4 decisions out of 286.
+    const rows: Array<{ inbox_deal_id: string; action: string; category: string; created_at: string }> = [];
+    for (let i = 0; i < 96; i++) {
+      rows.push({
+        inbox_deal_id: `dup-${i}`,
+        action: "deny",
+        category: DUPLICATE_CATEGORY,
+        created_at: `2026-10-07T${String(i % 24).padStart(2, "0")}:00:00Z`,
+      });
+    }
+    for (let i = 0; i < 150; i++) {
+      rows.push({
+        inbox_deal_id: `real-${i}`,
+        action: "deny",
+        category: "Market / Geography",
+        created_at: `2026-09-${String((i % 28) + 1).padStart(2, "0")}T00:00:00Z`,
+      });
+    }
+
+    const narrow = effectiveFeedback(
+      [...rows].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 100),
+    );
+    expect(narrow.denials.length).toBeLessThan(10);
+
+    const wide = effectiveFeedback(
+      [...rows].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, FEEDBACK_SCAN_LIMIT),
+    );
+    expect(wide.denials.length).toBe(150);
+  });
+
+  it("caps examples after filtering, not before", () => {
+    expect(FEEDBACK_SCAN_LIMIT).toBeGreaterThan(MAX_LEARNING_EXAMPLES);
   });
 });

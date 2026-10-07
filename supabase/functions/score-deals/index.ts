@@ -7,7 +7,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage, logAiFailure } from "../_shared/logUsage.ts";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 import { computeDealScore } from "../_shared/dealScoreEngine.ts";
-import { effectiveFeedback, LEARNING_ACTIONS } from "../_shared/feedbackLearning.ts";
+import { effectiveFeedback, LEARNING_ACTIONS, FEEDBACK_SCAN_LIMIT } from "../_shared/feedbackLearning.ts";
 
 // One LLM call is issued per deal, so the batch must be bounded server-side.
 // A caller may only ever REDUCE this, never raise it.
@@ -162,7 +162,7 @@ serve(async (req) => {
       supabase.from("buy_box_signals").select("*").eq("is_active", true),
       supabase.from("buy_box_thesis").select("content").limit(1).maybeSingle(),
       supabase.from("learned_strategy").select("content").order("updated_at", { ascending: false }).limit(1).maybeSingle(),
-      supabase.from("deal_feedback").select("inbox_deal_id, action, created_at, category, reason_text, deal_snapshot").in("action", [...LEARNING_ACTIONS]).order("created_at", { ascending: false }).limit(50),
+      supabase.from("deal_feedback").select("inbox_deal_id, action, created_at, category, reason_text, deal_snapshot").in("action", [...LEARNING_ACTIONS]).order("created_at", { ascending: false }).limit(FEEDBACK_SCAN_LIMIT),
     ]);
     const thesis = thesisRow?.content ?? "";
     const learnedStrategy: string = ls?.content ?? "";

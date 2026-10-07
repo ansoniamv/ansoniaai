@@ -4,7 +4,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { completeText } from "../_shared/ai.ts";
 import { logAiUsage } from "../_shared/logUsage.ts";
 import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
-import { effectiveFeedback, LEARNING_ACTIONS } from "../_shared/feedbackLearning.ts";
+import {
+  effectiveFeedback,
+  LEARNING_ACTIONS,
+  FEEDBACK_SCAN_LIMIT,
+  MAX_LEARNING_EXAMPLES,
+} from "../_shared/feedbackLearning.ts";
 
 Deno.serve(async (req) => {
   const corsHeaders = corsFor(req);
@@ -26,12 +31,17 @@ Deno.serve(async (req) => {
       .select("inbox_deal_id, action, category, reason_text, deal_snapshot, created_at")
       .in("action", [...LEARNING_ACTIONS])
       .order("created_at", { ascending: false })
-      .limit(100);
+      // Scan wide, then filter. Taking a small window first let duplicate passes
+      // crowd out real reasons — of the 100 most recent rows, 96 were duplicates,
+      // so this note was being written from 4 decisions out of 286.
+      .limit(FEEDBACK_SCAN_LIMIT);
     if (error) throw error;
 
     // Latest decision per deal wins: a restored deal's denial is dropped and
-    // the restore reason is learned instead.
-    const { denials, restores } = effectiveFeedback((feedback ?? []) as any[]);
+    // the restore reason is learned instead. Duplicate passes end a deal's
+    // history without counting, which is why they cannot be filtered in SQL.
+    const { denials: allDenials, restores } = effectiveFeedback((feedback ?? []) as any[]);
+    const denials = allDenials.slice(0, MAX_LEARNING_EXAMPLES);
     if (denials.length === 0) {
       return new Response(JSON.stringify({ ok: true, message: "No denial feedback yet" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -6,7 +6,7 @@ import { logAiUsage } from "../_shared/logUsage.ts";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 import { completeJSON } from "../_shared/ai.ts";
 import { GATE_MODEL } from "../_shared/featureModels.ts";
-import { effectiveFeedback, LEARNING_ACTIONS } from "../_shared/feedbackLearning.ts";
+import { effectiveFeedback, LEARNING_ACTIONS, FEEDBACK_SCAN_LIMIT } from "../_shared/feedbackLearning.ts";
 
 /** The gate verdict, enforced server-side by structured outputs. */
 type GateClassification = {
@@ -326,7 +326,7 @@ Deno.serve(async (req) => {
     // Pull learned strategy + recent denial examples once per invocation
     const [{ data: ls }, { data: fb }] = await Promise.all([
       supabase.from("learned_strategy").select("content").order("updated_at", { ascending: false }).limit(1).maybeSingle(),
-      supabase.from("deal_feedback").select("inbox_deal_id, action, created_at, category, reason_text, deal_snapshot").in("action", [...LEARNING_ACTIONS]).order("created_at", { ascending: false }).limit(50),
+      supabase.from("deal_feedback").select("inbox_deal_id, action, created_at, category, reason_text, deal_snapshot").in("action", [...LEARNING_ACTIONS]).order("created_at", { ascending: false }).limit(FEEDBACK_SCAN_LIMIT),
     ]);
     const learnedStrategy: string = ls?.content ?? "";
     // A restored deal's denial no longer counts — the latest decision per deal wins.
