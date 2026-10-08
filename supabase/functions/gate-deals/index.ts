@@ -49,9 +49,19 @@ const ALLOWED_STATES = new Set([
   "TX","NC","SC","GA","FL","TN","AZ","NV","CO","UT",
   "OH","IN","IL","WI","MO","KY","KS","OK","AL",
 ]);
+// Target MSAs from the 2026 buybox. Outside these a deal is de-prioritised,
+// never screened out -- geography does not filter. Indianapolis was dropped:
+// it was in the old list and is not in the revised buybox. IN remains in
+// ALLOWED_STATES, so Indiana deals still pass the geography check.
+// North and South Carolina are statewide and handled by ALLOWED_STATES.
 const TARGET_MSAS = [
-  "chicago","columbus","indianapolis","madison","austin",
-  "dallas","fort worth","dallas-fort worth","dfw","denver","salt lake",
+  "chicago", "naperville", "elgin",
+  "columbus",
+  "madison",
+  "austin", "round rock", "san marcos",
+  "dallas", "fort worth", "dallas-fort worth", "dfw", "arlington",
+  "denver", "aurora", "centennial",
+  "salt lake",
 ];
 // Clearly out-of-region states (hard-exclude unless asset type ambiguous)
 const EXCLUDED_STATES = new Set([
@@ -59,6 +69,22 @@ const EXCLUDED_STATES = new Set([
 ]);
 // Of these, the truly forbidden Northeast/West-coast set per spec
 const HARD_EXCLUDE_STATES = new Set(["CA","NY","NJ","MA","WA","OR","CT","RI","VT","NH","ME"]);
+
+/**
+ * The buybox's "Always Avoid" list, matched against the EXTRACTED asset_class
+ * and strategy rather than inferred from prose.
+ *
+ * Mixed-Use is deliberately absent: it routes to human review below, because a
+ * mixed-use building with a large residential component is often a real deal.
+ */
+const ALWAYS_AVOID_ASSET_CLASSES = new Set([
+  "office", "retail", "industrial", "hospitality", "hotel", "self-storage", "development", "land",
+]);
+
+/** Development and land plays, whatever the asset class says. */
+const ALWAYS_AVOID_STRATEGIES = new Set([
+  "development", "covered land play", "land",
+]);
 
 const NON_MF_KEYWORDS: Array<{ re: RegExp; label: string }> = [
   { re: /\b(office\s+building|office\s+tower|class[\s-]?[abc]\s+office)\b/i, label: "office" },
@@ -81,6 +107,7 @@ type Deal = {
   location_state: string | null;
   msa: string | null;
   asset_class: string | null;
+  strategy: string | null;
   units: number | null;
   email_subject: string | null;
   email_body: string | null;
@@ -121,6 +148,23 @@ function ruleVerdict(d: Deal): Verdict {
   const header = headerText(d);
   const ac = (d.asset_class ?? "").toLowerCase();
 
+  // 0. Always Avoid, read from the EXTRACTED fields rather than inferred from
+  // prose. asset_class and strategy are already populated by extraction
+  // (Multifamily 1140, Office 13, Retail 23, Industrial 19, Development 2;
+  // Value-Add 546, Core-Plus 46, Development 71), and a structured value is a
+  // far better signal than a keyword that might appear in a footer.
+  //
+  // These three are the buybox's Always Avoid list, and they are the ONLY
+  // things that screen a deal out. Geography never does.
+  const assetClassRaw = (d.asset_class ?? "").trim();
+  const strategyRaw = (d.strategy ?? "").trim();
+  if (ALWAYS_AVOID_ASSET_CLASSES.has(assetClassRaw.toLowerCase())) {
+    return { status: "filtered", reason: `Filtered: ${assetClassRaw} is not multifamily` };
+  }
+  if (ALWAYS_AVOID_STRATEGIES.has(strategyRaw.toLowerCase())) {
+    return { status: "filtered", reason: `Filtered: ${strategyRaw} — development/land is out of scope` };
+  }
+
   // 1. Hard asset-type exclusion. Only scan title/property/asset_class —
   // scanning the full email body falsely filters real MF deals whose footers
   // or comparable references mention warehouse/NNN/land/flex.
@@ -143,13 +187,19 @@ function ruleVerdict(d: Deal): Verdict {
     if (ALLOWED_STATES.has(state) || inMsa) {
       // passes geo
     } else if (HARD_EXCLUDE_STATES.has(state)) {
+      // The 2026 buybox is explicit: outside the target geography a deal is
+      // DE-PRIORITISED into the lower recommendation bucket and "should not be
+      // automatically screened out". This used to return "filtered", which
+      // archived the deal and excluded it from scoring entirely — the one
+      // outcome the buybox rules out. Geography no longer filters anything;
+      // only the Always-Avoid asset types do.
       if (looksAmbiguousType) {
         return { status: "review", reason: `Out-of-region state (${state}) + asset type unclear`, needs_ai: true };
       }
-      return { status: "filtered", reason: `Filtered: located in ${state}` };
+      return { status: "review", reason: `Outside target geography (${state}) — de-prioritised, not screened out` };
     } else if (EXCLUDED_STATES.has(state)) {
       // Borderline / non-core state — surface for human review rather than
-      // silently archiving. Only the HARD_EXCLUDE_STATES set is auto-filtered.
+      // silently archiving. No state is auto-filtered any more.
       return { status: "review", reason: `Borderline state (${state}) — outside core region, confirm fit` };
     } else {
       return { status: "review", reason: `Unrecognized state code (${state})` };
@@ -313,7 +363,7 @@ Deno.serve(async (req) => {
 
     let q = supabase
       .from("inbox_deals")
-      .select("id, property_name, location_city, location_state, msa, asset_class, units, email_subject, email_body, email_thread_summary, gate_status, gate_content_hash")
+      .select("id, property_name, location_city, location_state, msa, asset_class, strategy, units, email_subject, email_body, email_thread_summary, gate_status, gate_content_hash")
       .order("email_received_at", { ascending: false })
       .limit(batchLimit);
     if (Array.isArray(body.deal_ids) && body.deal_ids.length) {
