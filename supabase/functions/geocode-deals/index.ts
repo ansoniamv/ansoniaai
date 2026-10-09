@@ -125,9 +125,19 @@ Deno.serve(async (req) => {
     if (dealId) {
       q = q.eq("id", dealId);
     } else {
-      // Backfill: only rows with no coordinates. A row Esri has already placed is
-      // never a candidate — the cheaper source does not overwrite the better one.
-      q = q.is("latitude", null).limit(limit);
+      // Backfill: rows with no coordinates that have NOT been attempted yet.
+      //
+      // Excluding attempted rows is what makes the batch advance. Selecting on
+      // coordinates alone returns the same rows every pass — there is no
+      // ordering, and a settled row still has no coordinates — so `limit` kept
+      // handing back the same five already-failed deals while two with usable
+      // street addresses were never tried at all.
+      //
+      // An address edit does not need this path: useDeals invokes the function
+      // with an explicit deal_id, which bypasses the filter entirely.
+      q = q.is("latitude", null);
+      if (!force) q = q.is("geocode_source", null);
+      q = q.order("created_at", { ascending: true }).limit(limit);
     }
 
     const { data: deals, error } = await q;
