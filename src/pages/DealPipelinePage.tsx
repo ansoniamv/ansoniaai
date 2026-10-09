@@ -364,7 +364,15 @@ export default function DealPipelinePage() {
 
     // Stage 2 enrichment for the newly accepted deal (inbox itself is never enriched)
     if (newDealId) {
-      const address = [d.location_city, d.location_state].filter(Boolean).join(", ");
+      // Needs a street number, not just the town. esri-enrich rejects anything
+      // that is not an address-level match, and "Chicago, IL" resolves as
+      // Locality — the city centroid — so sending it would 422 every time and
+      // skip the chained schools lookup. geocode-deals still runs on the new
+      // deal and will place it from Census if it can.
+      const street = (d.address ?? "").trim();
+      const address = street
+        ? [street, d.location_city, d.location_state].filter(Boolean).join(", ")
+        : "";
       if (address) {
         supabase.functions.invoke("esri-enrich", { body: { deal_id: newDealId, address } })
           .then(({ error: enrichErr }) => {

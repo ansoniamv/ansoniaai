@@ -51,6 +51,18 @@ const DELAY_MS = 350;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Great-circle miles. Used to decide whether a correction invalidates enrichment. */
+function milesBetween(aLat: number, aLon: number, bLat: number, bLon: number): number {
+  const R = 3958.7613, rad = (d: number) => (d * Math.PI) / 180;
+  const dLat = rad(bLat - aLat), dLon = rad(bLon - aLon);
+  const h = Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+/** A move beyond this invalidates rings and crime, which were measured around the old point. */
+const STALE_MILES = 0.5;
+
 /** The address Census is asked about, or null when there is not enough to ask. */
 export function oneLineAddress(deal: {
   address?: string | null;
@@ -238,7 +250,7 @@ Deno.serve(async (req) => {
     let q = supabase
       .from("deals")
       .select(
-        "id,property_name,address,property_address,city,state,latitude,longitude,geocode_source,geocode_address",
+        "id,property_name,address,property_address,city,state,latitude,longitude,geocode_source,geocode_address,esri_enrichment_stale",
       );
 
     if (dealId) {
@@ -332,6 +344,21 @@ Deno.serve(async (req) => {
         geocoded_at: new Date().toISOString(),
         geocode_address: addr,
       };
+
+      // Moving the pin invalidates anything measured around the old one. Rings
+      // and the crime index were computed by esri-enrich at the previous point,
+      // and a stale number renders exactly like a fresh one — so the flag is
+      // what lets the UI say "location corrected, enrichment pending" instead of
+      // quietly showing figures for the wrong neighbourhood. Nothing here
+      // re-runs the paid enrichment; that stays a decision for a human.
+      if (d.latitude != null && d.longitude != null) {
+        const moved = milesBetween(Number(d.latitude), Number(d.longitude), hit.lat, hit.lon);
+        if (moved > STALE_MILES) {
+          update.esri_enrichment_stale = true;
+          update.esri_enrichment_stale_reason =
+            `Location corrected ${moved.toFixed(2)} mi; rings and crime were measured around the old point`;
+        }
+      }
       // Only fill the tract when Census returned one; an absent GEOID is left
       // alone rather than blanked, in case Esri already supplied it. The vintage
       // is written with it — a GEOID without one cannot be checked later.

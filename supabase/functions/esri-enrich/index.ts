@@ -419,7 +419,11 @@ Deno.serve(async (req) => {
           enriched_at: payload.updated_at,
         })
         .eq("id", deal_id)
-        .neq("geocode_source", "census");
+        // NOT .neq(): in SQL, NULL != 'census' is NULL, not true, so a plain
+        // .neq would silently exclude every row whose geocode_source is still
+        // unset — the paid enrichment would run and the coordinates would never
+        // be written, with no error anywhere.
+        .or("geocode_source.is.null,geocode_source.neq.census");
       if (coordErr) console.warn("[esri-enrich] deal coord update failed:", coordErr.message);
     } catch (e) {
       console.warn("[esri-enrich] deal coord update threw:", (e as Error).message);

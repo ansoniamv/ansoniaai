@@ -254,7 +254,22 @@ export function DemographicsPanel({ dealId, address }: { dealId: string; address
       const { data, error } = await supabase.functions.invoke("esri-enrich", {
         body: { deal_id: dealId, address, force },
       });
-      if (error) throw error;
+      // A 422 carries the reason the geocode was rejected — "Add a street
+      // address to this deal", or the match type it got instead. Throwing the
+      // FunctionsHttpError directly discards that body and shows "Edge Function
+      // returned a non-2xx status code", which tells the user nothing they can
+      // act on. Read the body first, fall back to the generic message.
+      if (error) {
+        const ctx = (error as { context?: Response }).context;
+        let detail: string | null = null;
+        try {
+          if (ctx && typeof ctx.json === "function") {
+            const body = await ctx.json();
+            detail = body?.error ?? body?.message ?? null;
+          }
+        } catch { /* body was not JSON; fall through */ }
+        throw new Error(detail ?? (error as Error).message);
+      }
       if ((data as any)?.error) throw new Error((data as any).error);
       toast.success((data as any)?.cached ? "Loaded cached demographics" : "Pulled demographics from ArcGIS");
       queryClient.invalidateQueries({ queryKey: ["deal_enrichment", dealId] });

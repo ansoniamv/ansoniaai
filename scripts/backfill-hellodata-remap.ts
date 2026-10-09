@@ -29,7 +29,7 @@ const REPORT = [
   "is_student_housing", "is_senior_housing", "is_affordable_housing",
   "is_build_to_rent", "is_condo", "is_single_family",
   "unit_count", "unit_count_is_estimated", "vintage_year", "vintage_is_estimated",
-  "number_stories", "census_tract_id", "street_view_url",
+  "number_stories", "hellodata_census_tract_id", "street_view_url",
 ];
 
 const H = { apikey: KEY, Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" };
