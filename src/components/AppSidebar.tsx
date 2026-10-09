@@ -27,6 +27,7 @@ const pipelineNav = [
   { title: "New Deal", url: "/deals/new", icon: Plus },
   { title: "List View", url: "/deals", icon: List },
   { title: "Dashboard View", url: "/pipeline-dashboard", icon: LayoutDashboard },
+  { title: "Map View", url: "/pipeline-map", icon: Map },
 ];
 
 const capitalNav = [
