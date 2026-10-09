@@ -80,6 +80,16 @@ export function useCreateDeal() {
           });
       }
 
+      // Free coordinates, independent of the Esri chain above. esri-enrich only
+      // runs when someone pays for it, so without this a deal can exist with no
+      // position at all and simply never appear on a map. geocode-deals never
+      // overwrites an Esri result, so running both is safe in either order.
+      supabase.functions
+        .invoke("geocode-deals", { body: { deal_id: data.id } })
+        .then(({ error: geoErr }) => {
+          if (geoErr) console.error("geocode-deals error:", geoErr);
+        });
+
       return await scoreAfterWrite(data);
     },
     onSuccess: () => {
@@ -127,6 +137,18 @@ export function useUpdateDeal() {
           .map((k) => `${k}: asked ${JSON.stringify((deal as Record<string, unknown>)[k])}, stored ${JSON.stringify((data as Record<string, unknown>)?.[k])}`)
           .join("; ");
         throw new Error(`The database did not keep this edit — ${detail}`);
+      }
+
+      // Re-place the pin when the address changed. geocode-deals compares the
+      // new one-line address against the last one it tried, so an edit that does
+      // not actually change the address costs nothing, and an Esri-placed deal
+      // is left alone regardless.
+      if (["address", "property_address", "city", "state"].some((k) => k in deal)) {
+        supabase.functions
+          .invoke("geocode-deals", { body: { deal_id: id } })
+          .then(({ error: geoErr }) => {
+            if (geoErr) console.error("geocode-deals error:", geoErr);
+          });
       }
 
       return await scoreAfterWrite(data);
