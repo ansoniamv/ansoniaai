@@ -274,7 +274,7 @@ describe("mapHelloDataProperty — payload-derived fields", () => {
       "rent_trend_3mo_pct", "rent_trend_12mo_pct", "exposure_pct", "median_days_on_market",
       "concession_weeks_free", "concession_pct_of_rent", "fee_schedule", "move_in_fees_total",
       "building_amenities", "unit_amenities", "building_quality_detail", "number_stories",
-      "census_tract_id", "street_view_url",
+      "hellodata_census_tract_id", "street_view_url",
     ]) {
       expect(update[k], `${k} should be null on a bare payload`).toBeNull();
     }

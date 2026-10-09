@@ -180,13 +180,23 @@ Deno.serve(async (req) => {
     // because it reads the point rather than producing one — latitude and
     // longitude are never in the update.
     if (body.refresh_tracts === true) {
+      // Every row with a position, whether or not it already has a tract.
+      //
+      // The first version required census_tract_id to be non-null, which made
+      // this a refresh and never a fill. The 86 rows Esri placed carry
+      // coordinates but almost no tracts, so they were skipped entirely and the
+      // backfill looked like it had nothing to do. Having a position is the only
+      // precondition that matters — the coordinates endpoint needs nothing else.
       let rq = supabase
         .from("deals")
         .select("id,property_name,latitude,longitude,census_tract_id,census_tract_vintage")
-        .not("census_tract_id", "is", null)
         .not("latitude", "is", null)
         .not("longitude", "is", null);
-      if (!force) rq = rq.or(`census_tract_vintage.is.null,census_tract_vintage.neq.${VINTAGE}`);
+      if (!force) {
+        rq = rq.or(
+          `census_tract_id.is.null,census_tract_vintage.is.null,census_tract_vintage.neq.${VINTAGE}`,
+        );
+      }
       const { data: rows, error: rErr } = await rq.order("created_at", { ascending: true }).limit(limit);
       if (rErr) throw rErr;
 
