@@ -654,7 +654,14 @@ export function mapHelloDataProperty(p: any): MappedHelloData {
     is_condo: bool(p.is_condo),
     is_single_family: bool(p.is_single_family),
     number_stories: pickNum(p.number_stories) ?? pickNum(p.number_stories_prediction),
-    census_tract_id: pick(p.census_tract_id, p.census_tract, p.tract_id),
+    // NOT census_tract_id. That column is owned by geocode-deals, which writes a
+    // GEOID from the US Census geocoder together with the vintage it came from.
+    // HelloData's tract carries no vintage and has been wrong at least once —
+    // The Grove At Schaumburg arrived as 17031804803 while every Census vintage,
+    // 2020 through 2024, puts that point in 17031804611 — so letting it write
+    // here meant each enrich silently replaced a verified value with an
+    // unverifiable one. Kept in its own column rather than discarded.
+    hellodata_census_tract_id: pick(p.census_tract_id, p.census_tract, p.tract_id),
     street_view_url: pick(p.street_view_url),
   };
 

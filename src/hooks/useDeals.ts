@@ -63,7 +63,15 @@ export function useCreateDeal() {
       // Fire-and-forget address enrichment + schools lookup so new deals get
       // demographics and school data without a manual click. Schools need
       // lat/lon written by esri-enrich, so chain them.
-      const address = [data.city, data.state].filter(Boolean).join(", ");
+      // A street number is required, not just the town. esri-enrich now rejects
+      // anything that is not an address-level match, and "Chicago, IL" resolves
+      // as Locality — the city centroid — so sending it would 422 every time,
+      // skip the chained schools lookup, and spend a geocode request to be told
+      // what we already knew. Deals without a street wait for one to be added.
+      const street = (data.address ?? data.property_address ?? "").trim();
+      const address = street
+        ? [street, data.city, data.state].filter(Boolean).join(", ")
+        : "";
       if (address) {
         supabase.functions
           .invoke("esri-enrich", { body: { deal_id: data.id, address } })

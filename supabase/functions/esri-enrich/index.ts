@@ -1,7 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logApiRequest } from "../_shared/logUsage.ts";
 import { getArcGISToken } from "../_shared/arcgisToken.ts";
-import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
+import { corsFor, requireUserOrService } from "../_shared/auth.ts";
+import { isAddressLevel, GEOCODE_COUNTRY } from "../_shared/esriMatch.ts";
 
 const RING_LABELS = ["1mi", "3mi", "5mi"];
 const GEOCODE_CONFIDENCE_THRESHOLD = 85;
@@ -129,12 +130,21 @@ async function arcgisFetch(url: string, init: RequestInit, label: string): Promi
   throw lastErr ?? new Error(`ArcGIS ${label} failed after ${maxAttempts} attempts`);
 }
 
+
 async function geocode(address: string, token: string) {
   const url = new URL("https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates");
   url.searchParams.set("SingleLine", address);
   url.searchParams.set("f", "json");
   url.searchParams.set("maxLocations", "1");
   url.searchParams.set("outFields", "Score,Match_addr,Addr_type"); // ensure Score is returned
+  // Restrict to the United States. Without this the World geocoder is free to
+  // match a property NAME anywhere on earth: "K Square" returned a London POI at
+  // 51.4762/-0.2145 with a score of 100, and that is how a Chicago deal came to
+  // be stored in south-west London. countryCode is the documented parameter for
+  // findAddressCandidates — confirmed against the service metadata, which lists
+  // the supported country codes — and a live call with countryCode=USA no longer
+  // returns the London match.
+  url.searchParams.set("countryCode", GEOCODE_COUNTRY);
   url.searchParams.set("token", token);
   const res = await arcgisFetch(url.toString(), {}, "Geocode");
   const json = await res.json();
@@ -145,7 +155,8 @@ async function geocode(address: string, token: string) {
     ? cand.score
     : (typeof cand.attributes?.Score === "number" ? cand.attributes.Score : null);
   const matchAddr = cand.address ?? cand.attributes?.Match_addr ?? null;
-  return { lat: cand.location.y, lon: cand.location.x, matchAddr, score };
+  const addrType: string | null = cand.attributes?.Addr_type ?? null;
+  return { lat: cand.location.y, lon: cand.location.x, matchAddr, score, addrType };
 }
 
 async function enrich(lat: number, lon: number, token: string) {
@@ -183,8 +194,11 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   // Consumes metered ArcGIS credits and rewrites deal enrichment + coordinates.
-  const authz = await requireApprovedUser(req);
-  if (!authz.ok) return authz.response;
+  // Accepts an approved user (the UI) or a trusted service caller, the same
+    // pattern as geocode-deals, score-deals and deal-score. A backfill cannot
+    // present a user JWT, and geocode_only exists to be run as one.
+    const authz = await requireUserOrService(req);
+    if (authz && !authz.ok) return authz.response;
 
   try {
     const { token, source: tokenSource } = await getArcGISToken(
@@ -192,7 +206,7 @@ Deno.serve(async (req) => {
     );
     console.log(`[esri-enrich] credential in use: ${tokenSource}`);
 
-    const { deal_id, address, force } = await req.json();
+    const { deal_id, address, force, geocode_only } = await req.json();
     if (!deal_id || !address) throw new Error("deal_id and address required");
 
     const supabase = createClient(
@@ -261,7 +275,7 @@ Deno.serve(async (req) => {
       });
       throw err;
     }
-    const { lat, lon, matchAddr, score } = geo;
+    const { lat, lon, matchAddr, score, addrType } = geo;
     await logApiRequest(supabase, {
       function_name: "esri-enrich",
       service: "esri_geocode",
@@ -270,13 +284,66 @@ Deno.serve(async (req) => {
       units: 1,
     });
 
-    // Low-confidence geocode: still enrich, but flag it in the response so
-    // callers know the location may be wrong.
-    const lowConfidence = score !== null && score < GEOCODE_CONFIDENCE_THRESHOLD;
-    if (lowConfidence) {
-      console.warn(`[esri-enrich] deal=${deal_id} low geocode confidence score=${score} matched="${matchAddr}" input="${address}"`);
+    // Stop BEFORE the paid enrichment when the point is not a property.
+    //
+    // Both of these used to only warn, and the enrichment ran anyway — which is
+    // how rings and a crime index came to be measured around a city centroid and
+    // stored as though they described the asset. Each of those calls costs ~40
+    // ArcGIS credits, so proceeding on a bad point buys a wrong answer at full
+    // price. No coordinates are written either: a wrong pin is worse than none.
+    //
+    // The type check is the one that matters. Locality, Postal, POI and
+    // StreetName all score at or above the 85 threshold on live calls, so score
+    // alone cannot separate a rooftop from a city centre.
+    if (!isAddressLevel(addrType)) {
+      const message =
+        `Geocode matched "${matchAddr}" as ${addrType ?? "an unknown type"}, which is not an address-level ` +
+        `result (need PointAddress, StreetAddress or Subaddress). Add a street address to this deal. ` +
+        `Enrichment was not run and no coordinates were stored.`;
+      console.warn(`[esri-enrich] deal=${deal_id} rejected addr_type=${addrType} input="${address}"`);
+      await supabase.from("deals").update({ esri_addr_type: addrType }).eq("id", deal_id);
+      return new Response(JSON.stringify({ error: message, addr_type: addrType, matched: matchAddr }), {
+        status: 422,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
+    if (score !== null && score < GEOCODE_CONFIDENCE_THRESHOLD) {
+      const message =
+        `Geocode confidence ${score} is below ${GEOCODE_CONFIDENCE_THRESHOLD}. Matched "${matchAddr}" ` +
+        `for input "${address}". Enrichment was not run and no coordinates were stored.`;
+      console.warn(`[esri-enrich] deal=${deal_id} low confidence score=${score} input="${address}"`);
+      return new Response(JSON.stringify({ error: message, score, matched: matchAddr }), {
+        status: 422,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // geocode_only: coordinates without the paid GeoEnrichment.
+    //
+    // For an address the free Census geocoder cannot match but Esri can — its
+    // address-range coverage is wider. 555 Elm St, Fort Worth is the case that
+    // prompted this: Census returns no match, Esri returns PointAddress at 100.
+    // Only the geocode is billed (1 request), not the ~40 credits a ring pull
+    // costs, and it has already passed the match-type and confidence gates above.
+    if (geocode_only) {
+      const { error: gErr } = await supabase.from("deals").update({
+        latitude: lat,
+        longitude: lon,
+        esri_latitude: lat,
+        esri_longitude: lon,
+        esri_addr_type: addrType,
+        geocode_source: "esri",
+        geocode_error: null,
+        geocoded_at: new Date().toISOString(),
+        geocode_address: address,
+      }).eq("id", deal_id);
+      if (gErr) throw gErr;
+      return new Response(JSON.stringify({
+        ok: true, mode: "geocode_only", lat, lon, addr_type: addrType, score, matched: matchAddr,
+        note: "Coordinates only. No GeoEnrichment was run, so rings and crime are unchanged.",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     // --- GeoEnrichment (paid, billed per data attribute returned) ----------
     let enriched;
     try {
@@ -335,10 +402,28 @@ Deno.serve(async (req) => {
     // satellite thumbnails without a separate join. Don't fail enrichment if
     // this write errors.
     try {
+      // Never overwrite a point that geocode-deals verified against the US
+      // Census. Esri is the paid source but not reliably the better one here:
+      // 28 of 50 of its points sat more than half a mile from the address on
+      // the deal. The filter makes this a no-op on a census row rather than a
+      // silent downgrade.
       const { error: coordErr } = await supabase
         .from("deals")
-        .update({ latitude: lat, longitude: lon, enriched_at: payload.updated_at })
-        .eq("id", deal_id);
+        .update({
+          latitude: lat,
+          longitude: lon,
+          esri_latitude: lat,
+          esri_longitude: lon,
+          esri_addr_type: addrType,
+          geocode_source: "esri",
+          enriched_at: payload.updated_at,
+        })
+        .eq("id", deal_id)
+        // NOT .neq(): in SQL, NULL != 'census' is NULL, not true, so a plain
+        // .neq would silently exclude every row whose geocode_source is still
+        // unset — the paid enrichment would run and the coordinates would never
+        // be written, with no error anywhere.
+        .or("geocode_source.is.null,geocode_source.neq.census");
       if (coordErr) console.warn("[esri-enrich] deal coord update failed:", coordErr.message);
     } catch (e) {
       console.warn("[esri-enrich] deal coord update threw:", (e as Error).message);
@@ -365,11 +450,6 @@ Deno.serve(async (req) => {
       month_spend_usd: budget.spend,
       monthly_cap_usd: budget.monthlyCap,
       ...(budgetWarning ? { budget_warning: budgetWarning } : {}),
-
-      low_geocode_confidence: lowConfidence,
-      ...(lowConfidence ? {
-        warning: `Low geocode confidence (score ${score} < ${GEOCODE_CONFIDENCE_THRESHOLD}). Matched "${matchAddr}" for input "${address}". Enrichment proceeded — verify the location.`,
-      } : {}),
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
