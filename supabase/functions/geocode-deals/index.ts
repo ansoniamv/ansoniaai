@@ -140,10 +140,33 @@ Deno.serve(async (req) => {
 
     for (const d of deals ?? []) {
       const addr = oneLineAddress(d as Record<string, string | null>);
+      const alreadyPlaced = d.latitude != null && d.longitude != null;
+      // Both sides may be null — a deal with no street address has no address to
+      // record — and null === null, so "no address last time, still no address"
+      // counts as unchanged and is skipped like any other settled row.
+      const sameAddress = (d.geocode_address ?? null) === addr;
+
+      // Skip anything already settled: placed by Esri, or already attempted on
+      // this exact address. An edited address changes `addr` and so retries.
+      //
+      // This check MUST come before the no-address branch below. With it after,
+      // a deal with no street address was rewritten as 'failed' on every pass
+      // instead of being skipped, so the backfill query kept returning the same
+      // rows and never reached the deals that did have an address.
+      if (!force && (alreadyPlaced || (d.geocode_source === "failed" && sameAddress))) {
+        skipped++;
+        results.push({
+          deal: d.property_name,
+          status: "skipped",
+          reason: alreadyPlaced ? `already placed by ${d.geocode_source ?? "another source"}` : "address unchanged since last attempt",
+        });
+        continue;
+      }
 
       if (!addr) {
-        // Nothing to ask with. Recorded as failed so it stops being retried and
-        // shows up on the list of addresses a human needs to fill in.
+        // Nothing to ask with. Recorded as failed, once, so it stops being
+        // retried and shows up on the list of addresses a human needs to fill
+        // in. The skip above keeps it from being rewritten on every later pass.
         await supabase.from("deals").update({
           geocode_source: "failed",
           geocode_error: "no street address on the deal",
@@ -152,21 +175,6 @@ Deno.serve(async (req) => {
         }).eq("id", d.id);
         failed++;
         results.push({ deal: d.property_name, status: "failed", reason: "no street address" });
-        continue;
-      }
-
-      const alreadyPlaced = d.latitude != null && d.longitude != null;
-      const sameAddress = d.geocode_address === addr;
-
-      // Skip anything already settled: placed by Esri, or already attempted on
-      // this exact address. An edited address changes `addr` and so retries.
-      if (!force && (alreadyPlaced || (d.geocode_source === "failed" && sameAddress))) {
-        skipped++;
-        results.push({
-          deal: d.property_name,
-          status: "skipped",
-          reason: alreadyPlaced ? `already placed by ${d.geocode_source ?? "another source"}` : "address unchanged since last attempt",
-        });
         continue;
       }
 
