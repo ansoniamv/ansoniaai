@@ -16,9 +16,31 @@ import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 // These are the values the service advertises on /benchmarks and /vintages, and
 // Census2020_Current is the vintage that yields a 2020 tract GEOID.
 const BENCHMARK = "Public_AR_Current";
-const VINTAGE = "Census2020_Current";
+
+// ACS2024_Current, not Census2020_Current.
+//
+// A tract GEOID is only valid against its own vintage, and Connecticut proves
+// it: the state replaced eight counties with nine Planning Regions in 2022, and
+// the county FIPS sits inside the GEOID. The same Hartford point is 09003510600
+// under Census2020 and 09110510600 under ACS2023 onward — same tract, same
+// coordinates, different identifier. A Census2020 GEOID simply will not join to
+// current ACS data there, and the failure shows up as missing demographics
+// rather than as an error.
+//
+// 2024 is the newest ACS 5-year release actually published — confirmed against
+// the API's own catalogue at api.census.gov/data.json, which lists acs/acs5
+// vintages through 2024. The geocoder also offers ACS2025_Current and
+// ACS2026_Current, but no ACS 5-year data exists for those yet, so a GEOID on
+// that geography would have nothing to join to.
+const VINTAGE = "ACS2024_Current";
+
 const GEOCODER =
   "https://geocoding.geo.census.gov/geocoder/geographies/onelineaddress";
+// Geography for a point that is already known. Takes coordinates and returns
+// only geographies — it cannot move a pin, which is what makes it safe to run
+// across rows Esri placed.
+const GEOGRAPHIES_BY_COORDS =
+  "https://geocoding.geo.census.gov/geocoder/geographies/coordinates";
 
 // The service is rate-limited and unauthenticated; there is no quota to raise.
 // Small batches with a pause between calls keep a backfill well inside what it
@@ -96,6 +118,43 @@ async function geocode(address: string): Promise<GeocodeHit | { error: string }>
   };
 }
 
+/**
+ * The tract containing a known point, under the current VINTAGE.
+ *
+ * Uses the coordinates endpoint, which accepts a position and returns only
+ * geographies. It has no way to return a different position, so a refresh pass
+ * cannot move a pin even by accident — which is the only reason it is safe to
+ * run across the rows Esri placed at rooftop level.
+ */
+async function tractForPoint(lat: number, lon: number): Promise<{ tract: string } | { error: string }> {
+  const url = new URL(GEOGRAPHIES_BY_COORDS);
+  url.searchParams.set("x", String(lon));
+  url.searchParams.set("y", String(lat));
+  url.searchParams.set("benchmark", BENCHMARK);
+  url.searchParams.set("vintage", VINTAGE);
+  url.searchParams.set("format", "json");
+
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+  } catch (e) {
+    return { error: `network: ${(e as Error).message}` };
+  }
+  if (!res.ok) return { error: `HTTP ${res.status}` };
+
+  let body: Record<string, any>;
+  try {
+    body = await res.json();
+  } catch {
+    return { error: "non-JSON response" };
+  }
+  if (Array.isArray(body?.errors) && body.errors.length) return { error: String(body.errors[0]) };
+
+  const tract = body?.result?.geographies?.["Census Tracts"]?.[0]?.GEOID;
+  if (!tract) return { error: "no tract returned for this point" };
+  return { tract: String(tract) };
+}
+
 Deno.serve(async (req) => {
   const corsHeaders = corsFor(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -115,6 +174,56 @@ Deno.serve(async (req) => {
     const dealId: string | undefined = body.deal_id;
     const force: boolean = body.force === true;
     const limit = Math.min(Number(body.limit) || DEFAULT_LIMIT, MAX_LIMIT);
+
+    // Tract-only refresh: re-resolve the GEOID for rows that already have a
+    // position, under the current VINTAGE. Runs against Esri-placed rows too,
+    // because it reads the point rather than producing one — latitude and
+    // longitude are never in the update.
+    if (body.refresh_tracts === true) {
+      let rq = supabase
+        .from("deals")
+        .select("id,property_name,latitude,longitude,census_tract_id,census_tract_vintage")
+        .not("census_tract_id", "is", null)
+        .not("latitude", "is", null)
+        .not("longitude", "is", null);
+      if (!force) rq = rq.or(`census_tract_vintage.is.null,census_tract_vintage.neq.${VINTAGE}`);
+      const { data: rows, error: rErr } = await rq.order("created_at", { ascending: true }).limit(limit);
+      if (rErr) throw rErr;
+
+      const changes: Array<Record<string, unknown>> = [];
+      let changed = 0, unchanged = 0, refreshFailed = 0;
+
+      for (const d of rows ?? []) {
+        const got = await tractForPoint(Number(d.latitude), Number(d.longitude));
+        await sleep(DELAY_MS);
+        if ("error" in got) {
+          refreshFailed++;
+          changes.push({ deal: d.property_name, status: "failed", reason: got.error });
+          continue;
+        }
+        const before = d.census_tract_id as string | null;
+        const { error: uErr } = await supabase.from("deals").update({
+          census_tract_id: got.tract,
+          census_tract_vintage: VINTAGE,
+        }).eq("id", d.id);
+        if (uErr) {
+          refreshFailed++;
+          changes.push({ deal: d.property_name, status: "failed", reason: uErr.message });
+          continue;
+        }
+        if (before !== got.tract) {
+          changed++;
+          changes.push({ deal: d.property_name, status: "changed", from: before, to: got.tract });
+        } else {
+          unchanged++;
+        }
+      }
+
+      return new Response(
+        JSON.stringify({ ok: true, mode: "refresh_tracts", vintage: VINTAGE, changed, unchanged, failed: refreshFailed, changes }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     let q = supabase
       .from("deals")
@@ -214,8 +323,12 @@ Deno.serve(async (req) => {
         geocode_address: addr,
       };
       // Only fill the tract when Census returned one; an absent GEOID is left
-      // alone rather than blanked, in case Esri already supplied it.
-      if (hit.tract) update.census_tract_id = hit.tract;
+      // alone rather than blanked, in case Esri already supplied it. The vintage
+      // is written with it — a GEOID without one cannot be checked later.
+      if (hit.tract) {
+        update.census_tract_id = hit.tract;
+        update.census_tract_vintage = VINTAGE;
+      }
 
       const { error: updErr } = await supabase.from("deals").update(update).eq("id", d.id);
       if (updErr) {
