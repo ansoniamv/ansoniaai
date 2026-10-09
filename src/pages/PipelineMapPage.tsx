@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Map as MLMap, Popup, NavigationControl, LngLatBounds,
   type GeoJSONSource, type MapMouseEvent,
@@ -56,6 +56,7 @@ function addressOf(d: Deal): string {
 }
 
 export default function PipelineMapPage() {
+  const navigate = useNavigate();
   const { data: deals } = useDeals();
   const { data: crime } = useDealCrime();
   const { prefs, setPrefs, loaded } = useMapPrefs();
@@ -93,8 +94,11 @@ export default function PipelineMapPage() {
       geometry: { type: "Point" as const, coordinates: [d.longitude, d.latitude] },
       properties: {
         id: d.id,
+        // A stale reading colours grey, like "never enriched". Its index is for
+        // the old coordinate, so shading the pin by it would state something
+        // confident and wrong about the neighbourhood the deal is actually in.
         color: prefs.colorMode === "crime"
-          ? (crimeBucket(crime?.get(d.id))?.hex ?? CRIME_UNKNOWN_HEX)
+          ? (crimeBucket(crime?.get(d.id)?.index)?.hex ?? CRIME_UNKNOWN_HEX)
           : DEAL_STATUS_HEX[getStatus(d)],
       },
     })),
@@ -190,8 +194,17 @@ export default function PipelineMapPage() {
       const deal = visible.find((d) => d.id === f.properties.id);
       if (!deal) return;
       popup.current?.remove();
-      const idx = crime?.get(deal.id);
-      const bucket = crimeBucket(idx);
+      const c = crime?.get(deal.id);
+      const bucket = crimeBucket(c?.index);
+      const status = getStatus(deal);
+      // A stale reading never shows its number. The enrichment was measured
+      // around a point the deal has since moved away from, so the honest line
+      // is that it is pending, not a figure for the wrong neighbourhood.
+      const crimeLine = c?.stale
+        ? '<span style="opacity:.75">location corrected &mdash; enrichment pending</span>'
+        : c?.index != null
+          ? Math.round(c.index) + ' <span style="opacity:.7">(' + escapeHtml(bucket?.label ?? "") + ")</span>"
+          : "not enriched";
       const el = document.createElement("div");
       el.innerHTML = [
         '<div style="font-weight:600;font-size:13px;margin-bottom:2px">' + escapeHtml(deal.property_name ?? "Untitled") + "</div>",
@@ -199,13 +212,18 @@ export default function PipelineMapPage() {
         '<div style="font-size:11px;line-height:1.7">',
         "<div><strong>Units:</strong> " + ((deal as unknown as { unit_count: number | null }).unit_count ?? "&mdash;") + "</div>",
         "<div><strong>Year built:</strong> " + ((deal as unknown as { vintage_year: number | null }).vintage_year ?? "&mdash;") + "</div>",
-        "<div><strong>Crime index:</strong> " + (idx != null
-          ? Math.round(idx) + ' <span style="opacity:.7">(' + escapeHtml(bucket?.label ?? "") + ")</span>"
-          : "not enriched") + "</div>",
-        "<div><strong>Status:</strong> " + escapeHtml(getStatus(deal)) + "</div>",
+        "<div><strong>Crime index:</strong> " + crimeLine + "</div>",
+        '<div style="margin-top:4px"><span style="display:inline-block;padding:1px 7px;border-radius:9px;font-size:10px;font-weight:600;color:#fff;background:'
+          + DEAL_STATUS_HEX[status] + '">' + escapeHtml(status) + "</span></div>",
         "</div>",
-        '<a href="/deals/' + deal.id + '" style="display:inline-block;margin-top:8px;font-size:11px;font-weight:600;text-decoration:underline">Open deal</a>',
+        '<button type="button" data-open-deal style="display:inline-block;margin-top:8px;font-size:11px;font-weight:600;text-decoration:underline;background:none;border:0;padding:0;cursor:pointer;color:inherit">Open deal</button>',
       ].join("");
+      // Router navigation, not a raw href: an <a> would reload the whole SPA,
+      // losing the map, the fitted bounds and every cached query.
+      el.querySelector("[data-open-deal]")?.addEventListener("click", () => {
+        popup.current?.remove();
+        navigate("/deals/" + deal.id);
+      });
       popup.current = new Popup({ closeButton: true, maxWidth: "260px" })
         .setLngLat((f.geometry as GeoJSON.Point).coordinates as [number, number])
         .setDOMContent(el)
@@ -221,7 +239,7 @@ export default function PipelineMapPage() {
       m.off("mouseenter", "clusters", cursorOn);
       m.off("mouseleave", "clusters", cursorOff);
     };
-  }, [ready, geojson, isDark, visible, crime]);
+  }, [ready, geojson, isDark, visible, crime, navigate]);
 
   useEffect(() => {
     const m = map.current;
