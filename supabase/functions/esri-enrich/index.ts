@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logApiRequest } from "../_shared/logUsage.ts";
 import { getArcGISToken } from "../_shared/arcgisToken.ts";
-import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
+import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 import { isAddressLevel, GEOCODE_COUNTRY } from "../_shared/esriMatch.ts";
 
 const RING_LABELS = ["1mi", "3mi", "5mi"];
@@ -194,8 +194,11 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   // Consumes metered ArcGIS credits and rewrites deal enrichment + coordinates.
-  const authz = await requireApprovedUser(req);
-  if (!authz.ok) return authz.response;
+  // Accepts an approved user (the UI) or a trusted service caller, the same
+    // pattern as geocode-deals, score-deals and deal-score. A backfill cannot
+    // present a user JWT, and geocode_only exists to be run as one.
+    const authz = await requireUserOrService(req);
+    if (authz && !authz.ok) return authz.response;
 
   try {
     const { token, source: tokenSource } = await getArcGISToken(
@@ -203,7 +206,7 @@ Deno.serve(async (req) => {
     );
     console.log(`[esri-enrich] credential in use: ${tokenSource}`);
 
-    const { deal_id, address, force } = await req.json();
+    const { deal_id, address, force, geocode_only } = await req.json();
     if (!deal_id || !address) throw new Error("deal_id and address required");
 
     const supabase = createClient(
@@ -316,6 +319,31 @@ Deno.serve(async (req) => {
       });
     }
 
+    // geocode_only: coordinates without the paid GeoEnrichment.
+    //
+    // For an address the free Census geocoder cannot match but Esri can — its
+    // address-range coverage is wider. 555 Elm St, Fort Worth is the case that
+    // prompted this: Census returns no match, Esri returns PointAddress at 100.
+    // Only the geocode is billed (1 request), not the ~40 credits a ring pull
+    // costs, and it has already passed the match-type and confidence gates above.
+    if (geocode_only) {
+      const { error: gErr } = await supabase.from("deals").update({
+        latitude: lat,
+        longitude: lon,
+        esri_latitude: lat,
+        esri_longitude: lon,
+        esri_addr_type: addrType,
+        geocode_source: "esri",
+        geocode_error: null,
+        geocoded_at: new Date().toISOString(),
+        geocode_address: address,
+      }).eq("id", deal_id);
+      if (gErr) throw gErr;
+      return new Response(JSON.stringify({
+        ok: true, mode: "geocode_only", lat, lon, addr_type: addrType, score, matched: matchAddr,
+        note: "Coordinates only. No GeoEnrichment was run, so rings and crime are unchanged.",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     // --- GeoEnrichment (paid, billed per data attribute returned) ----------
     let enriched;
     try {
