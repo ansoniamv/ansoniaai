@@ -26,6 +26,7 @@ const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const OutlookPage = lazy(() => import("./pages/OutlookPage"));
 const ApiStatusPage = lazy(() => import("./pages/ApiStatusPage"));
 const PipelineDashboardPage = lazy(() => import("./pages/PipelineDashboardPage"));
+const PipelineMapPage = lazy(() => import("./pages/PipelineMapPage"));
 const DealPipelinePage = lazy(() => import("./pages/DealPipelinePage"));
 const ChatPage = lazy(() => import("./pages/ChatPage"));
 const AuthPage = lazy(() => import("./pages/AuthPage"));
@@ -67,6 +68,7 @@ const App = () => (
               <Route path="/" element={<Protected><DashboardPage /></Protected>} />
               <Route path="/dashboard" element={<Protected><PipelineDashboardPage /></Protected>} />
               <Route path="/pipeline-dashboard" element={<Protected><PipelineDashboardPage /></Protected>} />
+              <Route path="/pipeline-map" element={<Protected><PipelineMapPage /></Protected>} />
               <Route path="/deals" element={<Protected><Index /></Protected>} />
               <Route path="/pipeline" element={<Protected><DealPipelinePage /></Protected>} />
               <Route path="/deals/new" element={<Protected><NewDeal /></Protected>} />
