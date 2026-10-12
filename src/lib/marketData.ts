@@ -229,7 +229,19 @@ export function useSubmarketSeries(code: string | null | undefined, importId: st
 
 // ---------------------------------------------------------------- import
 
-export type ImportProgress = { stage: "creating" | "uploading" | "completing"; done: number; total: number };
+export type ImportProgress = {
+  stage: "creating" | "uploading" | "completing" | "finalizing";
+  done: number;
+  total: number;
+};
+
+export type ImportResult = {
+  rows: number;
+  /** false when the background job hadn't finished by the time we stopped waiting; it still will. */
+  finished: boolean;
+  replaced_imports: number;
+  deals_updated: number;
+};
 
 const BATCH = 500;
 const PARALLEL = 3;
@@ -245,7 +257,7 @@ export async function importCostarExport(
   parsed: CostarExport,
   fileName: string,
   onProgress: (p: ImportProgress) => void,
-): Promise<{ rows: number; replaced_imports: number; deals_updated: number }> {
+): Promise<ImportResult> {
   onProgress({ stage: "creating", done: 0, total: parsed.rows.length });
   const { data: imp, error: impErr } = await supabase
     .from("market_data_imports")
@@ -279,11 +291,34 @@ export async function importCostarExport(
     await Promise.all(Array.from({ length: PARALLEL }, worker));
 
     onProgress({ stage: "completing", done, total: parsed.rows.length });
-    const { data, error } = await supabase.rpc("complete_market_data_import", { p_import_id: imp.id });
+    const { error } = await supabase.rpc("complete_market_data_import", { p_import_id: imp.id });
     if (error) throw error;
-    return data as { rows: number; replaced_imports: number; deals_updated: number };
   } catch (e) {
     await supabase.from("market_data_imports").delete().eq("id", imp.id);
     throw e;
   }
+
+  // The row count checked out. Rebuilding the signals takes longer than a
+  // signed-in request may run, so a once-a-minute pg_cron job finishes the
+  // import (finalize_market_data_imports). From here the import is never
+  // deleted: it completes whether or not this page is still open.
+  onProgress({ stage: "finalizing", done: parsed.rows.length, total: parsed.rows.length });
+  const deadline = Date.now() + 3 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 5000));
+    const { data, error } = await supabase
+      .from("market_data_imports")
+      .select("status, replaced_imports, deals_updated")
+      .eq("id", imp.id)
+      .maybeSingle();
+    if (error) continue; // a blip while polling isn't a failed import
+    if (data?.status === "complete")
+      return {
+        rows: parsed.rows.length,
+        finished: true,
+        replaced_imports: data.replaced_imports ?? 0,
+        deals_updated: data.deals_updated ?? 0,
+      };
+  }
+  return { rows: parsed.rows.length, finished: false, replaced_imports: 0, deals_updated: 0 };
 }

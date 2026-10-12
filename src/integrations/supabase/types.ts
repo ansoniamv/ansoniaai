@@ -1613,6 +1613,7 @@ export type Database = {
       }
       market_data_imports: {
         Row: {
+          deals_updated: number | null
           as_of: string
           as_of_date: string
           completed_at: string | null
@@ -1621,12 +1622,14 @@ export type Database = {
           file_name: string | null
           geography_types: string[]
           id: string
+          replaced_imports: number | null
           row_count: number
           slices: string[]
           source: string
           status: string
         }
         Insert: {
+          deals_updated?: number | null
           as_of: string
           as_of_date: string
           completed_at?: string | null
@@ -1635,12 +1638,14 @@ export type Database = {
           file_name?: string | null
           geography_types?: string[]
           id?: string
+          replaced_imports?: number | null
           row_count: number
           slices?: string[]
           source?: string
           status?: string
         }
         Update: {
+          deals_updated?: number | null
           as_of?: string
           as_of_date?: string
           completed_at?: string | null
@@ -1649,6 +1654,7 @@ export type Database = {
           file_name?: string | null
           geography_types?: string[]
           id?: string
+          replaced_imports?: number | null
           row_count?: number
           slices?: string[]
           source?: string
