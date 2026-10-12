@@ -195,9 +195,9 @@ function ImportCard() {
               {state.progress.stage === "uploading"
                 ? `Uploading ${state.progress.done.toLocaleString()} of ${state.progress.total.toLocaleString()} rows`
                 : state.progress.stage === "completing"
-                ? "Checking the row count…"
+                ? "Handing off to the database…"
                 : state.progress.stage === "finalizing"
-                ? "Rows verified. Rebuilding submarket signals; the database does this within a minute…"
+                ? "Uploaded. The database checks the rows and rebuilds submarket signals within a minute…"
                 : "Starting…"}
             </div>
           </div>
@@ -226,7 +226,9 @@ function ImportCard() {
                     {i.status === "complete"
                       ? "complete"
                       : i.status === "finalizing"
-                      ? "verified, finishing within a minute"
+                      ? "uploaded, finishing within a minute"
+                      : i.status === "failed"
+                      ? `failed: ${i.error ?? "unknown reason"}`
                       : "incomplete (not used)"}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
