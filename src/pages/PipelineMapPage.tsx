@@ -121,8 +121,11 @@ export default function PipelineMapPage() {
       center: [-89, 39.5],
       zoom: 3.4,
     });
-    // Bottom right, because the top right is now where the filter panel sits.
-    m.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
+    // Top left. The top right is the filter panel, and the bottom right is
+    // where AppLayout fixes the Ask Atlas and page-search buttons — they are
+    // position:fixed and sit above the map, so zoom controls put there are
+    // simply buried.
+    m.addControl(new NavigationControl({ showCompass: false }), "top-left");
     m.on("load", () => setReady(true));
     map.current = m;
     return () => { m.remove(); map.current = null; };
@@ -380,7 +383,13 @@ export default function PipelineMapPage() {
       </div>
 
       <div className="relative flex-1 min-h-0">
-        <div ref={container} className="absolute inset-0" />
+        {/* h-full, not "absolute inset-0": maplibre-gl.css sets
+            .maplibregl-map { position: relative }, which has the same
+            specificity as Tailwind's .absolute and is loaded after it, so the
+            container stays position:relative, inset-0 does nothing, and the box
+            collapses to height 0 — a map that never draws. The old layout hid
+            this behind an explicit h-[620px]. */}
+        <div ref={container} className="h-full w-full" />
 
         {dealsPending && (
           <div className="absolute inset-0 grid place-items-center bg-background/60 text-sm text-muted-foreground">
