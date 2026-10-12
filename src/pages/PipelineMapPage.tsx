@@ -5,6 +5,8 @@ import {
   type GeoJSONSource, type MapMouseEvent,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+// Side-effect import: sets the worker URL before any Map is constructed.
+import "@/lib/maplibreWorker";
 import { MapPin, Layers } from "lucide-react";
 import { useDeals, type Deal } from "@/hooks/useDeals";
 import { useDealCrime } from "@/hooks/useDealCrime";
