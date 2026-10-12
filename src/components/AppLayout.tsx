@@ -22,6 +22,7 @@ const ROUTE_LABELS: Array<{ match: RegExp; label: string }> = [
   { match: /^\/partners/, label: "Capital Partners" },
   { match: /^\/capital-raise/, label: "Capital Raise" },
   { match: /^\/buy-box/, label: "Buy Box" },
+  { match: /^\/market-data/, label: "Market Data" },
   { match: /^\/notes/, label: "Notes & Tags" },
   { match: /^\/outlook/, label: "Outlook" },
   { match: /^\/chat/, label: "Ask Atlas" },
