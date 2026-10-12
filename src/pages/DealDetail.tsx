@@ -43,6 +43,7 @@ import { DealNotes } from "@/components/DealNotes";
 import { DealStatusHistory } from "@/components/DealStatusHistory";
 import { ComposeEmailDialog } from "@/components/ComposeEmailDialog";
 import { PropertyResearchPanel } from "@/components/PropertyResearchPanel";
+import { SubmarketSignalsPanel } from "@/components/SubmarketSignalsPanel";
 import { NoteComposerDialog } from "@/components/NoteComposerDialog";
 import { useDeal, useDeleteDeal } from "@/hooks/useDeals";
 import { persistDealScore } from "@/lib/persistDealScore";
@@ -69,6 +70,9 @@ const fmtPct = (v: any, digits = 1) => {
   const n = v <= 1 ? v * 100 : v;
   return `${n.toFixed(digits)}%`;
 };
+/** For columns stored in percent units (0.8 means 0.8%). fmtPct would guess
+ *  fractions and print 0.8 as "80.0%", which is how supply and growth were shown. */
+const fmtPctPts = (v: any, digits = 1) => (isNum(v) ? `${v.toFixed(digits)}%` : null);
 const fmtInt = (v: any) => (isNum(v) ? v.toLocaleString() : null);
 const fmtYears = (v: any) => (isNum(v) ? `${v} yr${v === 1 ? "" : "s"}` : null);
 const fmtMultiple = (v: any) => (isNum(v) ? `${v.toFixed(2)}x` : null);
@@ -704,15 +708,22 @@ export default function DealDetail() {
           />
           <Stat
             label="New Supply"
-            value={fmtPct(d.new_supply_pct_of_stock)}
+            value={fmtPctPts(d.new_supply_pct_of_stock)}
             meets={meetsSupply}
+            hint={
+              d.new_supply_source === "costar_uc"
+                ? "CoStar, under construction"
+                : d.new_supply_source === "esri_housing_units"
+                ? "Esri housing growth / yr"
+                : undefined
+            }
           />
           <Stat
             label="Pop Growth"
-            value={fmtPct(d.population_growth_pct)}
+            value={fmtPctPts(d.population_growth_pct)}
             meets={meetsPopGrowth}
           />
-          <Stat label="Job Growth" value={fmtPct(d.job_growth_pct)} meets={meetsJobGrowth} />
+          <Stat label="Job Growth" value={fmtPctPts(d.job_growth_pct)} meets={meetsJobGrowth} />
           <Stat label="Median Income" value={fmtMoney(incomeForCheck)} meets={meetsIncome} />
         </div>
       </section>
@@ -748,17 +759,17 @@ export default function DealDetail() {
               <CriterionRow
                 label="<5% new supply"
                 pass={meetsSupply}
-                actual={fmtPct(d.new_supply_pct_of_stock)}
+                actual={fmtPctPts(d.new_supply_pct_of_stock)}
               />
               <CriterionRow
                 label="Population growth above nat'l avg"
                 pass={meetsPopGrowth}
-                actual={fmtPct(d.population_growth_pct)}
+                actual={fmtPctPts(d.population_growth_pct)}
               />
               <CriterionRow
                 label="Job growth above nat'l avg"
                 pass={meetsJobGrowth}
-                actual={fmtPct(d.job_growth_pct)}
+                actual={fmtPctPts(d.job_growth_pct)}
               />
               <CriterionRow
                 label="Median income ≥ $55K"
@@ -768,6 +779,12 @@ export default function DealDetail() {
             </ul>
           </CardContent>
         </Card>
+      </section>
+
+      {/* ============ Submarket Supply Cycle ============ */}
+      <section>
+        <SectionHeader title="Submarket Supply Cycle · CoStar" />
+        <SubmarketSignalsPanel deal={d} />
       </section>
 
       {/* ============ AI Score + Buybox Fit ============ */}

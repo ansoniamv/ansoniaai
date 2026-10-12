@@ -14,6 +14,7 @@ const Index = lazy(() => import("./pages/Index"));
 const NewDeal = lazy(() => import("./pages/NewDeal"));
 const DealDetail = lazy(() => import("./pages/DealDetail"));
 const EditDeal = lazy(() => import("./pages/EditDeal"));
+const MarketDataPage = lazy(() => import("./pages/MarketDataPage"));
 const PartnersPage = lazy(() => import("./pages/PartnersPage"));
 const PartnerDetail = lazy(() => import("./pages/PartnerDetail"));
 const NewPartner = lazy(() => import("./pages/NewPartner"));
@@ -86,6 +87,7 @@ const App = () => (
               <Route path="/dev-notes" element={<Protected><DevNotesPage /></Protected>} />
               <Route path="/roadmap" element={<Protected><RoadmapPage /></Protected>} />
               <Route path="/buy-box" element={<Protected><BuyBoxPage /></Protected>} />
+              <Route path="/market-data" element={<Protected><MarketDataPage /></Protected>} />
               <Route path="/admin/users" element={<Protected admin><AdminUsersPage /></Protected>} />
               <Route path="/api-status" element={<Protected><ApiStatusPage /></Protected>} />
               <Route path="/admin/connectors" element={<Protected admin><ConnectorsPage /></Protected>} />

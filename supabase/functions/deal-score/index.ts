@@ -63,7 +63,7 @@ function scoreSignal(value: any, signal: any): number | null {
   return null;
 }
 
-// Resolve a field_source path against deal + enrichment + permits + derived values
+// Resolve a field_source path against deal + enrichment + permits + costar + derived values
 function resolve(path: string, ctx: any): any {
   const parts = path.split(".");
   let obj: any = ctx;
@@ -72,6 +72,7 @@ function resolve(path: string, ctx: any): any {
   if (root === "deals") obj = ctx.deal;
   else if (root === "deal_enrichment") obj = ctx.enrichment;
   else if (root === "permits") obj = ctx.permits;
+  else if (root === "costar") obj = ctx.costar;
   else if (root === "derived") obj = ctx.derived;
   else return undefined;
 
@@ -126,6 +127,22 @@ serve(async (req) => {
     // Skip permits fetch for now (CBSA mapping is TBD); leave null and signal scores will be null
     // TODO: add city/state -> CBSA crosswalk
 
+    // CoStar submarket signals (all star slices combined) for the submarket
+    // picked on the deal page. Rates are fractions: costar.uc_pct 0.05 = 5% of
+    // existing units under construction. Null when no submarket is picked, so
+    // those signals drop out of the average rather than score as a midpoint.
+    let costar: Record<string, unknown> | null = null;
+    if (deal.costar_submarket_code) {
+      const { data: sig, error: sigErr } = await supabase
+        .from("costar_submarket_signals")
+        .select("*")
+        .eq("geography_code", deal.costar_submarket_code)
+        .eq("scope", "Combined")
+        .maybeSingle();
+      if (sigErr) console.error("costar signals lookup failed:", sigErr);
+      costar = sig ?? null;
+    }
+
     // Derived values
     const inPlace = Number(deal.in_place_avg_rent) || 0;
     const market = Number(deal.median_rent_tract) || 0;
@@ -139,6 +156,7 @@ serve(async (req) => {
       deal: { ...deal, value_add_potential: value_add_num },
       enrichment: enrichment ?? {},
       permits,
+      costar,
       derived: { rent_gap_pct, price_per_unit },
     };
 

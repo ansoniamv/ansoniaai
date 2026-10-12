@@ -510,6 +510,95 @@ export type Database = {
         }
         Relationships: []
       }
+      costar_series: {
+        Row: {
+          absorption_units_12mo: number | null
+          asking_rent_unit: number | null
+          cbsa_code: string | null
+          construction_starts_units_12mo: number | null
+          demand_units: number | null
+          effective_rent_growth_12mo: number | null
+          effective_rent_unit: number | null
+          geography_code: string
+          geography_name: string
+          geography_type: string
+          import_id: string
+          inventory_units: number | null
+          market_cap_rate: number | null
+          metrics: Json
+          net_delivered_units_12mo: number | null
+          occupancy_rate: number | null
+          period: string
+          period_kind: string
+          period_quarter: number
+          period_year: number
+          sale_price_per_unit: number | null
+          slice: string
+          stabilized_vacancy: number | null
+          under_construction_units: number | null
+        }
+        Insert: {
+          absorption_units_12mo?: number | null
+          asking_rent_unit?: number | null
+          cbsa_code?: string | null
+          construction_starts_units_12mo?: number | null
+          demand_units?: number | null
+          effective_rent_growth_12mo?: number | null
+          effective_rent_unit?: number | null
+          geography_code: string
+          geography_name: string
+          geography_type: string
+          import_id: string
+          inventory_units?: number | null
+          market_cap_rate?: number | null
+          metrics?: Json
+          net_delivered_units_12mo?: number | null
+          occupancy_rate?: number | null
+          period: string
+          period_kind: string
+          period_quarter: number
+          period_year: number
+          sale_price_per_unit?: number | null
+          slice: string
+          stabilized_vacancy?: number | null
+          under_construction_units?: number | null
+        }
+        Update: {
+          absorption_units_12mo?: number | null
+          asking_rent_unit?: number | null
+          cbsa_code?: string | null
+          construction_starts_units_12mo?: number | null
+          demand_units?: number | null
+          effective_rent_growth_12mo?: number | null
+          effective_rent_unit?: number | null
+          geography_code?: string
+          geography_name?: string
+          geography_type?: string
+          import_id?: string
+          inventory_units?: number | null
+          market_cap_rate?: number | null
+          metrics?: Json
+          net_delivered_units_12mo?: number | null
+          occupancy_rate?: number | null
+          period?: string
+          period_kind?: string
+          period_quarter?: number
+          period_year?: number
+          sale_price_per_unit?: number | null
+          slice?: string
+          stabilized_vacancy?: number | null
+          under_construction_units?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "costar_series_import_id_fkey"
+            columns: ["import_id"]
+            isOneToOne: false
+            referencedRelation: "market_data_imports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       daily_digests: {
         Row: {
           created_at: string
@@ -792,6 +881,7 @@ export type Database = {
           building_quality_score: number | null
           cfo_date: string | null
           cfo_note: string | null
+          costar_submarket_code: string | null
           city: string | null
           classic_units_remaining: number | null
           concessions_history: Json | null
@@ -842,6 +932,7 @@ export type Database = {
           msa: string | null
           nearest_employment_node_min: number | null
           new_supply_pct_of_stock: number | null
+          new_supply_source: string | null
           notes: string | null
           occupancy_pct: number | null
           owner_occupied_pct_tract: number | null
@@ -947,6 +1038,7 @@ export type Database = {
           building_quality_score?: number | null
           cfo_date?: string | null
           cfo_note?: string | null
+          costar_submarket_code?: string | null
           city?: string | null
           classic_units_remaining?: number | null
           concessions_history?: Json | null
@@ -997,6 +1089,7 @@ export type Database = {
           msa?: string | null
           nearest_employment_node_min?: number | null
           new_supply_pct_of_stock?: number | null
+          new_supply_source?: string | null
           notes?: string | null
           occupancy_pct?: number | null
           owner_occupied_pct_tract?: number | null
@@ -1102,6 +1195,7 @@ export type Database = {
           building_quality_score?: number | null
           cfo_date?: string | null
           cfo_note?: string | null
+          costar_submarket_code?: string | null
           city?: string | null
           classic_units_remaining?: number | null
           concessions_history?: Json | null
@@ -1152,6 +1246,7 @@ export type Database = {
           msa?: string | null
           nearest_employment_node_min?: number | null
           new_supply_pct_of_stock?: number | null
+          new_supply_source?: string | null
           notes?: string | null
           occupancy_pct?: number | null
           owner_occupied_pct_tract?: number | null
@@ -1513,6 +1608,51 @@ export type Database = {
           id?: string
           updated_at?: string
           updated_by?: string | null
+        }
+        Relationships: []
+      }
+      market_data_imports: {
+        Row: {
+          as_of: string
+          as_of_date: string
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          file_name: string | null
+          geography_types: string[]
+          id: string
+          row_count: number
+          slices: string[]
+          source: string
+          status: string
+        }
+        Insert: {
+          as_of: string
+          as_of_date: string
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          file_name?: string | null
+          geography_types?: string[]
+          id?: string
+          row_count: number
+          slices?: string[]
+          source?: string
+          status?: string
+        }
+        Update: {
+          as_of?: string
+          as_of_date?: string
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          file_name?: string | null
+          geography_types?: string[]
+          id?: string
+          row_count?: number
+          slices?: string[]
+          source?: string
+          status?: string
         }
         Relationships: []
       }
@@ -2607,6 +2747,46 @@ export type Database = {
       }
     }
     Views: {
+      costar_submarket_signals_v: {
+        Row: {
+          absorbed_t12: number | null
+          ask_now: number | null
+          as_of: string | null
+          cbsa_code: string | null
+          concession_change: number | null
+          concession_now: number | null
+          cyclical_score: number | null
+          delivered_t12: number | null
+          delivered_t12_pct: number | null
+          demand_gap_t12_pct: number | null
+          eff_now: number | null
+          eligible: boolean | null
+          fwd_deliveries_2y: number | null
+          fwd_deliveries_2y_pct: number | null
+          geography_code: string | null
+          geography_name: string | null
+          inventory: number | null
+          market_name: string | null
+          occupancy: number | null
+          occupancy_10yr_mean: number | null
+          occupancy_gap: number | null
+          pct_concession_change: number | null
+          pct_demand_gap: number | null
+          pct_fwd_supply: number | null
+          pct_occupancy_gap: number | null
+          pct_rent_forecast: number | null
+          pct_uc: number | null
+          rent_forecast_1y: number | null
+          rent_forecast_3y_cagr: number | null
+          rent_growth_t12: number | null
+          scope: string | null
+          state: string | null
+          submarket_name: string | null
+          uc_pct: number | null
+          uc_units: number | null
+        }
+        Relationships: []
+      }
       ai_usage_daily: {
         Row: {
           billing_type: string | null
@@ -2665,6 +2845,7 @@ export type Database = {
     }
     Functions: {
       accept_inbox_deal: { Args: { _inbox_deal_id: string }; Returns: string }
+      complete_market_data_import: { Args: { p_import_id: string }; Returns: Json }
       bump_partner_last_edited: {
         Args: { _partner_id: string }
         Returns: undefined
