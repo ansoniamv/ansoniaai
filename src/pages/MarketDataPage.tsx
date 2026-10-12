@@ -101,11 +101,17 @@ function ImportCard() {
         const { data: linked } = await supabase.from("deals").select("*").not("costar_submarket_code", "is", null);
         for (const d of linked ?? []) await persistDealScore(d).catch((e) => console.error("rescore failed", d.id, e));
       }
-      toast.success(
-        `Loaded CoStar ${result.asOf}: ${out.rows.toLocaleString()} rows` +
-          (out.replaced_imports ? ", replacing the earlier upload of the same quarter" : "") +
-          (out.deals_updated ? `; ${out.deals_updated} deal(s) got a new supply figure` : ""),
-      );
+      if (!out.finished) {
+        toast.message(
+          `CoStar ${result.asOf} is uploaded and verified. The database is still rebuilding submarket signals; reload this page in a minute.`,
+        );
+      } else {
+        toast.success(
+          `Loaded CoStar ${result.asOf}: ${out.rows.toLocaleString()} rows` +
+            (out.replaced_imports ? ", replacing the earlier upload of the same quarter" : "") +
+            (out.deals_updated ? `; ${out.deals_updated} deal(s) got a new supply figure` : ""),
+        );
+      }
       setState({ status: "idle" });
       queryClient.invalidateQueries({ queryKey: ["market_data_imports"] });
       queryClient.invalidateQueries({ queryKey: ["costar_signals"] });
@@ -189,7 +195,9 @@ function ImportCard() {
               {state.progress.stage === "uploading"
                 ? `Uploading ${state.progress.done.toLocaleString()} of ${state.progress.total.toLocaleString()} rows`
                 : state.progress.stage === "completing"
-                ? "Checking row count and recomputing submarket signals…"
+                ? "Checking the row count…"
+                : state.progress.stage === "finalizing"
+                ? "Rows verified. Rebuilding submarket signals; the database does this within a minute…"
                 : "Starting…"}
             </div>
           </div>
@@ -215,7 +223,11 @@ function ImportCard() {
                   <TableCell className="text-right tabular-nums">{i.row_count.toLocaleString()}</TableCell>
                   <TableCell className="text-xs">{i.slices.join(", ")}</TableCell>
                   <TableCell className={cn("text-xs", i.status !== "complete" && "text-amber-600")}>
-                    {i.status === "complete" ? "complete" : "incomplete (not used)"}
+                    {i.status === "complete"
+                      ? "complete"
+                      : i.status === "finalizing"
+                      ? "verified, finishing within a minute"
+                      : "incomplete (not used)"}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {new Date(i.created_at).toLocaleDateString()}

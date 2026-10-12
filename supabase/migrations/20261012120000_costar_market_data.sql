@@ -132,7 +132,9 @@ grant all on public.market_data_imports, public.costar_series to service_role;
 -- cyclical_score is the mean of the available percentiles × 100. It needs at
 -- least four of the six, so a submarket with no rent series doesn't score off
 -- supply alone.
-drop materialized view if exists public.costar_submarket_signals;
+-- cascade: the wrapper function and view below depend on it and are recreated
+-- right after, so re-running this file works.
+drop materialized view if exists public.costar_submarket_signals cascade;
 create materialized view public.costar_submarket_signals as
 with cur as (
   select id, as_of, extract(year from as_of_date)::int as as_of_year
