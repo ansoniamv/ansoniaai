@@ -8,7 +8,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // Side-effect import: sets the worker URL before any Map is constructed.
 import "@/lib/maplibreWorker";
 import { MapPin, Layers } from "lucide-react";
-import { useDeals, type Deal } from "@/hooks/useDeals";
+import { useMapDeals, type MapDeal } from "@/hooks/useMapDeals";
 import { useDealCrime } from "@/hooks/useDealCrime";
 import { useMapPrefs } from "@/hooks/useMapPrefs";
 import { Button } from "@/components/ui/button";
@@ -21,10 +21,10 @@ import {
   BASEMAP_DARK, BASEMAP_LIGHT, CRIME_BUCKETS, CRIME_UNKNOWN_HEX, crimeBucket,
 } from "@/lib/mapLayers";
 
-type Located = Deal & { latitude: number; longitude: number };
+type Located = MapDeal & { latitude: number; longitude: number };
 
 /** A deal is mappable only with BOTH coordinates; one alone is meaningless. */
-function isLocated(d: Deal): d is Located {
+function isLocated(d: MapDeal): d is Located {
   const lat = (d as unknown as { latitude: number | null }).latitude;
   const lng = (d as unknown as { longitude: number | null }).longitude;
   return typeof lat === "number" && typeof lng === "number"
@@ -52,14 +52,14 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => map[c]);
 }
 
-function addressOf(d: Deal): string {
+function addressOf(d: MapDeal): string {
   const a = d as unknown as Record<string, string | null>;
   return [a.address ?? a.property_address, a.city, a.state].filter(Boolean).join(", ") || "No address";
 }
 
 export default function PipelineMapPage() {
   const navigate = useNavigate();
-  const { data: deals, isPending: dealsPending, error: dealsError } = useDeals();
+  const { data: deals, isPending: dealsPending, error: dealsError } = useMapDeals();
   const { data: crime, error: crimeError } = useDealCrime();
   const { prefs, setPrefs, loaded } = useMapPrefs();
   const isDark = useIsDark();
