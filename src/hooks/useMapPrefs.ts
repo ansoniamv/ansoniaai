@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { ACTIVE_STATUSES, DEAL_STATUSES, type DealStatus } from "@/lib/dealStatus";
-import { MAP_PREF_KEY, type ColorMode } from "@/lib/mapLayers";
+import { GRADED_BY_ID, MAP_PREF_KEY, type ColorMode } from "@/lib/mapLayers";
 
 export type MapPrefs = {
   visible: DealStatus[];
@@ -26,7 +26,15 @@ function sanitize(raw: unknown): MapPrefs {
   const visible = Array.isArray(v.visible)
     ? DEAL_STATUSES.filter((s) => (v.visible as string[]).includes(s))
     : DEFAULT_PREFS.visible;
-  const colorMode: ColorMode = v.colorMode === "crime" ? "crime" : "status";
+  // An unknown layer falls back to status rather than being kept. A layer can
+  // be renamed or dropped between releases, and a saved id that no longer
+  // resolves would colour every pin grey — a map that looks like it has no
+  // data when it is only the preference that is stale.
+  const saved = v.colorMode as string | undefined;
+  const colorMode: ColorMode =
+    saved === "status" || saved === "crime" || (saved != null && GRADED_BY_ID.has(saved as ColorMode))
+      ? (saved as ColorMode)
+      : "status";
   return { visible, colorMode };
 }
 

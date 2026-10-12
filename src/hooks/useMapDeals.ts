@@ -27,6 +27,11 @@ const MAP_COLUMNS = [
   "latitude",
   "longitude",
   "esri_enrichment_stale",
+  // The data layers. Three more scalar columns — what made the old query 9 MB
+  // was hellodata_payload, not the column count.
+  "median_income_tract",
+  "population_growth_pct",
+  "costar_submarket_code",
 ].join(",");
 
 export type MapDeal = {
@@ -42,6 +47,9 @@ export type MapDeal = {
   latitude: number | null;
   longitude: number | null;
   esri_enrichment_stale: boolean | null;
+  median_income_tract: number | null;
+  population_growth_pct: number | null;
+  costar_submarket_code: string | null;
 };
 
 export function useMapDeals() {
