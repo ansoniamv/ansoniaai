@@ -1614,6 +1614,7 @@ export type Database = {
       market_data_imports: {
         Row: {
           deals_updated: number | null
+          error: string | null
           as_of: string
           as_of_date: string
           completed_at: string | null
@@ -1630,6 +1631,7 @@ export type Database = {
         }
         Insert: {
           deals_updated?: number | null
+          error?: string | null
           as_of: string
           as_of_date: string
           completed_at?: string | null
@@ -1646,6 +1648,7 @@ export type Database = {
         }
         Update: {
           deals_updated?: number | null
+          error?: string | null
           as_of?: string
           as_of_date?: string
           completed_at?: string | null
@@ -2852,6 +2855,10 @@ export type Database = {
     Functions: {
       accept_inbox_deal: { Args: { _inbox_deal_id: string }; Returns: string }
       complete_market_data_import: { Args: { p_import_id: string }; Returns: Json }
+      discard_market_data_import: {
+        Args: { p_import_id: string; p_reason?: string | null }
+        Returns: undefined
+      }
       bump_partner_last_edited: {
         Args: { _partner_id: string }
         Returns: undefined

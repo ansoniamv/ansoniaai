@@ -294,24 +294,31 @@ export async function importCostarExport(
     const { error } = await supabase.rpc("complete_market_data_import", { p_import_id: imp.id });
     if (error) throw error;
   } catch (e) {
-    await supabase.from("market_data_imports").delete().eq("id", imp.id);
+    // Only flag it: deleting 69k rows can outrun a signed-in request's 8 s
+    // limit. The cron job deletes the rows of failed imports.
+    await supabase.rpc("discard_market_data_import", {
+      p_import_id: imp.id,
+      p_reason: (e as Error).message?.slice(0, 500) ?? null,
+    });
     throw e;
   }
 
-  // The row count checked out. Rebuilding the signals takes longer than a
-  // signed-in request may run, so a once-a-minute pg_cron job finishes the
-  // import (finalize_market_data_imports). From here the import is never
-  // deleted: it completes whether or not this page is still open.
+  // Every row is uploaded. Checking the count and rebuilding the signals can
+  // take longer than a signed-in request may run, so a once-a-minute pg_cron
+  // job does both (finalize_market_data_imports) and either completes the
+  // import or marks it failed with the reason. It does so whether or not this
+  // page is still open.
   onProgress({ stage: "finalizing", done: parsed.rows.length, total: parsed.rows.length });
   const deadline = Date.now() + 3 * 60 * 1000;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 5000));
     const { data, error } = await supabase
       .from("market_data_imports")
-      .select("status, replaced_imports, deals_updated")
+      .select("status, error, replaced_imports, deals_updated")
       .eq("id", imp.id)
       .maybeSingle();
     if (error) continue; // a blip while polling isn't a failed import
+    if (data?.status === "failed") throw new Error(data.error ?? "The database rejected the upload.");
     if (data?.status === "complete")
       return {
         rows: parsed.rows.length,
