@@ -7,17 +7,20 @@ import {
 import "maplibre-gl/dist/maplibre-gl.css";
 // Side-effect import: sets the worker URL before any Map is constructed.
 import "@/lib/maplibreWorker";
-import { Layers, Maximize2, Minimize2, SlidersHorizontal, X } from "lucide-react";
+import { Layers, Maximize2, Minimize2, X } from "lucide-react";
 import { useMapDeals, type MapDeal } from "@/hooks/useMapDeals";
-import { useDealCrime } from "@/hooks/useDealCrime";
+import { useDealCrime, type DealCrime } from "@/hooks/useDealCrime";
 import { useMapPrefs } from "@/hooks/useMapPrefs";
+import { useMapSignals, type MapSignal } from "@/lib/marketData";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   ACTIVE_STATUSES, DEAL_STATUSES, DEAL_STATUS_HEX, getStatus, type DealStatus,
 } from "@/lib/dealStatus";
 import {
-  BASEMAP_DARK, BASEMAP_LIGHT, CRIME_BUCKETS, CRIME_UNKNOWN_HEX, crimeBucket,
+  BASEMAP_DARK, BASEMAP_LIGHT, CRIME_BUCKETS, CRIME_UNKNOWN_HEX, GRADED_BY_ID,
+  GRADED_LAYERS, NO_DATA_HEX, bandHex, crimeBucket, legendBands,
+  type GradedLayer, type LayerGroup, type LayerId,
 } from "@/lib/mapLayers";
 
 type Located = MapDeal & { latitude: number; longitude: number };
@@ -59,10 +62,66 @@ function addressOf(d: MapDeal): string {
 /** The floating surface shared by every control that sits on the map. */
 const PANE = "rounded-lg border border-hairline bg-card/95 backdrop-blur-sm shadow-lg";
 
+/**
+ * What a deal reads for the active layer.
+ *
+ * Three outcomes, kept apart on purpose. A number is a measurement. `stale`
+ * means a number exists but describes somewhere the deal no longer is — the 33
+ * deals whose coordinates were corrected after Esri measured their rings.
+ * `null` means nothing was ever measured. Collapsing the last two into "no
+ * value" would be survivable; collapsing either into a number would not.
+ */
+type Reading = { value: number | null; stale: boolean; reason: string | null };
+
+const NOTHING: Reading = { value: null, stale: false, reason: null };
+
+function readLayer(
+  deal: MapDeal,
+  layer: GradedLayer,
+  signals: Map<string, MapSignal> | undefined,
+): Reading {
+  if (layer.source === "esri") {
+    // Same rule as the crime layer: a ring measured around the old point says
+    // nothing about the neighbourhood the deal is actually in.
+    if (deal.esri_enrichment_stale === true) {
+      return { value: null, stale: true, reason: "location corrected — enrichment pending" };
+    }
+    const raw = layer.id === "median_income" ? deal.median_income_tract : deal.population_growth_pct;
+    return typeof raw === "number" && Number.isFinite(raw)
+      ? { value: raw, stale: false, reason: null }
+      : NOTHING;
+  }
+
+  // CoStar. The submarket is picked by hand on the deal page, so most of the
+  // book has none until someone does that, and that is what the pin says.
+  const code = deal.costar_submarket_code;
+  if (!code) return { value: null, stale: false, reason: "no submarket picked" };
+  const row = signals?.get(code);
+  if (!row) return { value: null, stale: false, reason: "submarket not in this import" };
+  const raw = row[layer.id as keyof MapSignal];
+  return typeof raw === "number" && Number.isFinite(raw)
+    ? { value: raw, stale: false, reason: null }
+    : { value: null, stale: false, reason: "not published for this submarket" };
+}
+
+const GROUP_ORDER: LayerGroup[] = ["Deal", "Demographics", "Supply & market"];
+
+/** The popup line for the active layer: the number, or why there isn't one. */
+function layerLine(
+  deal: MapDeal,
+  layer: GradedLayer,
+  signals: Map<string, MapSignal> | undefined,
+): string {
+  const r = readLayer(deal, layer, signals);
+  if (r.value != null) return escapeHtml(layer.format(r.value));
+  return '<span style="opacity:.75">' + escapeHtml(r.reason ?? "no data") + "</span>";
+}
+
 export default function PipelineMapPage() {
   const navigate = useNavigate();
   const { data: deals, isPending: dealsPending, error: dealsError } = useMapDeals();
   const { data: crime, error: crimeError } = useDealCrime();
+  const { data: signals, error: signalsError } = useMapSignals();
   const { prefs, setPrefs, loaded } = useMapPrefs();
   const isDark = useIsDark();
 
@@ -96,22 +155,45 @@ export default function PipelineMapPage() {
     [located, prefs.visible],
   );
 
+  /** The active layer, or undefined for the two categorical modes. */
+  const layer = GRADED_BY_ID.get(prefs.colorMode);
+
+  const colorOf = useCallback((d: Located): string => {
+    if (prefs.colorMode === "status") return DEAL_STATUS_HEX[getStatus(d)];
+    // A stale reading colours grey, like "never enriched". Its index is for
+    // the old coordinate, so shading the pin by it would state something
+    // confident and wrong about the neighbourhood the deal is actually in.
+    if (prefs.colorMode === "crime") {
+      return crimeBucket(crime?.get(d.id)?.index)?.hex ?? CRIME_UNKNOWN_HEX;
+    }
+    if (!layer) return NO_DATA_HEX;
+    const r = readLayer(d, layer, signals);
+    return r.value == null ? NO_DATA_HEX : bandHex(r.value, layer);
+  }, [prefs.colorMode, crime, layer, signals]);
+
   const geojson = useMemo(() => ({
     type: "FeatureCollection" as const,
     features: visible.map((d) => ({
       type: "Feature" as const,
       geometry: { type: "Point" as const, coordinates: [d.longitude, d.latitude] },
-      properties: {
-        id: d.id,
-        // A stale reading colours grey, like "never enriched". Its index is for
-        // the old coordinate, so shading the pin by it would state something
-        // confident and wrong about the neighbourhood the deal is actually in.
-        color: prefs.colorMode === "crime"
-          ? (crimeBucket(crime?.get(d.id)?.index)?.hex ?? CRIME_UNKNOWN_HEX)
-          : DEAL_STATUS_HEX[getStatus(d)],
-      },
+      properties: { id: d.id, color: colorOf(d) },
     })),
-  }), [visible, prefs.colorMode, crime]);
+  }), [visible, colorOf]);
+
+  /**
+   * How many of the pins on screen actually carry a value for this layer.
+   *
+   * Shown next to the legend because a map where most pins are grey and a map
+   * where most are green look equally authoritative from across the room. The
+   * previous scorer's whole failure was a number that did not say how much of
+   * it was measured.
+   */
+  const coverage = useMemo(() => {
+    if (!layer) return null;
+    let withValue = 0;
+    for (const d of visible) if (readLayer(d, layer, signals).value != null) withValue++;
+    return { withValue, total: visible.length };
+  }, [layer, visible, signals]);
 
   useEffect(() => {
     if (!container.current || map.current) return;
@@ -258,6 +340,9 @@ export default function PipelineMapPage() {
         "<div><strong>Units:</strong> " + ((deal as unknown as { unit_count: number | null }).unit_count ?? "&mdash;") + "</div>",
         "<div><strong>Year built:</strong> " + ((deal as unknown as { vintage_year: number | null }).vintage_year ?? "&mdash;") + "</div>",
         "<div><strong>Crime index:</strong> " + crimeLine + "</div>",
+        // The active layer's own reading, so clicking a grey pin says why it
+        // is grey rather than leaving the colour to be guessed at.
+        layer ? "<div><strong>" + escapeHtml(layer.label) + ":</strong> " + layerLine(deal, layer, signals) + "</div>" : "",
         '<div style="margin-top:4px"><span style="display:inline-block;padding:1px 7px;border-radius:9px;font-size:10px;font-weight:600;color:#fff;background:'
           + DEAL_STATUS_HEX[status] + '">' + escapeHtml(status) + "</span></div>",
         "</div>",
@@ -284,7 +369,7 @@ export default function PipelineMapPage() {
       m.off("mouseenter", "clusters", cursorOn);
       m.off("mouseleave", "clusters", cursorOff);
     };
-  }, [ready, geojson, isDark, visible, crime, navigate]);
+  }, [ready, geojson, isDark, visible, crime, layer, signals, navigate]);
 
   useEffect(() => {
     const m = map.current;
@@ -312,6 +397,18 @@ export default function PipelineMapPage() {
   // A failed or pending query must never render as "0 of 0 located deals":
   // that is a sentence about the data, and it reads as "you have no deals"
   // when the truth is "we could not ask".
+  /** The CoStar vintage the supply layers are reading, e.g. "2026 Q4". */
+  const asOf = useMemo(() => {
+    for (const row of signals?.values() ?? []) if (row.as_of) return row.as_of;
+    return null;
+  }, [signals]);
+
+  const activeLabel = layer
+    ? "coloured by " + layer.label.toLowerCase()
+    : prefs.colorMode === "crime"
+      ? "coloured by Esri crime index"
+      : "coloured by status";
+
   const summary = dealsError
     ? "Deals could not be loaded"
     : dealsPending
@@ -320,7 +417,7 @@ export default function PipelineMapPage() {
         ? "No deals are visible to you"
         : visible.length + " of " + located.length + " located "
           + (located.length === 1 ? "deal" : "deals")
-          + (prefs.colorMode === "crime" ? " · coloured by Esri crime index" : "");
+          + " · " + activeLabel;
 
   return (
     <div ref={shell} className="flex flex-col h-full min-h-0 bg-background">
@@ -336,39 +433,13 @@ export default function PipelineMapPage() {
           {summary}
         </span>
         <div className="ml-auto flex items-center gap-1.5">
-          <div className="flex rounded-md border border-hairline overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setPrefs({ ...prefs, colorMode: "status" })}
-              className={
-                "px-2.5 h-7 text-xs font-medium transition-colors "
-                + (prefs.colorMode === "status"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted text-muted-foreground")
-              }
-            >
-              Status
-            </button>
-            <button
-              type="button"
-              onClick={() => setPrefs({ ...prefs, colorMode: "crime" })}
-              className={
-                "px-2.5 h-7 text-xs font-medium transition-colors flex items-center gap-1 "
-                + (prefs.colorMode === "crime"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted text-muted-foreground")
-              }
-            >
-              <Layers className="h-3 w-3" /> Crime
-            </button>
-          </div>
           <Button
-            variant="outline" size="sm" className="h-7 px-2"
+            variant={panelOpen ? "default" : "outline"} size="sm" className="h-7 px-2.5 text-xs"
             onClick={() => setPanelOpen((v) => !v)}
             aria-pressed={panelOpen}
-            title={panelOpen ? "Hide filters" : "Show filters"}
+            title={panelOpen ? "Hide map layers" : "Show map layers"}
           >
-            <SlidersHorizontal className="h-3.5 w-3.5" />
+            <Layers className="h-3.5 w-3.5 mr-1.5" /> Layers
           </Button>
           <Button
             variant="outline" size="sm" className="h-7 px-2"
@@ -438,27 +509,68 @@ export default function PipelineMapPage() {
         {panelOpen && (
           <aside
             className={
-              PANE + " absolute top-3 right-3 z-10 w-[248px] max-w-[calc(100%-1.5rem)] "
+              PANE + " absolute top-3 right-3 z-10 w-[272px] max-w-[calc(100%-1.5rem)] "
               + "max-h-[calc(100%-1.5rem)] overflow-y-auto"
             }
           >
-            <div className="flex items-center gap-2 px-3 h-9 border-b border-hairline">
-              <span className="text-xs font-semibold">
-                {prefs.colorMode === "crime" ? "Crime index" : "Status"}
-              </span>
+            <div className="flex items-center gap-2 px-3 h-9 border-b border-hairline sticky top-0 bg-card/95 backdrop-blur-sm z-10">
+              <span className="text-xs font-semibold">Map layers</span>
               <button
                 type="button"
                 onClick={() => setPanelOpen(false)}
                 className="ml-auto text-muted-foreground hover:text-foreground"
-                aria-label="Hide filters"
+                aria-label="Hide map layers"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
 
-            <div className="p-3 space-y-3">
+            {/* One layer at a time, so a pin's colour always has a single
+                meaning. Radios rather than checkboxes for exactly that reason. */}
+            <div className="p-3 space-y-3 border-b border-hairline">
+              {GROUP_ORDER.map((group) => {
+                const rows = group === "Deal"
+                  ? [{ id: "status" as LayerId, label: "Status" }, { id: "crime" as LayerId, label: "Crime index" }]
+                  : GRADED_LAYERS.filter((l) => l.group === group).map((l) => ({ id: l.id, label: l.label }));
+                if (rows.length === 0) return null;
+                return (
+                  <div key={group} className="space-y-1">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-medium">
+                        {group}
+                      </span>
+                      {group === "Supply & market" && asOf && (
+                        <span className="text-[10px] text-muted-foreground tabular-nums">{asOf}</span>
+                      )}
+                    </div>
+                    {rows.map((r) => (
+                      <label
+                        key={r.id}
+                        htmlFor={"map-layer-" + r.id}
+                        title={GRADED_BY_ID.get(r.id)?.help}
+                        className="flex items-center gap-2 text-xs cursor-pointer py-0.5"
+                      >
+                        <input
+                          type="radio"
+                          id={"map-layer-" + r.id}
+                          name="map-layer"
+                          className="accent-primary h-3 w-3 shrink-0"
+                          checked={prefs.colorMode === r.id}
+                          onChange={() => setPrefs({ ...prefs, colorMode: r.id })}
+                          disabled={!loaded}
+                        />
+                        <span className="flex-1">{r.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Legend for whichever layer is active. */}
+            <div className="p-3 space-y-1.5 border-b border-hairline">
               {prefs.colorMode === "crime" && (
-                <div className="space-y-1.5 pb-2 border-b border-hairline">
+                <>
                   {CRIME_BUCKETS.map((b) => (
                     <div key={b.label} className="flex items-center gap-2 text-xs">
                       <span className="h-3 w-3 rounded-full shrink-0" style={{ background: b.hex }} />
@@ -469,11 +581,50 @@ export default function PipelineMapPage() {
                     <span className="h-3 w-3 rounded-full shrink-0" style={{ background: CRIME_UNKNOWN_HEX }} />
                     <span className="text-muted-foreground">Not enriched</span>
                   </div>
-                  <p className="text-[11px] text-muted-foreground pt-1">
-                    100 is the US average. The checkboxes below still control which deals appear.
-                  </p>
-                </div>
+                  <p className="text-[11px] text-muted-foreground pt-1">100 is the US average.</p>
+                </>
               )}
+
+              {layer && (
+                <>
+                  {legendBands(layer).map((b) => (
+                    <div key={b.label} className="flex items-center gap-2 text-xs">
+                      <span className="h-3 w-3 rounded-full shrink-0" style={{ background: b.hex }} />
+                      <span className="text-muted-foreground tabular-nums">{b.label}</span>
+                    </div>
+                  ))}
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="h-3 w-3 rounded-full shrink-0" style={{ background: NO_DATA_HEX }} />
+                    <span className="text-muted-foreground">No value</span>
+                  </div>
+                  {/* The one line that stops a mostly-grey map from reading as
+                      a finding. Without it, "no data" and "nothing to worry
+                      about" look the same from across the room. */}
+                  {coverage && (
+                    <p className="text-[11px] text-muted-foreground pt-1 tabular-nums">
+                      {coverage.withValue} of {coverage.total} shown {coverage.total === 1 ? "deal has" : "deals have"} a value
+                    </p>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">{layer.help}</p>
+                  {layer.source === "costar" && signalsError && (
+                    <p className="text-[11px] text-destructive">
+                      CoStar signals could not be loaded, so every pin is grey.
+                    </p>
+                  )}
+                </>
+              )}
+
+              {prefs.colorMode === "status" && (
+                <p className="text-[11px] text-muted-foreground">
+                  Pins take their pipeline status colour. The filters below control which appear.
+                </p>
+              )}
+            </div>
+
+            <div className="p-3 space-y-3">
+              <div className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-medium">
+                Status filter
+              </div>
 
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" className="flex-1 text-xs h-7"

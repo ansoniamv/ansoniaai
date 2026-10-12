@@ -148,6 +148,60 @@ export function useAllSignals(scope: string) {
   });
 }
 
+/** The columns the map's data layers read, and nothing else. */
+const MAP_SIGNAL_COLUMNS = [
+  "geography_code", "geography_name", "submarket_name", "market_name", "as_of",
+  "uc_pct", "fwd_deliveries_2y_pct", "demand_gap_t12_pct",
+  "occupancy_gap", "concession_change", "rent_forecast_3y_cagr", "cyclical_score",
+].join(",");
+
+export type MapSignal = {
+  geography_code: string | null;
+  geography_name: string | null;
+  submarket_name: string | null;
+  market_name: string | null;
+  as_of: string | null;
+  uc_pct: number | null;
+  fwd_deliveries_2y_pct: number | null;
+  demand_gap_t12_pct: number | null;
+  occupancy_gap: number | null;
+  concession_change: number | null;
+  rent_forecast_3y_cagr: number | null;
+  cyclical_score: number | null;
+};
+
+/**
+ * Every submarket's signals, keyed by code, for colouring pins.
+ *
+ * Deliberately not useAllSignals: that selects * over ~2,300 rows, which is 35
+ * columns the map never reads. The map reads twelve. Same reasoning as
+ * useMapDeals — the page that draws pins should not pay for the page that
+ * draws tables.
+ */
+export function useMapSignals() {
+  return useQuery({
+    queryKey: ["costar_signals", "map", COMBINED],
+    staleTime: 30 * 60 * 1000,
+    queryFn: async () => {
+      const by = new Map<string, MapSignal>();
+      // PostgREST caps a response at 1,000 rows, so this pages.
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase
+          .from("costar_submarket_signals_v")
+          .select(MAP_SIGNAL_COLUMNS)
+          .eq("scope", COMBINED)
+          .order("geography_code")
+          .range(from, from + 999);
+        if (error) throw error;
+        const rows = (data ?? []) as unknown as MapSignal[];
+        for (const r of rows) if (r.geography_code) by.set(r.geography_code, r);
+        if (rows.length < 1000) break;
+      }
+      return by;
+    },
+  });
+}
+
 export function useSubmarketSignals(code: string | null | undefined) {
   return useQuery({
     queryKey: ["costar_signals", "one", code],
