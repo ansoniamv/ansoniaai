@@ -13,6 +13,7 @@ import { GlobalSearchPalette } from "@/components/GlobalSearchPalette";
 
 const ROUTE_LABELS: Array<{ match: RegExp; label: string }> = [
   { match: /^\/$/, label: "Dashboard" },
+  { match: /^\/pipeline-map/, label: "Map View" },
   { match: /^\/pipeline/, label: "Acquisitions Pipeline" },
   { match: /^\/deals\/new/, label: "New Deal" },
   { match: /^\/deals\/[^/]+\/edit/, label: "Edit Deal" },
@@ -31,6 +32,21 @@ const ROUTE_LABELS: Array<{ match: RegExp; label: string }> = [
   { match: /^\/dev-notes/, label: "Dev Notes" },
 ];
 
+/**
+ * Routes that fill the viewport and own their padding.
+ *
+ * The shell centres every page in a 1280px column with 24px of side padding
+ * and 32px top and bottom. That is right for a document and wrong for a map:
+ * on a wide screen it leaves the map drawing in about a third of the glass
+ * with the rest of the page blank below it. A full-bleed route gets the whole
+ * area under the header instead, and puts its own controls on top of the map.
+ */
+const FULL_BLEED = [/^\/pipeline-map/];
+
+function isFullBleed(pathname: string): boolean {
+  return FULL_BLEED.some((r) => r.test(pathname));
+}
+
 function getRouteLabel(pathname: string): string {
   return ROUTE_LABELS.find((r) => r.match.test(pathname))?.label ?? "";
 }
@@ -46,6 +62,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const { profile } = useAuth();
   const location = useLocation();
   const routeLabel = getRouteLabel(location.pathname);
+  const fullBleed = isFullBleed(location.pathname);
   const today = format(new Date(), "EEEE, MMM d, yyyy");
   const [noteOpen, setNoteOpen] = useState(false);
   const mainRef = useRef<HTMLElement | null>(null);
@@ -100,12 +117,25 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           </header>
-          <main ref={mainRef} className="flex-1 overflow-auto">
+          <main
+            ref={mainRef}
+            className={"flex-1 min-h-0 " + (fullBleed ? "overflow-hidden" : "overflow-auto")}
+          >
             {/* flex column + min-h-full so a page can opt into filling the
                 viewport with `flex-1 min-h-0` (Ask Atlas does). Block-level
                 pages are unaffected: a single stretched column lays out
-                identically, and min-h-full lets taller content still scroll. */}
-            <div className="max-w-[1280px] mx-auto px-6 py-8 flex flex-col min-h-full">
+                identically, and min-h-full lets taller content still scroll.
+
+                A full-bleed route gets h-full instead, and any scrolling moves
+                inside the page: a map sizes its canvas from its container, and
+                min-h-full would let that container grow rather than settle. */}
+            <div
+              className={
+                fullBleed
+                  ? "h-full flex flex-col"
+                  : "max-w-[1280px] mx-auto px-6 py-8 flex flex-col min-h-full"
+              }
+            >
               {children}
             </div>
           </main>
