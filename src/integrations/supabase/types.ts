@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       ai_model_pricing: {
@@ -63,7 +88,9 @@ export type Database = {
           cost_usd: number | null
           created_at: string
           deal_id: string | null
+          error_text: string | null
           function_name: string
+          http_status: number | null
           id: string
           input_tokens: number | null
           model: string | null
@@ -80,7 +107,9 @@ export type Database = {
           cost_usd?: number | null
           created_at?: string
           deal_id?: string | null
+          error_text?: string | null
           function_name: string
+          http_status?: number | null
           id?: string
           input_tokens?: number | null
           model?: string | null
@@ -97,7 +126,9 @@ export type Database = {
           cost_usd?: number | null
           created_at?: string
           deal_id?: string | null
+          error_text?: string | null
           function_name?: string
+          http_status?: number | null
           id?: string
           input_tokens?: number | null
           model?: string | null
@@ -459,6 +490,30 @@ export type Database = {
           },
         ]
       }
+      chat_messages_orphan_backup: {
+        Row: {
+          created_at: string | null
+          id: string | null
+          message: Json | null
+          role: string | null
+          thread_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string | null
+          message?: Json | null
+          role?: string | null
+          thread_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string | null
+          message?: Json | null
+          role?: string | null
+          thread_id?: string | null
+        }
+        Relationships: []
+      }
       chat_threads: {
         Row: {
           created_at: string
@@ -789,11 +844,17 @@ export type Database = {
           avg_time_on_market: number | null
           bachelors_pct_tract: number | null
           broker: string | null
+          building_amenities: Json | null
+          building_quality_detail: Json | null
           building_quality_score: number | null
+          census_tract_id: string | null
           cfo_date: string | null
           cfo_note: string | null
           city: string | null
           classic_units_remaining: number | null
+          concession_pct_of_rent: number | null
+          concession_spread_pct: number | null
+          concession_weeks_free: number | null
           concessions_history: Json | null
           created_at: string
           deal_tier: string | null
@@ -808,7 +869,9 @@ export type Database = {
           estimated_equity: number | null
           exit_cap: number | null
           expense_ratio: number | null
+          exposure_pct: number | null
           factor_scores: Json | null
+          fee_schedule: Json | null
           floor_plans: Json | null
           grm: number | null
           gross_scheduled_rent: number | null
@@ -816,6 +879,8 @@ export type Database = {
           hellodata_error: string | null
           hellodata_id: string | null
           hellodata_last_synced_at: string | null
+          hellodata_match_confidence: number | null
+          hellodata_match_evidence: Json | null
           hellodata_payload: Json | null
           hellodata_raw: Json | null
           hellodata_status: string | null
@@ -826,7 +891,13 @@ export type Database = {
           inbox_deal_id: string | null
           interest_level: Database["public"]["Enums"]["interest_level"]
           interest_rate: number | null
+          is_affordable_housing: boolean | null
+          is_build_to_rent: boolean | null
+          is_condo: boolean | null
           is_lease_up: boolean | null
+          is_senior_housing: boolean | null
+          is_single_family: boolean | null
+          is_student_housing: boolean | null
           job_growth_pct: number | null
           last_scored_at: string | null
           latitude: number | null
@@ -837,12 +908,15 @@ export type Database = {
           market_cap_rate: number | null
           marketed: boolean | null
           median_age_tract: number | null
+          median_days_on_market: number | null
           median_income_tract: number | null
           median_rent_tract: number | null
+          move_in_fees_total: number | null
           msa: string | null
           nearest_employment_node_min: number | null
           new_supply_pct_of_stock: number | null
           notes: string | null
+          number_stories: number | null
           occupancy_pct: number | null
           owner_occupied_pct_tract: number | null
           passes_hard_filters: boolean | null
@@ -866,6 +940,8 @@ export type Database = {
           regulatory_risk: string | null
           renovation_budget_per_unit: number | null
           rent_comps: Json | null
+          rent_trend_12mo_pct: number | null
+          rent_trend_3mo_pct: number | null
           review_avg_rating: number | null
           review_count: number | null
           review_negative_count: number | null
@@ -882,6 +958,7 @@ export type Database = {
           stabilized_rent: number | null
           state: string | null
           status: Database["public"]["Enums"]["deal_status"]
+          street_view_url: string | null
           t12_noi: number | null
           t12_opex: number | null
           target_raise: number | null
@@ -890,7 +967,10 @@ export type Database = {
           total_renovated_units: number | null
           total_score: number | null
           total_sqft: number | null
+          unit_amenities: Json | null
           unit_count: number | null
+          unit_count_is_estimated: boolean | null
+          units_available: number | null
           updated_at: string
           uses_rev_management: boolean | null
           vacancy_rate_tract: number | null
@@ -898,33 +978,10 @@ export type Database = {
             | Database["public"]["Enums"]["value_add_level"]
             | null
           value_add_upside: number | null
+          vintage_is_estimated: boolean | null
           vintage_year: number | null
           year1_coc: number | null
           zip: string | null
-          rent_trend_3mo_pct: number | null
-          rent_trend_12mo_pct: number | null
-          units_available: number | null
-          exposure_pct: number | null
-          median_days_on_market: number | null
-          concession_weeks_free: number | null
-          concession_pct_of_rent: number | null
-          concession_spread_pct: number | null
-          move_in_fees_total: number | null
-          number_stories: number | null
-          fee_schedule: Json | null
-          building_amenities: Json | null
-          unit_amenities: Json | null
-          building_quality_detail: Json | null
-          is_student_housing: boolean | null
-          is_senior_housing: boolean | null
-          is_affordable_housing: boolean | null
-          is_build_to_rent: boolean | null
-          is_condo: boolean | null
-          is_single_family: boolean | null
-          unit_count_is_estimated: boolean | null
-          vintage_is_estimated: boolean | null
-          census_tract_id: string | null
-          street_view_url: string | null
         }
         Insert: {
           active_concessions_summary?: string | null
@@ -944,11 +1001,17 @@ export type Database = {
           avg_time_on_market?: number | null
           bachelors_pct_tract?: number | null
           broker?: string | null
+          building_amenities?: Json | null
+          building_quality_detail?: Json | null
           building_quality_score?: number | null
+          census_tract_id?: string | null
           cfo_date?: string | null
           cfo_note?: string | null
           city?: string | null
           classic_units_remaining?: number | null
+          concession_pct_of_rent?: number | null
+          concession_spread_pct?: number | null
+          concession_weeks_free?: number | null
           concessions_history?: Json | null
           created_at?: string
           deal_tier?: string | null
@@ -963,7 +1026,9 @@ export type Database = {
           estimated_equity?: number | null
           exit_cap?: number | null
           expense_ratio?: number | null
+          exposure_pct?: number | null
           factor_scores?: Json | null
+          fee_schedule?: Json | null
           floor_plans?: Json | null
           grm?: number | null
           gross_scheduled_rent?: number | null
@@ -971,6 +1036,8 @@ export type Database = {
           hellodata_error?: string | null
           hellodata_id?: string | null
           hellodata_last_synced_at?: string | null
+          hellodata_match_confidence?: number | null
+          hellodata_match_evidence?: Json | null
           hellodata_payload?: Json | null
           hellodata_raw?: Json | null
           hellodata_status?: string | null
@@ -981,7 +1048,13 @@ export type Database = {
           inbox_deal_id?: string | null
           interest_level?: Database["public"]["Enums"]["interest_level"]
           interest_rate?: number | null
+          is_affordable_housing?: boolean | null
+          is_build_to_rent?: boolean | null
+          is_condo?: boolean | null
           is_lease_up?: boolean | null
+          is_senior_housing?: boolean | null
+          is_single_family?: boolean | null
+          is_student_housing?: boolean | null
           job_growth_pct?: number | null
           last_scored_at?: string | null
           latitude?: number | null
@@ -992,12 +1065,15 @@ export type Database = {
           market_cap_rate?: number | null
           marketed?: boolean | null
           median_age_tract?: number | null
+          median_days_on_market?: number | null
           median_income_tract?: number | null
           median_rent_tract?: number | null
+          move_in_fees_total?: number | null
           msa?: string | null
           nearest_employment_node_min?: number | null
           new_supply_pct_of_stock?: number | null
           notes?: string | null
+          number_stories?: number | null
           occupancy_pct?: number | null
           owner_occupied_pct_tract?: number | null
           passes_hard_filters?: boolean | null
@@ -1021,6 +1097,8 @@ export type Database = {
           regulatory_risk?: string | null
           renovation_budget_per_unit?: number | null
           rent_comps?: Json | null
+          rent_trend_12mo_pct?: number | null
+          rent_trend_3mo_pct?: number | null
           review_avg_rating?: number | null
           review_count?: number | null
           review_negative_count?: number | null
@@ -1037,6 +1115,7 @@ export type Database = {
           stabilized_rent?: number | null
           state?: string | null
           status?: Database["public"]["Enums"]["deal_status"]
+          street_view_url?: string | null
           t12_noi?: number | null
           t12_opex?: number | null
           target_raise?: number | null
@@ -1045,7 +1124,10 @@ export type Database = {
           total_renovated_units?: number | null
           total_score?: number | null
           total_sqft?: number | null
+          unit_amenities?: Json | null
           unit_count?: number | null
+          unit_count_is_estimated?: boolean | null
+          units_available?: number | null
           updated_at?: string
           uses_rev_management?: boolean | null
           vacancy_rate_tract?: number | null
@@ -1053,33 +1135,10 @@ export type Database = {
             | Database["public"]["Enums"]["value_add_level"]
             | null
           value_add_upside?: number | null
+          vintage_is_estimated?: boolean | null
           vintage_year?: number | null
           year1_coc?: number | null
           zip?: string | null
-          rent_trend_3mo_pct?: number | null
-          rent_trend_12mo_pct?: number | null
-          units_available?: number | null
-          exposure_pct?: number | null
-          median_days_on_market?: number | null
-          concession_weeks_free?: number | null
-          concession_pct_of_rent?: number | null
-          concession_spread_pct?: number | null
-          move_in_fees_total?: number | null
-          number_stories?: number | null
-          fee_schedule?: Json | null
-          building_amenities?: Json | null
-          unit_amenities?: Json | null
-          building_quality_detail?: Json | null
-          is_student_housing?: boolean | null
-          is_senior_housing?: boolean | null
-          is_affordable_housing?: boolean | null
-          is_build_to_rent?: boolean | null
-          is_condo?: boolean | null
-          is_single_family?: boolean | null
-          unit_count_is_estimated?: boolean | null
-          vintage_is_estimated?: boolean | null
-          census_tract_id?: string | null
-          street_view_url?: string | null
         }
         Update: {
           active_concessions_summary?: string | null
@@ -1099,11 +1158,17 @@ export type Database = {
           avg_time_on_market?: number | null
           bachelors_pct_tract?: number | null
           broker?: string | null
+          building_amenities?: Json | null
+          building_quality_detail?: Json | null
           building_quality_score?: number | null
+          census_tract_id?: string | null
           cfo_date?: string | null
           cfo_note?: string | null
           city?: string | null
           classic_units_remaining?: number | null
+          concession_pct_of_rent?: number | null
+          concession_spread_pct?: number | null
+          concession_weeks_free?: number | null
           concessions_history?: Json | null
           created_at?: string
           deal_tier?: string | null
@@ -1118,7 +1183,9 @@ export type Database = {
           estimated_equity?: number | null
           exit_cap?: number | null
           expense_ratio?: number | null
+          exposure_pct?: number | null
           factor_scores?: Json | null
+          fee_schedule?: Json | null
           floor_plans?: Json | null
           grm?: number | null
           gross_scheduled_rent?: number | null
@@ -1126,6 +1193,8 @@ export type Database = {
           hellodata_error?: string | null
           hellodata_id?: string | null
           hellodata_last_synced_at?: string | null
+          hellodata_match_confidence?: number | null
+          hellodata_match_evidence?: Json | null
           hellodata_payload?: Json | null
           hellodata_raw?: Json | null
           hellodata_status?: string | null
@@ -1136,7 +1205,13 @@ export type Database = {
           inbox_deal_id?: string | null
           interest_level?: Database["public"]["Enums"]["interest_level"]
           interest_rate?: number | null
+          is_affordable_housing?: boolean | null
+          is_build_to_rent?: boolean | null
+          is_condo?: boolean | null
           is_lease_up?: boolean | null
+          is_senior_housing?: boolean | null
+          is_single_family?: boolean | null
+          is_student_housing?: boolean | null
           job_growth_pct?: number | null
           last_scored_at?: string | null
           latitude?: number | null
@@ -1147,12 +1222,15 @@ export type Database = {
           market_cap_rate?: number | null
           marketed?: boolean | null
           median_age_tract?: number | null
+          median_days_on_market?: number | null
           median_income_tract?: number | null
           median_rent_tract?: number | null
+          move_in_fees_total?: number | null
           msa?: string | null
           nearest_employment_node_min?: number | null
           new_supply_pct_of_stock?: number | null
           notes?: string | null
+          number_stories?: number | null
           occupancy_pct?: number | null
           owner_occupied_pct_tract?: number | null
           passes_hard_filters?: boolean | null
@@ -1176,6 +1254,8 @@ export type Database = {
           regulatory_risk?: string | null
           renovation_budget_per_unit?: number | null
           rent_comps?: Json | null
+          rent_trend_12mo_pct?: number | null
+          rent_trend_3mo_pct?: number | null
           review_avg_rating?: number | null
           review_count?: number | null
           review_negative_count?: number | null
@@ -1192,6 +1272,7 @@ export type Database = {
           stabilized_rent?: number | null
           state?: string | null
           status?: Database["public"]["Enums"]["deal_status"]
+          street_view_url?: string | null
           t12_noi?: number | null
           t12_opex?: number | null
           target_raise?: number | null
@@ -1200,7 +1281,10 @@ export type Database = {
           total_renovated_units?: number | null
           total_score?: number | null
           total_sqft?: number | null
+          unit_amenities?: Json | null
           unit_count?: number | null
+          unit_count_is_estimated?: boolean | null
+          units_available?: number | null
           updated_at?: string
           uses_rev_management?: boolean | null
           vacancy_rate_tract?: number | null
@@ -1208,33 +1292,10 @@ export type Database = {
             | Database["public"]["Enums"]["value_add_level"]
             | null
           value_add_upside?: number | null
+          vintage_is_estimated?: boolean | null
           vintage_year?: number | null
           year1_coc?: number | null
           zip?: string | null
-          rent_trend_3mo_pct?: number | null
-          rent_trend_12mo_pct?: number | null
-          units_available?: number | null
-          exposure_pct?: number | null
-          median_days_on_market?: number | null
-          concession_weeks_free?: number | null
-          concession_pct_of_rent?: number | null
-          concession_spread_pct?: number | null
-          move_in_fees_total?: number | null
-          number_stories?: number | null
-          fee_schedule?: Json | null
-          building_amenities?: Json | null
-          unit_amenities?: Json | null
-          building_quality_detail?: Json | null
-          is_student_housing?: boolean | null
-          is_senior_housing?: boolean | null
-          is_affordable_housing?: boolean | null
-          is_build_to_rent?: boolean | null
-          is_condo?: boolean | null
-          is_single_family?: boolean | null
-          unit_count_is_estimated?: boolean | null
-          vintage_is_estimated?: boolean | null
-          census_tract_id?: string | null
-          street_view_url?: string | null
         }
         Relationships: [
           {
@@ -1341,9 +1402,9 @@ export type Database = {
           offers_due: string | null
           other_details: string | null
           property_name: string | null
-          reviewed: boolean
           rationale_attempted_at: string | null
           rationale_error: string | null
+          reviewed: boolean
           reviewed_at: string | null
           source: string | null
           strategy: string | null
@@ -1390,9 +1451,9 @@ export type Database = {
           offers_due?: string | null
           other_details?: string | null
           property_name?: string | null
-          reviewed?: boolean
           rationale_attempted_at?: string | null
           rationale_error?: string | null
+          reviewed?: boolean
           reviewed_at?: string | null
           source?: string | null
           strategy?: string | null
@@ -1439,9 +1500,9 @@ export type Database = {
           offers_due?: string | null
           other_details?: string | null
           property_name?: string | null
-          reviewed?: boolean
           rationale_attempted_at?: string | null
           rationale_error?: string | null
+          reviewed?: boolean
           reviewed_at?: string | null
           source?: string | null
           strategy?: string | null
@@ -2337,6 +2398,164 @@ export type Database = {
         }
         Relationships: []
       }
+      property_research: {
+        Row: {
+          address: string | null
+          cost_usd: number | null
+          created_at: string
+          created_by: string | null
+          deal_id: string | null
+          duration_ms: number | null
+          fetches_used: number | null
+          id: string
+          model: string | null
+          property_name: string | null
+          searches_used: number | null
+          snapshot: Json
+        }
+        Insert: {
+          address?: string | null
+          cost_usd?: number | null
+          created_at?: string
+          created_by?: string | null
+          deal_id?: string | null
+          duration_ms?: number | null
+          fetches_used?: number | null
+          id?: string
+          model?: string | null
+          property_name?: string | null
+          searches_used?: number | null
+          snapshot: Json
+        }
+        Update: {
+          address?: string | null
+          cost_usd?: number | null
+          created_at?: string
+          created_by?: string | null
+          deal_id?: string | null
+          duration_ms?: number | null
+          fetches_used?: number | null
+          id?: string
+          model?: string | null
+          property_name?: string | null
+          searches_used?: number | null
+          snapshot?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "property_research_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "deals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      property_research_jobs: {
+        Row: {
+          address: string | null
+          cost_usd: number | null
+          created_at: string
+          created_by: string | null
+          deal_id: string | null
+          depth: string
+          error: string | null
+          finished_at: string | null
+          id: string
+          model: string | null
+          progress: string | null
+          property_name: string | null
+          research_id: string | null
+          snapshot: Json | null
+          started_at: string | null
+          status: string
+        }
+        Insert: {
+          address?: string | null
+          cost_usd?: number | null
+          created_at?: string
+          created_by?: string | null
+          deal_id?: string | null
+          depth?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          model?: string | null
+          progress?: string | null
+          property_name?: string | null
+          research_id?: string | null
+          snapshot?: Json | null
+          started_at?: string | null
+          status?: string
+        }
+        Update: {
+          address?: string | null
+          cost_usd?: number | null
+          created_at?: string
+          created_by?: string | null
+          deal_id?: string | null
+          depth?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          model?: string | null
+          progress?: string | null
+          property_name?: string | null
+          research_id?: string | null
+          snapshot?: Json | null
+          started_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "property_research_jobs_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "deals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "property_research_jobs_research_id_fkey"
+            columns: ["research_id"]
+            isOneToOne: false
+            referencedRelation: "property_research"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      property_research_settings: {
+        Row: {
+          cooldown_hours: number
+          default_depth: string
+          enabled: boolean
+          id: number
+          max_cost_per_run_usd: number
+          monthly_budget_usd: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          cooldown_hours?: number
+          default_depth?: string
+          enabled?: boolean
+          id?: number
+          max_cost_per_run_usd?: number
+          monthly_budget_usd?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          cooldown_hours?: number
+          default_depth?: string
+          enabled?: boolean
+          id?: number
+          max_cost_per_run_usd?: number
+          monthly_budget_usd?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       roadmap_events: {
         Row: {
           actor: string | null
@@ -2665,6 +2884,10 @@ export type Database = {
     }
     Functions: {
       accept_inbox_deal: { Args: { _inbox_deal_id: string }; Returns: string }
+      accept_inbox_deal_unguarded: {
+        Args: { _inbox_deal_id: string }
+        Returns: string
+      }
       bump_partner_last_edited: {
         Args: { _partner_id: string }
         Returns: undefined
@@ -2727,6 +2950,57 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      merge_partners_unguarded: {
+        Args: { _duplicate_id: string; _primary_id: string }
+        Returns: {
+          additional_notes: string | null
+          ansonia_poc: string | null
+          archived_at: string | null
+          capital_available_from: string | null
+          capital_status: string | null
+          capital_status_as_of: string | null
+          capital_status_detail: string | null
+          created_at: string
+          data_source: string | null
+          enriched_at: string | null
+          enriched_fields: Json
+          enrichment_notes_hash: string | null
+          firm_type: string | null
+          geography: string[] | null
+          geography_avoid: string[]
+          headquarters: string | null
+          hold_period: string[] | null
+          id: string
+          investor_type: string[] | null
+          last_edited_at: string
+          manual_fields: string[]
+          max_equity_m: number | null
+          min_equity_m: number | null
+          name: string
+          organized_notes: string | null
+          product_types: string[] | null
+          profile_summary: string | null
+          profile_summary_hash: string | null
+          profile_summary_updated_at: string | null
+          relationship_strength: string | null
+          status: string | null
+          strategy_affordable: boolean | null
+          strategy_core_plus: boolean | null
+          strategy_value_add: boolean | null
+          strategy_workforce: boolean | null
+          suburban: boolean | null
+          updated_at: string
+          urban_infill: boolean | null
+          website: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "partners"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      property_research_mtd_spend: { Args: never; Returns: number }
       recompute_deal_total_committed: {
         Args: { _deal_id: string }
         Returns: undefined
@@ -2773,12 +3047,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2802,11 +3076,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2827,11 +3101,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2852,11 +3126,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2869,11 +3143,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2883,6 +3157,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_role: ["admin", "user"],
