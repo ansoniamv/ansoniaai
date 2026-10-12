@@ -272,6 +272,8 @@ export default function PipelineMapPage() {
             <p className="text-destructive text-sm">Could not load deals.</p>
           ) : dealsPending ? (
             <p className="text-muted-foreground">Loading deals…</p>
+          ) : all.length === 0 ? (
+            <p className="text-muted-foreground">No deals are visible to you.</p>
           ) : (
             <p className="text-muted-foreground">
               {visible.length} of {located.length} located {located.length === 1 ? "deal" : "deals"} shown
@@ -298,6 +300,22 @@ export default function PipelineMapPage() {
           <strong className="font-semibold">Deals could not be loaded.</strong>{" "}
           <span className="text-muted-foreground">
             {(dealsError as Error).message || "Unknown error"}
+          </span>
+        </div>
+      )}
+      {/* Zero rows is NOT an error, which is exactly what makes it dangerous.
+          RLS on deals is `USING is_approved(auth.uid())`, so a profile that is
+          still pending gets an empty array and a 200 — isPending false, error
+          null — and the page would otherwise report "0 of 0 located deals",
+          indistinguishable from an empty pipeline. With 97 deals in the table,
+          seeing none means the account cannot read them, not that none exist. */}
+      {!dealsPending && !dealsError && all.length === 0 && (
+        <div role="alert" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+          <strong className="font-semibold">No deals are visible to this account.</strong>{" "}
+          <span className="text-muted-foreground">
+            The query succeeded and returned nothing. That usually means the account is still
+            pending approval rather than that the pipeline is empty — an admin can approve it
+            under Admin → Users.
           </span>
         </div>
       )}
