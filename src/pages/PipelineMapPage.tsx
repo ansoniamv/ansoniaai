@@ -59,8 +59,8 @@ function addressOf(d: Deal): string {
 
 export default function PipelineMapPage() {
   const navigate = useNavigate();
-  const { data: deals } = useDeals();
-  const { data: crime } = useDealCrime();
+  const { data: deals, isPending: dealsPending, error: dealsError } = useDeals();
+  const { data: crime, error: crimeError } = useDealCrime();
   const { prefs, setPrefs, loaded } = useMapPrefs();
   const isDark = useIsDark();
 
@@ -264,10 +264,20 @@ export default function PipelineMapPage() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold font-display">Map View</h1>
-          <p className="text-muted-foreground">
-            {visible.length} of {located.length} located {located.length === 1 ? "deal" : "deals"} shown
-            {prefs.colorMode === "crime" ? " · coloured by Esri crime index" : ""}
-          </p>
+          {/* A failed or pending query must never render as "0 of 0 located
+              deals". That is a sentence about the data, and it reads as "you
+              have no deals" when the truth is "we could not ask". The three
+              states are kept visibly distinct. */}
+          {dealsError ? (
+            <p className="text-destructive text-sm">Could not load deals.</p>
+          ) : dealsPending ? (
+            <p className="text-muted-foreground">Loading deals…</p>
+          ) : (
+            <p className="text-muted-foreground">
+              {visible.length} of {located.length} located {located.length === 1 ? "deal" : "deals"} shown
+              {prefs.colorMode === "crime" ? " · coloured by Esri crime index" : ""}
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
           <Button variant={prefs.colorMode === "status" ? "default" : "outline"} size="sm"
@@ -281,9 +291,34 @@ export default function PipelineMapPage() {
         </div>
       </div>
 
+      {/* The message, not just a red box: without it the only way to tell a
+          permissions failure from an empty pipeline is the browser console. */}
+      {dealsError && (
+        <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
+          <strong className="font-semibold">Deals could not be loaded.</strong>{" "}
+          <span className="text-muted-foreground">
+            {(dealsError as Error).message || "Unknown error"}
+          </span>
+        </div>
+      )}
+      {crimeError && (
+        <div role="alert" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+          <strong className="font-semibold">Crime data could not be loaded.</strong>{" "}
+          <span className="text-muted-foreground">
+            Pins still show, but &quot;Colour by crime&quot; will be grey for every deal.{" "}
+            {(crimeError as Error).message || ""}
+          </span>
+        </div>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden relative">
           <div ref={container} className="h-[480px] sm:h-[620px] w-full" />
+          {dealsPending && (
+            <div className="absolute inset-0 grid place-items-center bg-background/60 text-sm text-muted-foreground">
+              Loading deals…
+            </div>
+          )}
         </Card>
 
         <div className="space-y-4">
