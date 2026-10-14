@@ -102,15 +102,34 @@ const tooltipProps = {
 } as const;
 
 // ---------- helpers ----------
+/**
+ * Market rent per unit, from whichever shape the row arrived in.
+ *
+ * List and dashboard queries select the three known key spellings out of
+ * hellodata_payload server-side (see DEAL_LIST_COLUMNS) rather than shipping
+ * the 34 MB blob. Detail views and freshly-written rows still carry the whole
+ * payload, so both are read here — otherwise this silently returns null on one
+ * of the two paths and the rent-lag column quietly empties out.
+ */
+function marketRentOf(deal: unknown): number | null {
+  const d = deal as Record<string, unknown>;
+  const payload = (d.hellodata_payload ?? null) as Record<string, unknown> | null;
+  const candidates = [
+    d.hd_market_rent_per_unit, d.hd_avg_market_rent, d.hd_market_rent,
+    payload?.market_rent_per_unit, payload?.avg_market_rent, payload?.market_rent,
+  ];
+  for (const c of candidates) {
+    const n = typeof c === "string" ? Number(c) : c;
+    if (typeof n === "number" && Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
 function rentLagPct(d: Deal): number | null {
-  const payload = d.hellodata_payload as Record<string, unknown> | null;
   const inPlace = d.in_place_avg_rent;
-  if (!payload || typeof inPlace !== "number") return null;
-  const market =
-    (payload.market_rent_per_unit as number | null) ??
-    (payload.avg_market_rent as number | null) ??
-    (payload.market_rent as number | null) ?? null;
-  if (typeof market !== "number" || market <= 0) return null;
+  if (typeof inPlace !== "number") return null;
+  const market = marketRentOf(d);
+  if (market == null) return null;
   return ((market - inPlace) / market) * 100;
 }
 

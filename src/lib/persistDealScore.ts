@@ -1,4 +1,4 @@
-import { DEAL_LIST_COLUMNS } from "@/lib/dealColumns";
+import { DEAL_SCORING_COLUMNS } from "@/lib/dealColumns";
 
 /**
  * Bridges the pure buybox scoring engine (src/lib/dealScoring.ts) to the
@@ -77,9 +77,11 @@ export async function rescoreAllDeals(): Promise<{
   scored: number;
   tierCounts: Record<string, number>;
 }> {
-  // Only the columns scoring actually reads — avoids pulling ~2 MB of unused
-  // jsonb (hellodata_raw, comps, floor plans, photos) across every deal.
-  const { data, error } = await supabase.from("deals").select(DEAL_LIST_COLUMNS);
+  // The list columns PLUS hellodata_payload: scoreDeal() reads market rent,
+  // occupancy, quality_score, expense_ratio, egr and the renovation premium out
+  // of it. This is the one query that genuinely needs the blob, and it runs on
+  // an explicit rescore action rather than on page load.
+  const { data, error } = await supabase.from("deals").select(DEAL_SCORING_COLUMNS);
 
   if (error) throw error;
 
