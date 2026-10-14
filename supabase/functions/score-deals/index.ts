@@ -7,6 +7,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage, logAiFailure } from "../_shared/logUsage.ts";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 import { computeDealScore } from "../_shared/dealScoreEngine.ts";
+import { capNote, capTier, evaluateBuyBox, inboxBuyBoxDeal } from "../_shared/buyBoxRules.ts";
 import { effectiveFeedback, LEARNING_ACTIONS, FEEDBACK_SCAN_LIMIT } from "../_shared/feedbackLearning.ts";
 
 // One LLM call is issued per deal, so the batch must be bounded server-side.
@@ -110,16 +111,23 @@ async function scoreOne(
 ) {
   // Arithmetic lives in _shared/dealScoreEngine so it can be unit tested. Null
   // inputs are excluded and the weights renormalised at both levels there.
-  const { breakdown, finalScore, tier, scoredPillarCount } = computeDealScore(deal, pillars, signals);
+  const { breakdown, finalScore, tier: scoreTier, scoredPillarCount } = computeDealScore(deal, pillars, signals);
   const hasEnoughSignal = finalScore != null;
+  // The score ranks; the buybox sets the ceiling. See capTier in _shared/buyBoxRules.
+  const cap = capTier(scoreTier, evaluateBuyBox(inboxBuyBoxDeal(deal)));
+  const tier = cap.tier;
   const rationale = hasEnoughSignal
     ? await generateRationale(deal, finalScore as number, breakdown, thesis, learnedStrategy, examples, { supabase })
     : { text: null, error: null };
+  // The cap goes first on the card, so a Maybe with a glowing rationale says why.
+  const fitRationale = cap.capped && tier
+    ? [capNote(tier, cap.reasons), rationale.text].filter(Boolean).join(" ")
+    : rationale.text;
 
   const { error: updErr } = await supabase.from("inbox_deals").update({
     fit_score: finalScore,
     fit_tier: tier,
-    fit_rationale: rationale.text,
+    fit_rationale: fitRationale,
     // Success clears a previous failure; a failure records why so the card can
     // show it with a retry instead of silently omitting the line.
     rationale_error: rationale.error,
