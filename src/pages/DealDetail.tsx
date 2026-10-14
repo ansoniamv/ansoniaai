@@ -32,7 +32,6 @@ import { useConnectorEnabled } from "@/hooks/useConnectorEnabled";
 import { DealStatusBadge } from "@/components/DealStatusBadge";
 import { getStatus } from "@/lib/dealStatus";
 import { DemographicsPanel } from "@/components/DemographicsPanel";
-import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { BuyboxFitCard } from "@/components/BuyboxFitCard";
 import { AnalystGradeCard } from "@/components/AnalystGradeCard";
 
@@ -792,13 +791,8 @@ export default function DealDetail() {
         <SubmarketSignalsPanel deal={d} />
       </section>
 
-      {/* ============ AI Score + Buybox Fit ============ */}
+      {/* ============ Buybox Fit (the pillar breakdown lives on the AI Score tab) ============ */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {deal.ai_score != null && (
-          <div className="md:col-span-2">
-            <ScoreBreakdown data={deal.pillar_scores as any} summary={deal.ai_score_summary} />
-          </div>
-        )}
         <BuyboxFitCard
           factorScores={d.factor_scores ?? null}
           totalScore={d.total_score ?? null}

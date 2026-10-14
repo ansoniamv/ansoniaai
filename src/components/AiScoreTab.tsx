@@ -3,13 +3,21 @@ import { Link } from "react-router-dom";
 import { AlertTriangle, Check, Info, Loader2, Minus, X } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
 import { Card, CardContent } from "@/components/ui/card";
+import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePipelineRentScores } from "@/hooks/usePipelineRentScores";
 import { useCurrentImport, useSubmarketSeries } from "@/lib/marketData";
 import { forecastCheck, LEGS, type DealScore, type Factor, type Leg } from "@/lib/rentGrowthScore";
 import { cn } from "@/lib/utils";
 
-type DealLike = { id: string; costar_submarket_code?: string | null; unit_count?: number | null; vintage_year?: number | null };
+type DealLike = {
+  id: string;
+  costar_submarket_code?: string | null;
+  unit_count?: number | null;
+  vintage_year?: number | null;
+  pillar_scores?: unknown;
+  ai_score_summary?: string | null;
+};
 
 const scoreTone = (v: number | null) =>
   v == null ? "text-muted-foreground" : v >= 60 ? "text-emerald-600" : v < 40 ? "text-amber-600" : "text-foreground";
@@ -83,6 +91,16 @@ export function AiScoreTab({ deal }: { deal: DealLike }) {
             <p className="text-[11px] text-muted-foreground mt-2">
               This deal isn't in an active stage. It's scored against the live pipeline but doesn't count toward anyone else's rank.
             </p>
+          )}
+        </section>
+
+        {/* ---------- buybox pillars: how the deal scores on the thesis, weighted */}
+        <section>
+          <Header title="Buybox Pillars" right="The six pillars every deal is scored on, with their weights" />
+          {deal.pillar_scores ? (
+            <ScoreBreakdown data={deal.pillar_scores as never} summary={deal.ai_score_summary} />
+          ) : (
+            <p className="text-sm text-muted-foreground">This deal hasn't been pillar-scored yet.</p>
           )}
         </section>
 
