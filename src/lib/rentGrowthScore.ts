@@ -24,6 +24,14 @@
  */
 import { DEFAULT_BENCHMARKS } from "@/lib/dealScoring";
 import { CYCLICAL_SIGNALS, COMBINED, formatSignal, type SubmarketSignals } from "@/lib/marketData";
+import type { SourceInfo } from "@/lib/dataSources";
+
+const COSTAR_SUBMARKET: SourceInfo = { vendor: "CoStar", detail: "CoStar submarket, all classes" };
+const ESRI_3MI: SourceInfo = { vendor: "Esri", detail: "Esri 3-mi ring" };
+const HELLODATA_RENT: SourceInfo = {
+  vendor: "HelloData",
+  detail: "HelloData average asking rent on this property's available units",
+};
 
 export type Leg = "structural" | "cyclical" | "micro";
 
@@ -80,7 +88,8 @@ export interface Factor {
   medianPct?: number | null;
   /** Ansonia buybox check, when the thesis sets one. */
   thesis?: { label: string; pass: boolean | null };
-  source: string;
+  /** Every vendor the number is built from, in the order they enter it. */
+  sources: SourceInfo[];
 }
 
 export interface LegScore {
@@ -154,7 +163,15 @@ export function rawFactors(
   const rent = isNum(deal.in_place_avg_rent) && deal.in_place_avg_rent > 0 ? deal.in_place_avg_rent : null;
 
   // ---- structural
-  const income3 = num(r3?.MEDHINC_CY) ?? (isNum(deal.area_median_income_1mi) ? deal.area_median_income_1mi : null) ?? deal.median_income_tract ?? null;
+  const esriIncome = num(r3?.MEDHINC_CY);
+  const income1mi = isNum(deal.area_median_income_1mi) ? deal.area_median_income_1mi : null;
+  const income3 = esriIncome ?? income1mi ?? deal.median_income_tract ?? null;
+  const incomeSource: SourceInfo =
+    esriIncome != null
+      ? { vendor: "Esri", detail: "Esri 3-mi ring, median household income" }
+      : income1mi != null
+        ? { vendor: "Esri", detail: "Esri 1-mi ring, median household income (no 3-mi ring on file)" }
+        : { vendor: "Census", detail: "Census ACS tract median household income, via HelloData" };
   const incomeGrowth = cagr(r3?.MEDHINC_CY, r3?.MEDHINC_FY);
   const pop = isNum(deal.population_growth_pct) ? deal.population_growth_pct : cagr(r3?.TOTPOP_CY, r3?.TOTPOP_FY);
   const renters = num(r3?.RENTER_CY);
@@ -166,13 +183,16 @@ export function rawFactors(
   const top = sig("4 & 5 Star");
   const classRent = isNum(own?.eff_now) ? own!.eff_now : null;
   let gap: number | null = null;
-  let gapSource = "";
+  let gapSources: SourceInfo[] = [HELLODATA_RENT];
   if (rent != null && classRent != null && classRent > 0) {
     gap = ((rent - classRent) / classRent) * 100;
-    gapSource = `CoStar ${slice} effective rent, submarket`;
+    gapSources = [HELLODATA_RENT, { vendor: "CoStar", detail: `CoStar ${slice} effective rent, submarket` }];
   } else if (rent != null && isNum(deal.median_rent_tract) && deal.median_rent_tract > 0) {
     gap = ((rent - deal.median_rent_tract) / deal.median_rent_tract) * 100;
-    gapSource = "Census tract median gross rent (no CoStar submarket picked)";
+    gapSources = [
+      HELLODATA_RENT,
+      { vendor: "Census", detail: "Census ACS tract median gross rent, via HelloData (no CoStar submarket picked)" },
+    ];
   }
   const rti = rent != null && income3 != null && income3 > 0 ? ((rent * 12) / income3) * 100 : null;
   const spreadUp =
@@ -194,7 +214,7 @@ export function rawFactors(
         s.key === "uc_pct"
           ? { label: `< ${b.supply_ceiling_pct}% of stock`, pass: isNum(v) ? v * 100 < b.supply_ceiling_pct : null }
           : undefined,
-      source: "CoStar submarket, all classes",
+      sources: [COSTAR_SUBMARKET],
     };
   });
 
@@ -208,7 +228,7 @@ export function rawFactors(
       better: "higher",
       format: (v) => pctTxt(v, 1, true),
       thesis: { label: `≥ ${b.job_growth_floor_pct}% (natl avg)`, pass: isNum(deal.job_growth_pct) ? deal.job_growth_pct >= b.job_growth_floor_pct : null },
-      source: "BLS SAE, MSA",
+      sources: [{ vendor: "BLS", detail: "BLS total nonfarm employment, MSA, year over year" }],
     },
     {
       key: "s_pop",
@@ -219,7 +239,7 @@ export function rawFactors(
       better: "higher",
       format: (v) => pctTxt(v, 2, true),
       thesis: { label: `≥ ${b.population_growth_floor_pct}% (natl avg)`, pass: pop == null ? null : pop >= b.population_growth_floor_pct },
-      source: "Esri, 5-mi ring",
+      sources: [{ vendor: "Esri", detail: "Esri 5-mi ring, 5-yr population forecast" }],
     },
     {
       key: "s_income_growth",
@@ -229,7 +249,7 @@ export function rawFactors(
       value: incomeGrowth,
       better: "higher",
       format: (v) => pctTxt(v, 1, true),
-      source: "Esri, 3-mi ring",
+      sources: [ESRI_3MI],
     },
     {
       key: "s_income",
@@ -240,7 +260,7 @@ export function rawFactors(
       better: "higher",
       format: money,
       thesis: { label: `≥ $${(b.income_floor / 1000).toFixed(0)}K`, pass: income3 == null ? null : income3 >= b.income_floor },
-      source: r3?.MEDHINC_CY != null ? "Esri, 3-mi ring" : "Area median income",
+      sources: [incomeSource],
     },
     {
       key: "s_renters",
@@ -250,7 +270,7 @@ export function rawFactors(
       value: renterShare,
       better: "higher",
       format: (v) => pctTxt(v, 0),
-      source: "Esri, 3-mi ring",
+      sources: [ESRI_3MI],
     },
     ...cyc,
     {
@@ -262,7 +282,7 @@ export function rawFactors(
       better: "lower",
       format: (v) => pctTxt(v, 1, true),
       thesis: { label: "≥ 10% below market", pass: gap == null ? null : gap <= -10 },
-      source: gapSource || "—",
+      sources: gapSources,
     },
     {
       key: "m_rti",
@@ -272,7 +292,7 @@ export function rawFactors(
       value: rti,
       better: "lower",
       format: (v) => pctTxt(v, 1),
-      source: "HelloData rent ÷ Esri 3-mi income",
+      sources: [HELLODATA_RENT, incomeSource],
     },
     {
       key: "m_spread_up",
@@ -282,7 +302,7 @@ export function rawFactors(
       value: spreadUp,
       better: "higher",
       format: money,
-      source: "CoStar 4 & 5 Star effective rent, submarket",
+      sources: [HELLODATA_RENT, { vendor: "CoStar", detail: "CoStar 4 & 5 Star effective rent, submarket" }],
     },
   ];
 }

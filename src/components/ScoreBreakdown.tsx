@@ -2,6 +2,8 @@ import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChevronDown, Sparkles, Info } from "lucide-react";
 import { useState } from "react";
+import { InfoTip, SourceBadge } from "@/components/DataSourceTip";
+import { sourceOfPath } from "@/lib/dataSources";
 
 type SignalResult = {
   name: string;
@@ -112,9 +114,12 @@ function buildRationale(p: PillarResult): string {
 export function ScoreBreakdown({
   data,
   summary,
+  newSupplySource,
 }: {
   data: Breakdown | null | undefined;
   summary: string | null | undefined;
+  /** deals.new_supply_source, to label the supply signal CoStar or Esri. */
+  newSupplySource?: string | null;
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   if (!data) return null;
@@ -151,9 +156,18 @@ export function ScoreBreakdown({
             {Math.round((data.coverage.weight_covered_pct ?? 0) * 100)}% weight
           </span>
         ) : null}
+        <InfoTip label="confidence and coverage">
+          How much of the model had data. "2/6 pillars · 25% weight" means only two pillars could be scored, and together they
+          carry 25% of the total weight, so the score rests on a quarter of the model. On low confidence, fill in the blank
+          pillars (expand one to see which signals are missing) before relying on the number.
+        </InfoTip>
         <div className="ml-auto flex items-baseline gap-4 text-sm tabular-nums">
           <span className="text-muted-foreground">
-            Base <span className="font-semibold text-foreground">{data.base_score}</span>
+            Base <span className="font-semibold text-foreground">{data.base_score}</span>{" "}
+            <InfoTip label="Base">
+              The weighted average of the pillars that have data, before any thesis adjustment. Blank pillars are left out rather
+              than counted as zero.
+            </InfoTip>
           </span>
           <span className="text-muted-foreground">
             Thesis{" "}
@@ -168,7 +182,11 @@ export function ScoreBreakdown({
             >
               {data.adjustment >= 0 ? "+" : ""}
               {data.adjustment}
-            </span>
+            </span>{" "}
+            <InfoTip label="Thesis">
+              Points added or taken off for fit with Ansonia's written investment thesis, on top of the pillar math. The large
+              number is Base + Thesis.
+            </InfoTip>
           </span>
           <span className={`text-2xl font-bold tabular-nums ${scoreColor(data.final_score)}`}>
             {data.final_score}
@@ -230,12 +248,25 @@ export function ScoreBreakdown({
 
                   {/* Signals table */}
                   <div className="space-y-1">
+                    <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 text-[10px] uppercase tracking-wider text-muted-foreground">
+                      <span>Signal</span>
+                      <span>Source</span>
+                      <span className="text-right">Value</span>
+                      <span className="w-12 inline-flex items-center justify-end gap-1">
+                        Score
+                        <InfoTip label="signal score">
+                          This signal's raw value turned into 0–100 on the buybox curve for it. The pillar score is the weighted
+                          average of its signals that have data; — means no data, and the signal is left out.
+                        </InfoTip>
+                      </span>
+                    </div>
                     {p.signals.map((s, i) => (
                       <div
                         key={i}
-                        className="grid grid-cols-[1fr_auto_auto] items-center gap-3 text-xs py-1"
+                        className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 text-xs py-1"
                       >
                         <span className="truncate">{s.name}</span>
+                        <SourceBadge source={sourceOfPath(s.field_source, newSupplySource)} />
                         <span className="text-muted-foreground/70 font-mono tabular-nums text-right">
                           {fmtRaw(s.raw_value)}
                         </span>

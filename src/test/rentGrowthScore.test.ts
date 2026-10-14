@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { sourceOfPath } from "@/lib/dataSources";
 import { favourablePercentile, headline, inferSlice, scorePipeline, type PipelineEntry } from "@/lib/rentGrowthScore";
 
 const deal = (id: string, over: Record<string, unknown> = {}): PipelineEntry => ({
@@ -50,6 +51,25 @@ describe("headline", () => {
   });
   it("says so when nothing is scored", () => {
     expect(headline(null, null, null).title).toMatch(/Not enough data/);
+  });
+});
+
+describe("sources", () => {
+  it("labels the gap with both vendors it's built from", () => {
+    const s = scorePipeline([deal("a", { median_rent_tract: 1500 })]);
+    const gap = s.get("a")!.legs.micro.factors.find((f) => f.key === "m_gap")!;
+    expect(gap.sources.map((x) => x.vendor)).toEqual(["HelloData", "Census"]);
+  });
+
+  it("maps pillar field paths to vendors", () => {
+    expect(sourceOfPath("costar.uc_pct").vendor).toBe("CoStar");
+    expect(sourceOfPath("deal_enrichment.rings.3mi.MEDHINC_CY").vendor).toBe("Esri");
+    expect(sourceOfPath("deals.in_place_avg_rent").vendor).toBe("HelloData");
+    expect(sourceOfPath("deals.median_rent_tract").vendor).toBe("Census");
+    expect(sourceOfPath("deals.job_growth_pct").vendor).toBe("BLS");
+    expect(sourceOfPath("deals.asking_price").vendor).toBe("Deal record");
+    expect(sourceOfPath("deals.new_supply_pct_of_stock", "costar_uc").vendor).toBe("CoStar");
+    expect(sourceOfPath("deals.new_supply_pct_of_stock", "esri_housing_units").vendor).toBe("Esri");
   });
 });
 
