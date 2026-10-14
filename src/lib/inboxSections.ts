@@ -29,6 +29,7 @@ type SectionableDeal = {
   denied: boolean | null;
   reviewed?: boolean | null;
   accepted_deal_id: string | null;
+  duplicate_of_deal_id?: string | null;
   email_received_at: string | null;
   denied_at?: string | null;
   reviewed_at?: string | null;
@@ -40,6 +41,12 @@ export function inboxSectionFor(d: SectionableDeal): InboxSectionKey | null {
   // "Mark Reviewed" was retired; deals cleared that way without an approve or
   // deny are treated as passed on. Accept and deny both set reviewed too.
   if (d.denied || d.reviewed) return "denied";
+  // A deal we already own is not a suggestion. It goes to Screened Out rather
+  // than disappearing: the email is still searchable, the row still carries the
+  // reason, and restoring it is a click. Checked before the gate, because being
+  // a duplicate is a fact about our records while the gate is an opinion about
+  // the deal — and the gate can be recomputed, which would otherwise un-hide it.
+  if (d.duplicate_of_deal_id) return "other";
   if (d.gate_status === "filtered") return "other";
   if (d.fit_tier == null) return "unscored";
   const t = tierKey(d.fit_tier);

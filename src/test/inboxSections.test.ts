@@ -31,6 +31,25 @@ describe("inboxSectionFor", () => {
     expect(inboxSectionFor(deal({ accepted_deal_id: "d1" }))).toBeNull();
   });
 
+  it("sends a pipeline duplicate to other, whatever its tier or gate", () => {
+    // Strong Fit is exactly where a re-sent deal we already own used to land.
+    expect(inboxSectionFor(deal({ fit_tier: "strong", duplicate_of_deal_id: "d1" }))).toBe("other");
+    expect(inboxSectionFor(deal({ fit_tier: null, duplicate_of_deal_id: "d1" }))).toBe("other");
+    expect(inboxSectionFor(deal({ fit_tier: "medium", gate_status: "passed", duplicate_of_deal_id: "d1" }))).toBe("other");
+  });
+
+  it("does not treat an unmarked deal as a duplicate", () => {
+    expect(inboxSectionFor(deal({ fit_tier: "strong", duplicate_of_deal_id: null }))).toBe("strong");
+    expect(inboxSectionFor(deal({ fit_tier: "strong" }))).toBe("strong");
+  });
+
+  it("lets denial and acceptance still win over a duplicate mark", () => {
+    // Denied stays one list, and an accepted deal stays out of the inbox
+    // entirely — a duplicate mark must not drag either back into a section.
+    expect(inboxSectionFor(deal({ denied: true, duplicate_of_deal_id: "d1" }))).toBe("denied");
+    expect(inboxSectionFor(deal({ accepted_deal_id: "d9", duplicate_of_deal_id: "d1" }))).toBeNull();
+  });
+
   it("puts deals that were only marked reviewed in denied", () => {
     expect(inboxSectionFor(deal({ reviewed: true }))).toBe("denied");
     expect(inboxSectionFor(deal({ reviewed: true, accepted_deal_id: "d1" }))).toBeNull();

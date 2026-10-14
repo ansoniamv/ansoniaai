@@ -2,12 +2,22 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { graphFetch, resolveMailbox } from "../_shared/graphMail.ts";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 import { preExtractFacts, firmFromEmailDomain } from "../_shared/dealFields.ts";
+import {
+  canonicalName, canonicalNameLoose, matchPipelineDeal,
+  type DealMatch, type MatchCandidate,
+} from "../_shared/dealMatch.ts";
 
 const SKIP_SUBJECT_TERMS = [
   "quarantine", "out of office", "microsoft alert",
   "unsubscribe notice", "undeliverable",
 ];
 const BLOCKED_DOMAINS = ["ansoniaproperties.com"];
+
+// The client this file actually constructs. Writing ReturnType<typeof createClient>
+// instead resolves to the generic DEFAULTS (schema never), not to what
+// createClient(url, key) returns, so every helper taking one failed deno check.
+// deno-lint-ignore no-explicit-any
+type DbClient = ReturnType<typeof createClient<any, "public", any>>;
 
 
 interface GraphMessage {
@@ -49,7 +59,7 @@ function stripHtml(s: string): string {
 
 /** Find a likely matching existing inbox_deal by fuzzy property name. */
 async function findMatchingDeal(
-  supabase: ReturnType<typeof createClient>,
+  supabase: DbClient,
   guessedName: string,
   senderEmail: string,
 ): Promise<string | null> {
@@ -106,6 +116,43 @@ async function findMatchingDeal(
     if (score > (best?.score ?? 0)) best = { id: row.id as string, score };
   }
   return best && best.score >= 0.6 ? best.id : null;
+}
+
+/**
+ * Does this suggestion already exist in the pipeline?
+ *
+ * Candidates are narrowed in SQL on the first two words of the canonical name,
+ * then judged by the pure matcher in _shared/dealMatch.ts. The ilike is a
+ * cheap pre-filter, not the rule — it only has to be loose enough not to miss
+ * a row the matcher would have accepted.
+ */
+async function findPipelineDuplicate(
+  supabase: DbClient,
+  guessedName: string,
+): Promise<DealMatch | null> {
+  const canon = canonicalName(guessedName);
+  // Same floor as the matcher: a one-word name is not evidence.
+  if (!canon || canon.split(" ").length < 2) return null;
+
+  // The loose key is what a "… Apartments" row has to agree on, so the filter
+  // is built from it rather than from the exact key.
+  const key = canonicalNameLoose(guessedName) ?? canon;
+  const words = key.split(" ").filter((w) => /^[a-z0-9]+$/.test(w) && w.length >= 3).slice(0, 2);
+  if (words.length === 0) return null;
+
+  // Every word has to appear, which keeps the candidate set small without
+  // deciding anything: the matcher still requires whole-name equality.
+  let q = supabase.from("deals").select("id, property_name, city, state").limit(50);
+  for (const w of words) q = q.ilike("property_name", `%${w}%`);
+  const { data, error } = await q;
+  if (error) {
+    // A failed lookup must not hide a deal. Surfacing a repeat is the safe
+    // failure; silently treating "we could not check" as "no match" is the
+    // outcome we want, and this is the line that says so on purpose.
+    console.error("[sync-acquisitions-inbox] pipeline duplicate lookup failed", error);
+    return null;
+  }
+  return matchPipelineDeal({ property_name: guessedName }, (data ?? []) as MatchCandidate[]);
 }
 
 /** Detect if an email is a forward by subject prefix or body forwarded-header block. */
@@ -187,6 +234,11 @@ Deno.serve(async (req) => {
     let createdDeals = 0;
     let linkedToExisting = 0;
     let duplicateEmails = 0;
+    // Matched an existing pipeline deal. Split, because the two outcomes are
+    // different: one attaches the email to a thread we already have, the other
+    // creates a suggestion that opens pre-marked as a duplicate.
+    let matchedToPipeline = 0;
+    let attachedToAccepted = 0;
     const touchedDealIds = new Set<string>();
 
     for (const m of messages) {
@@ -248,6 +300,34 @@ Deno.serve(async (req) => {
         if (dealId) linkedToExisting++;
       }
 
+      // Already in the pipeline? Check before creating a suggestion for it.
+      //
+      // Only when nothing else claimed the email: an existing inbox thread is a
+      // better home than a pipeline match, and it is the more specific fact.
+      let pipelineDup: DealMatch | null = null;
+      if (!dealId) {
+        pipelineDup = await findPipelineDuplicate(supabase, guessedName);
+        if (pipelineDup) {
+          matchedToPipeline++;
+          // If the pipeline deal came from this inbox there is an inbox_deals
+          // row carrying accepted_deal_id, and the email belongs on that
+          // thread. inboxSectionFor already hides accepted rows, so nothing
+          // new surfaces and nothing needs marking.
+          const { data: priorInbox } = await supabase
+            .from("inbox_deals")
+            .select("id")
+            .eq("accepted_deal_id", pipelineDup.dealId)
+            .limit(1)
+            .maybeSingle();
+          if (priorInbox) {
+            dealId = priorInbox.id as string;
+            linkedToExisting++;
+            attachedToAccepted++;
+            pipelineDup = null;   // handled by attaching; no row to mark
+          }
+        }
+      }
+
       if (!dealId) {
         const { units, year_built, rejected } = preExtractFacts(subject, fullBody);
         for (const r of rejected) {
@@ -275,6 +355,11 @@ Deno.serve(async (req) => {
             email_count: 1,
             units,
             year_built,
+            // The row is created either way. It is marked, not dropped, so the
+            // email is still searchable and the reason travels with it.
+            duplicate_of_deal_id: pipelineDup?.dealId ?? null,
+            duplicate_reason: pipelineDup?.reason ?? null,
+            duplicate_confidence: pipelineDup?.confidence ?? null,
           })
           .select("id")
           .single();
@@ -352,6 +437,8 @@ Deno.serve(async (req) => {
         scanned: messages.length,
         skipped,
         createdDeals,
+        matchedToPipeline,
+        attachedToAccepted,
         linkedToExisting,
         duplicateEmails,
       }),
