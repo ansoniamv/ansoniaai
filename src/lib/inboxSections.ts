@@ -13,7 +13,10 @@ export const INBOX_SECTIONS: {
   subtitle?: string;
   defaultOpen: boolean;
 }[] = [
-  { key: "unscored", title: "Awaiting Score", subtitle: "Moves to its tier once scored", defaultOpen: true },
+  // Collapsed. Nothing in Awaiting Score is actionable yet — the scorer has
+  // not judged it — and it renders above Strong Fit, so an open one pushed the
+  // deals that ARE actionable below the fold. The header still shows its count.
+  { key: "unscored", title: "Awaiting Score", subtitle: "Moves to its tier once scored", defaultOpen: false },
   { key: "strong", title: "Strong Fit", defaultOpen: true },
   { key: "medium", title: "Medium Fit", defaultOpen: true },
   { key: "other", title: "Screened Out / Other Deals", subtitle: "Maybe, skip, and gate-filtered", defaultOpen: false },
