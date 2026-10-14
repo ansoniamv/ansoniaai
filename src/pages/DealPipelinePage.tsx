@@ -154,6 +154,8 @@ type InboxDeal = {
   email_count: number | null;
   gate_status: string | null;
   gate_reason: string | null;
+  duplicate_of_deal_id: string | null;
+  duplicate_reason: string | null;
   assigned_to: string | null;
 };
 
@@ -214,7 +216,7 @@ export default function DealPipelinePage() {
       const { data, error } = await supabase
         .from("inbox_deals")
         .select(
-          "id, property_name, address, location_city, location_state, msa, broker_firm, broker_contact_name, broker_contact_email, units, year_built, avg_sf, occupancy_pct, asset_class, strategy, offers_due, fit_tier, fit_score, fit_rationale, summary_error, summary_attempted_at, rationale_error, rationale_attempted_at, email_received_at, reviewed, reviewed_at, denied, denial_category, denial_reason, denied_by, denied_at, accepted_deal_id, email_thread_summary, email_count, gate_status, gate_reason, assigned_to",
+          "id, property_name, address, location_city, location_state, msa, broker_firm, broker_contact_name, broker_contact_email, units, year_built, avg_sf, occupancy_pct, asset_class, strategy, offers_due, fit_tier, fit_score, fit_rationale, summary_error, summary_attempted_at, rationale_error, rationale_attempted_at, email_received_at, reviewed, reviewed_at, denied, denial_category, denial_reason, denied_by, denied_at, accepted_deal_id, email_thread_summary, email_count, gate_status, gate_reason, duplicate_of_deal_id, duplicate_reason, assigned_to",
         )
         .order("email_received_at", { ascending: false, nullsFirst: false })
         .limit(1000);
@@ -919,6 +921,15 @@ function DealCard({
                   {d.fit_tier == null && d.gate_status !== "filtered" && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-[0.1em] bg-muted text-muted-foreground border border-hairline">
                       Not yet scored
+                    </span>
+                  )}
+                  {d.duplicate_of_deal_id && (
+                    <span
+                      title={d.duplicate_reason ?? "Already in the pipeline"}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-[0.1em] bg-muted text-muted-foreground border border-hairline"
+                    >
+                      <EyeOff className="h-3 w-3" strokeWidth={2} />
+                      {d.duplicate_reason ?? "Already in the pipeline"}
                     </span>
                   )}
                   {d.gate_status === "filtered" && (

@@ -88,7 +88,8 @@ describe("Deal Inbox", () => {
     const strong = within(section("Strong Fit")).getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
     expect(strong).toEqual(["Strong New", "Strong Old"]);
     expect(within(section("Medium Fit")).getByText("Medium One")).toBeInTheDocument();
-    expect(within(section("Awaiting Score")).getByText("Unscored One")).toBeInTheDocument();
+    // Awaiting Score is present, with its count, but collapsed — see below.
+    expect(section("Awaiting Score")).toBeInTheDocument();
     expect(screen.queryByText("Accepted One")).toBeNull();
     expect(screen.queryByText(/Mark Reviewed/)).toBeNull();
   });
@@ -99,11 +100,18 @@ describe("Deal Inbox", () => {
     expect(within(tile).getByText(/^Received \w{3}, Oct 1, 2026 · /)).toBeInTheDocument();
   });
 
-  it("keeps Other and Denied collapsed until opened", async () => {
+  it("keeps Awaiting Score, Other and Denied collapsed until opened", async () => {
     renderPage();
     await screen.findByText("Strong New");
+    expect(screen.queryByText("Unscored One")).toBeNull();
     expect(screen.queryByText("Maybe One")).toBeNull();
     expect(screen.queryByText("Denied One")).toBeNull();
+
+    // Collapsed is not hidden: the count has to stay visible, or a growing
+    // unscored queue becomes invisible instead of merely quiet.
+    expect(within(section("Awaiting Score")).getByText("1")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("heading", { name: "Awaiting Score" }));
+    expect(within(section("Awaiting Score")).getByText("Unscored One")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("heading", { name: "Screened Out / Other Deals" }));
     expect(within(section("Screened Out / Other Deals")).getByText("Maybe One")).toBeInTheDocument();
