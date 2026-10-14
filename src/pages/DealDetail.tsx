@@ -44,6 +44,7 @@ import { DealStatusHistory } from "@/components/DealStatusHistory";
 import { ComposeEmailDialog } from "@/components/ComposeEmailDialog";
 import { PropertyResearchPanel } from "@/components/PropertyResearchPanel";
 import { SubmarketSignalsPanel } from "@/components/SubmarketSignalsPanel";
+import { AiScoreTab } from "@/components/AiScoreTab";
 import { NoteComposerDialog } from "@/components/NoteComposerDialog";
 import { useDeal, useDeleteDeal } from "@/hooks/useDeals";
 import { persistDealScore } from "@/lib/persistDealScore";
@@ -679,9 +680,13 @@ export default function DealDetail() {
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="capital-raise">Capital Raise</TabsTrigger>
+          <TabsTrigger value="ai-score">AI Score</TabsTrigger>
         </TabsList>
         <TabsContent value="capital-raise" className="mt-6">
           <CapitalRaiseTab deal={deal} />
+        </TabsContent>
+        <TabsContent value="ai-score" className="mt-6">
+          <AiScoreTab deal={deal} />
         </TabsContent>
         <TabsContent value="overview" className="mt-6 space-y-8">
 
