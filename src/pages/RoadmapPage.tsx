@@ -9,6 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useRoadmap, type RoadmapItem, type RoadmapStatus as Status, type RoadmapPriority as Priority } from "@/hooks/useRoadmap";
+import { ChangeRequestsPanel } from "@/components/roadmap/ChangeRequestsPanel";
+import type { ChangeRequest } from "@/hooks/useChangeRequests";
 
 type Item = RoadmapItem;
 
@@ -210,6 +212,18 @@ export default function RoadmapPage() {
 
   const markShipped = (item: Item) => {
     updateItem.mutate({ id: item.id, prev: item, patch: { status: "shipped" } });
+  };
+
+  const addRequestToRoadmap = async (req: ChangeRequest, phase: string) => {
+    const item = await createItem.mutateAsync({
+      title: req.title,
+      description: req.desired_behavior,
+      phase,
+      status: "planned",
+      priority: req.request_type === "bug" ? "P1" : "P2",
+      sort_order: items.length + 1,
+    });
+    return item.id;
   };
 
   const ItemCard = ({ item }: { item: Item }) => {
@@ -466,6 +480,8 @@ export default function RoadmapPage() {
           })}
         </div>
       </div>
+
+      <ChangeRequestsPanel phases={PHASES} onAddToRoadmap={addRequestToRoadmap} />
 
       <ActivityPanel />
 

@@ -9,6 +9,8 @@ import logoAsset from "@/assets/ansonia-logo.png.asset.json";
 import { AskAtlasWidget } from "@/components/AskAtlasWidget";
 import { PageSearchWidget } from "@/components/PageSearchWidget";
 import { GlobalSearchPalette } from "@/components/GlobalSearchPalette";
+import { ChangeRequestDialog } from "@/components/roadmap/ChangeRequestDialog";
+import { MessageSquarePlus } from "lucide-react";
 
 
 const ROUTE_LABELS: Array<{ match: RegExp; label: string }> = [
@@ -65,6 +67,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const fullBleed = isFullBleed(location.pathname);
   const today = format(new Date(), "EEEE, MMM d, yyyy");
   const [noteOpen, setNoteOpen] = useState(false);
+  const [requestOpen, setRequestOpen] = useState(false);
   const mainRef = useRef<HTMLElement | null>(null);
 
   // Scrolling happens on <main> (overflow-auto), not window. Reset it on route change.
@@ -106,6 +109,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               </span>
             </div>
             <div className="ml-auto flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setRequestOpen(true)}
+                className="h-8 px-2.5 inline-flex items-center gap-1.5 rounded border border-hairline text-[11px] uppercase tracking-[0.08em] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                title="Ask for a change to this page or the platform"
+              >
+                <MessageSquarePlus className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Request change</span>
+              </button>
               <span className="hidden md:inline text-xs text-muted-foreground tabular-nums">
                 {profile?.email}
               </span>
@@ -142,6 +154,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </div>
       <NoteComposerDialog open={noteOpen} onOpenChange={setNoteOpen} />
+      <ChangeRequestDialog
+        open={requestOpen}
+        onOpenChange={setRequestOpen}
+        pageLabel={routeLabel}
+        pagePath={location.pathname}
+      />
       <GlobalSearchPalette />
       {!location.pathname.startsWith("/chat") && <PageSearchWidget />}
       {!location.pathname.startsWith("/chat") && <AskAtlasWidget />}
