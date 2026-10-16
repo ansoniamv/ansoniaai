@@ -2486,6 +2486,68 @@ export type Database = {
         }
         Relationships: []
       }
+      roadmap_change_requests: {
+        Row: {
+          admin_notes: string | null
+          created_at: string
+          current_behavior: string | null
+          desired_behavior: string
+          id: string
+          page_label: string | null
+          page_path: string | null
+          reason: string | null
+          request_type: string
+          roadmap_item_id: string | null
+          status: string
+          submitted_by: string
+          submitter_email: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          created_at?: string
+          current_behavior?: string | null
+          desired_behavior: string
+          id?: string
+          page_label?: string | null
+          page_path?: string | null
+          reason?: string | null
+          request_type?: string
+          roadmap_item_id?: string | null
+          status?: string
+          submitted_by?: string
+          submitter_email?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          admin_notes?: string | null
+          created_at?: string
+          current_behavior?: string | null
+          desired_behavior?: string
+          id?: string
+          page_label?: string | null
+          page_path?: string | null
+          reason?: string | null
+          request_type?: string
+          roadmap_item_id?: string | null
+          status?: string
+          submitted_by?: string
+          submitter_email?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "roadmap_change_requests_roadmap_item_id_fkey"
+            columns: ["roadmap_item_id"]
+            isOneToOne: false
+            referencedRelation: "roadmap_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       roadmap_events: {
         Row: {
           actor: string | null
