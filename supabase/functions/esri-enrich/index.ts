@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logApiRequest } from "../_shared/logUsage.ts";
 import { getArcGISToken } from "../_shared/arcgisToken.ts";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
-import { isAddressLevel, GEOCODE_COUNTRY } from "../_shared/esriMatch.ts";
+import { isAddressLevel, GEOCODE_COUNTRY, buildGeocodeQuery, candidateInDealState } from "../_shared/esriMatch.ts";
 
 const RING_LABELS = ["1mi", "3mi", "5mi"];
 const GEOCODE_CONFIDENCE_THRESHOLD = 85;
@@ -136,7 +136,7 @@ async function geocode(address: string, token: string) {
   url.searchParams.set("SingleLine", address);
   url.searchParams.set("f", "json");
   url.searchParams.set("maxLocations", "1");
-  url.searchParams.set("outFields", "Score,Match_addr,Addr_type"); // ensure Score is returned
+  url.searchParams.set("outFields", "Score,Match_addr,Addr_type,RegionAbbr"); // ensure Score is returned
   // Restrict to the United States. Without this the World geocoder is free to
   // match a property NAME anywhere on earth: "K Square" returned a London POI at
   // 51.4762/-0.2145 with a score of 100, and that is how a Chicago deal came to
@@ -156,7 +156,8 @@ async function geocode(address: string, token: string) {
     : (typeof cand.attributes?.Score === "number" ? cand.attributes.Score : null);
   const matchAddr = cand.address ?? cand.attributes?.Match_addr ?? null;
   const addrType: string | null = cand.attributes?.Addr_type ?? null;
-  return { lat: cand.location.y, lon: cand.location.x, matchAddr, score, addrType };
+  const region: string | null = cand.attributes?.RegionAbbr ?? null;
+  return { lat: cand.location.y, lon: cand.location.x, matchAddr, score, addrType, region };
 }
 
 async function enrich(lat: number, lon: number, token: string) {
@@ -206,8 +207,10 @@ Deno.serve(async (req) => {
     );
     console.log(`[esri-enrich] credential in use: ${tokenSource}`);
 
-    const { deal_id, address, force, geocode_only } = await req.json();
-    if (!deal_id || !address) throw new Error("deal_id and address required");
+    // Callers still send `address`, but it is not geocoded: the query is rebuilt
+    // from the deal row below (buildGeocodeQuery in _shared/esriMatch.ts).
+    const { deal_id, force, geocode_only } = await req.json();
+    if (!deal_id) throw new Error("deal_id required");
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -261,6 +264,21 @@ Deno.serve(async (req) => {
 
     // --- Geocode (paid) ----------------------------------------------------
 
+    const { data: dealRow, error: dealErr } = await supabase
+      .from("deals")
+      .select("address, property_address, city, state, zip")
+      .eq("id", deal_id)
+      .single();
+    if (dealErr || !dealRow) throw new Error(`Deal ${deal_id} not found`);
+    const built = buildGeocodeQuery(dealRow);
+    if (!built.ok) {
+      return new Response(JSON.stringify({ error: built.reason }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const address = built.query;
+
     let geo;
     try {
       geo = await geocode(address, token);
@@ -275,7 +293,7 @@ Deno.serve(async (req) => {
       });
       throw err;
     }
-    const { lat, lon, matchAddr, score, addrType } = geo;
+    const { lat, lon, matchAddr, score, addrType, region } = geo;
     await logApiRequest(supabase, {
       function_name: "esri-enrich",
       service: "esri_geocode",
@@ -303,6 +321,19 @@ Deno.serve(async (req) => {
       console.warn(`[esri-enrich] deal=${deal_id} rejected addr_type=${addrType} input="${address}"`);
       await supabase.from("deals").update({ esri_addr_type: addrType }).eq("id", deal_id);
       return new Response(JSON.stringify({ error: message, addr_type: addrType, matched: matchAddr }), {
+        status: 422,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // An address-level match can still be in the wrong state — see
+    // buildGeocodeQuery. Same rule as above: no enrichment, no coordinates.
+    if (!candidateInDealState(region, dealRow.state)) {
+      const message =
+        `Geocode matched "${matchAddr}", which is in ${region ?? "an unknown state"}, not ${dealRow.state}. ` +
+        `Check the deal's street address, city and state. Enrichment was not run and no coordinates were stored.`;
+      console.warn(`[esri-enrich] deal=${deal_id} out of state region=${region} deal_state=${dealRow.state} input="${address}"`);
+      return new Response(JSON.stringify({ error: message, region, matched: matchAddr }), {
         status: 422,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
