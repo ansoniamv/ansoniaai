@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Map as MLMap, Popup, NavigationControl, LngLatBounds,
@@ -7,10 +7,11 @@ import {
 import "maplibre-gl/dist/maplibre-gl.css";
 // Side-effect import: sets the worker URL before any Map is constructed.
 import "@/lib/maplibreWorker";
-import { Layers, Maximize2, Minimize2, X } from "lucide-react";
+import { Layers, Maximize2, Minimize2, Search, X } from "lucide-react";
 import { useMapDeals, type MapDeal } from "@/hooks/useMapDeals";
 import { useDealCrime, type DealCrime } from "@/hooks/useDealCrime";
 import { useMapPrefs } from "@/hooks/useMapPrefs";
+import { searchDealsByName } from "@/lib/dealSearch";
 import { useMapSignals, type MapSignal } from "@/lib/marketData";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -115,6 +116,137 @@ function layerLine(
   const r = readLayer(deal, layer, signals);
   if (r.value != null) return escapeHtml(layer.format(r.value));
   return '<span style="opacity:.75">' + escapeHtml(r.reason ?? "no data") + "</span>";
+}
+
+/**
+ * Jump to a deal by name.
+ *
+ * Searches every deal, not just the pins on screen. A deal hidden by the status
+ * filter is still found — picking it turns its status back on — and a deal with
+ * no coordinates is listed as such and opens its page, because a search that
+ * silently misses a deal you know exists reads as "that deal is gone".
+ */
+function MapDealSearch({ deals, hidden, onPick, disabled }: {
+  deals: MapDeal[];
+  hidden: (d: MapDeal) => boolean;
+  onPick: (d: MapDeal) => void;
+  disabled: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const input = useRef<HTMLInputElement | null>(null);
+
+  const results = useMemo(() => searchDealsByName(deals, query), [deals, query]);
+  useEffect(() => setActive(0), [query]);
+
+  const pick = (d: MapDeal) => {
+    onPick(d);
+    setQuery(d.property_name ?? "");
+    setOpen(false);
+    input.current?.blur();
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setOpen(true);
+      if (results.length === 0) return;
+      const step = e.key === "ArrowDown" ? 1 : -1;
+      setActive((i) => (i + step + results.length) % results.length);
+    } else if (e.key === "Enter") {
+      const d = results[active];
+      if (d) { e.preventDefault(); pick(d); }
+    } else if (e.key === "Escape") {
+      if (open && query) setOpen(false);
+      else { setQuery(""); input.current?.blur(); }
+    }
+  };
+
+  const showList = open && query.trim().length > 0;
+
+  return (
+    <div className="relative z-20 pointer-events-auto shrink-0">
+      <div className={PANE + " flex items-center h-9 px-2.5 gap-2"}>
+        <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <input
+          ref={input}
+          type="search"
+          role="combobox"
+          aria-label="Search deals by name"
+          aria-expanded={showList}
+          aria-controls="map-deal-search-results"
+          aria-activedescendant={showList && results[active] ? "map-deal-result-" + results[active].id : undefined}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="Search deals…"
+          value={query}
+          disabled={disabled}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setOpen(false)}
+          onKeyDown={onKeyDown}
+          className="flex-1 min-w-0 bg-transparent text-xs outline-none placeholder:text-muted-foreground disabled:opacity-50 [&::-webkit-search-cancel-button]:hidden"
+        />
+        {query && (
+          <button
+            type="button"
+            aria-label="Clear search"
+            // mousedown, not click: the input's blur fires first and would
+            // close the list before a click could land.
+            onMouseDown={(e) => { e.preventDefault(); setQuery(""); input.current?.focus(); }}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      {showList && (
+        <ul
+          id="map-deal-search-results"
+          role="listbox"
+          className={PANE + " absolute left-0 right-0 top-full mt-1 py-1 max-h-72 overflow-y-auto"}
+        >
+          {results.length === 0 && (
+            <li className="px-3 py-2 text-xs text-muted-foreground">No deals match “{query.trim()}”</li>
+          )}
+          {results.map((d, i) => {
+            const located = isLocated(d);
+            const place = [d.city, d.state].filter(Boolean).join(", ");
+            const note = !located ? "No location — opens deal" : hidden(d) ? "Hidden by status filter" : null;
+            return (
+              <li
+                key={d.id}
+                id={"map-deal-result-" + d.id}
+                role="option"
+                aria-selected={i === active}
+                onMouseDown={(e) => { e.preventDefault(); pick(d); }}
+                onMouseEnter={() => setActive(i)}
+                className={
+                  "flex items-center gap-2 px-3 py-1.5 cursor-pointer text-xs "
+                  + (i === active ? "bg-muted" : "")
+                }
+              >
+                <span
+                  className="h-2.5 w-2.5 rounded-full shrink-0"
+                  style={{ background: DEAL_STATUS_HEX[getStatus(d)] }}
+                />
+                <span className="flex-1 min-w-0">
+                  <span className="block truncate font-medium">{d.property_name}</span>
+                  {(place || note) && (
+                    <span className="block truncate text-[11px] text-muted-foreground">
+                      {[place, note].filter(Boolean).join(" · ")}
+                    </span>
+                  )}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 export default function PipelineMapPage() {
@@ -257,6 +389,50 @@ export default function PipelineMapPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDark]);
 
+  /** The popup a pin shows when clicked — and the one search opens on arrival. */
+  const openPopup = useCallback((deal: Located) => {
+    const m = map.current;
+    if (!m) return;
+    popup.current?.remove();
+    const c = crime?.get(deal.id);
+    const bucket = crimeBucket(c?.index);
+    const status = getStatus(deal);
+    // A stale reading never shows its number. The enrichment was measured
+    // around a point the deal has since moved away from, so the honest line
+    // is that it is pending, not a figure for the wrong neighbourhood.
+    const crimeLine = c?.stale
+      ? '<span style="opacity:.75">location corrected &mdash; enrichment pending</span>'
+      : c?.index != null
+        ? Math.round(c.index) + ' <span style="opacity:.7">(' + escapeHtml(bucket?.label ?? "") + ")</span>"
+        : "not enriched";
+    const el = document.createElement("div");
+    el.innerHTML = [
+      '<div style="font-weight:600;font-size:13px;margin-bottom:2px">' + escapeHtml(deal.property_name ?? "Untitled") + "</div>",
+      '<div style="font-size:11px;opacity:.75;margin-bottom:6px">' + escapeHtml(addressOf(deal)) + "</div>",
+      '<div style="font-size:11px;line-height:1.7">',
+      "<div><strong>Units:</strong> " + ((deal as unknown as { unit_count: number | null }).unit_count ?? "&mdash;") + "</div>",
+      "<div><strong>Year built:</strong> " + ((deal as unknown as { vintage_year: number | null }).vintage_year ?? "&mdash;") + "</div>",
+      "<div><strong>Crime index:</strong> " + crimeLine + "</div>",
+      // The active layer's own reading, so clicking a grey pin says why it
+      // is grey rather than leaving the colour to be guessed at.
+      layer ? "<div><strong>" + escapeHtml(layer.label) + ":</strong> " + layerLine(deal, layer, signals) + "</div>" : "",
+      '<div style="margin-top:4px"><span style="display:inline-block;padding:1px 7px;border-radius:9px;font-size:10px;font-weight:600;color:#fff;background:'
+        + DEAL_STATUS_HEX[status] + '">' + escapeHtml(status) + "</span></div>",
+      "</div>",
+      '<button type="button" data-open-deal style="display:inline-block;margin-top:8px;font-size:11px;font-weight:600;text-decoration:underline;background:none;border:0;padding:0;cursor:pointer;color:inherit">Open deal</button>',
+    ].join("");
+    // Router navigation, not a raw href: an <a> would reload the whole SPA,
+    // losing the map, the fitted bounds and every cached query.
+    el.querySelector("[data-open-deal]")?.addEventListener("click", () => {
+      popup.current?.remove();
+      navigate("/deals/" + deal.id);
+    });
+    popup.current = new Popup({ closeButton: true, maxWidth: "260px" })
+      .setLngLat([deal.longitude, deal.latitude])
+      .setDOMContent(el)
+      .addTo(m);
+  }, [crime, layer, signals, navigate]);
+
   useEffect(() => {
     const m = map.current;
     if (!m || !ready) return;
@@ -319,45 +495,7 @@ export default function PipelineMapPage() {
       const f = m.queryRenderedFeatures(e.point, { layers: ["points"] })[0];
       if (!f) return;
       const deal = visible.find((d) => d.id === f.properties.id);
-      if (!deal) return;
-      popup.current?.remove();
-      const c = crime?.get(deal.id);
-      const bucket = crimeBucket(c?.index);
-      const status = getStatus(deal);
-      // A stale reading never shows its number. The enrichment was measured
-      // around a point the deal has since moved away from, so the honest line
-      // is that it is pending, not a figure for the wrong neighbourhood.
-      const crimeLine = c?.stale
-        ? '<span style="opacity:.75">location corrected &mdash; enrichment pending</span>'
-        : c?.index != null
-          ? Math.round(c.index) + ' <span style="opacity:.7">(' + escapeHtml(bucket?.label ?? "") + ")</span>"
-          : "not enriched";
-      const el = document.createElement("div");
-      el.innerHTML = [
-        '<div style="font-weight:600;font-size:13px;margin-bottom:2px">' + escapeHtml(deal.property_name ?? "Untitled") + "</div>",
-        '<div style="font-size:11px;opacity:.75;margin-bottom:6px">' + escapeHtml(addressOf(deal)) + "</div>",
-        '<div style="font-size:11px;line-height:1.7">',
-        "<div><strong>Units:</strong> " + ((deal as unknown as { unit_count: number | null }).unit_count ?? "&mdash;") + "</div>",
-        "<div><strong>Year built:</strong> " + ((deal as unknown as { vintage_year: number | null }).vintage_year ?? "&mdash;") + "</div>",
-        "<div><strong>Crime index:</strong> " + crimeLine + "</div>",
-        // The active layer's own reading, so clicking a grey pin says why it
-        // is grey rather than leaving the colour to be guessed at.
-        layer ? "<div><strong>" + escapeHtml(layer.label) + ":</strong> " + layerLine(deal, layer, signals) + "</div>" : "",
-        '<div style="margin-top:4px"><span style="display:inline-block;padding:1px 7px;border-radius:9px;font-size:10px;font-weight:600;color:#fff;background:'
-          + DEAL_STATUS_HEX[status] + '">' + escapeHtml(status) + "</span></div>",
-        "</div>",
-        '<button type="button" data-open-deal style="display:inline-block;margin-top:8px;font-size:11px;font-weight:600;text-decoration:underline;background:none;border:0;padding:0;cursor:pointer;color:inherit">Open deal</button>',
-      ].join("");
-      // Router navigation, not a raw href: an <a> would reload the whole SPA,
-      // losing the map, the fitted bounds and every cached query.
-      el.querySelector("[data-open-deal]")?.addEventListener("click", () => {
-        popup.current?.remove();
-        navigate("/deals/" + deal.id);
-      });
-      popup.current = new Popup({ closeButton: true, maxWidth: "260px" })
-        .setLngLat((f.geometry as GeoJSON.Point).coordinates as [number, number])
-        .setDOMContent(el)
-        .addTo(m);
+      if (deal) openPopup(deal);
     };
     m.on("click", "points", onPoint);
 
@@ -369,7 +507,24 @@ export default function PipelineMapPage() {
       m.off("mouseenter", "clusters", cursorOn);
       m.off("mouseleave", "clusters", cursorOff);
     };
-  }, [ready, geojson, isDark, visible, crime, layer, signals, navigate]);
+  }, [ready, geojson, isDark, visible, openPopup]);
+
+  /**
+   * Fly to a deal picked in the search box and open its popup.
+   *
+   * Zoom 14 is past clusterMaxZoom (12), so the deal lands as its own pin
+   * rather than inside a cluster bubble. A deal the status filter is hiding
+   * gets its status switched back on first — flying to an empty spot on the
+   * map would read as "this deal is not here".
+   */
+  const goToDeal = useCallback((deal: Located) => {
+    const m = map.current;
+    if (!m) return;
+    const status = getStatus(deal);
+    if (!prefs.visible.includes(status)) setPrefs({ ...prefs, visible: [...prefs.visible, status] });
+    m.flyTo({ center: [deal.longitude, deal.latitude], zoom: Math.max(m.getZoom(), 14), duration: 900 });
+    openPopup(deal);
+  }, [prefs, setPrefs, openPopup]);
 
   useEffect(() => {
     const m = map.current;
@@ -506,152 +661,160 @@ export default function PipelineMapPage() {
           )}
         </div>
 
-        {panelOpen && (
-          <aside
-            className={
-              PANE + " absolute top-3 right-3 z-10 w-[272px] max-w-[calc(100%-1.5rem)] "
-              + "max-h-[calc(100%-1.5rem)] overflow-y-auto"
-            }
-          >
-            <div className="flex items-center gap-2 px-3 h-9 border-b border-hairline sticky top-0 bg-card/95 backdrop-blur-sm z-10">
-              <span className="text-xs font-semibold">Map layers</span>
-              <button
-                type="button"
-                onClick={() => setPanelOpen(false)}
-                className="ml-auto text-muted-foreground hover:text-foreground"
-                aria-label="Hide map layers"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-
-            {/* One layer at a time, so a pin's colour always has a single
-                meaning. Radios rather than checkboxes for exactly that reason. */}
-            <div className="p-3 space-y-3 border-b border-hairline">
-              {GROUP_ORDER.map((group) => {
-                const rows = group === "Deal"
-                  ? [{ id: "status" as LayerId, label: "Status" }, { id: "crime" as LayerId, label: "Crime index" }]
-                  : GRADED_LAYERS.filter((l) => l.group === group).map((l) => ({ id: l.id, label: l.label }));
-                if (rows.length === 0) return null;
-                return (
-                  <div key={group} className="space-y-1">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-medium">
-                        {group}
-                      </span>
-                      {group === "Supply & market" && asOf && (
-                        <span className="text-[10px] text-muted-foreground tabular-nums">{asOf}</span>
-                      )}
+        {/* The right-hand column: search on top, the layers panel under it.
+            One flex column so the panel shrinks to whatever height the search
+            box leaves, instead of each guessing at the other's size. The
+            column itself ignores the pointer so the map under its empty
+            lower half still pans and zooms. */}
+        <div className="absolute top-3 right-3 bottom-3 z-10 w-[272px] max-w-[calc(100%-1.5rem)] flex flex-col gap-2 pointer-events-none">
+          <MapDealSearch
+            deals={all}
+            hidden={(d) => isLocated(d) && !prefs.visible.includes(getStatus(d))}
+            onPick={(d) => { const id = d.id; if (isLocated(d)) goToDeal(d); else navigate("/deals/" + id); }}
+            disabled={!ready}
+          />
+          {panelOpen && (
+            <aside className={PANE + " pointer-events-auto min-h-0 overflow-y-auto"}>
+              <div className="flex items-center gap-2 px-3 h-9 border-b border-hairline sticky top-0 bg-card/95 backdrop-blur-sm z-10">
+                <span className="text-xs font-semibold">Map layers</span>
+                <button
+                  type="button"
+                  onClick={() => setPanelOpen(false)}
+                  className="ml-auto text-muted-foreground hover:text-foreground"
+                  aria-label="Hide map layers"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+  
+              {/* One layer at a time, so a pin's colour always has a single
+                  meaning. Radios rather than checkboxes for exactly that reason. */}
+              <div className="p-3 space-y-3 border-b border-hairline">
+                {GROUP_ORDER.map((group) => {
+                  const rows = group === "Deal"
+                    ? [{ id: "status" as LayerId, label: "Status" }, { id: "crime" as LayerId, label: "Crime index" }]
+                    : GRADED_LAYERS.filter((l) => l.group === group).map((l) => ({ id: l.id, label: l.label }));
+                  if (rows.length === 0) return null;
+                  return (
+                    <div key={group} className="space-y-1">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-medium">
+                          {group}
+                        </span>
+                        {group === "Supply & market" && asOf && (
+                          <span className="text-[10px] text-muted-foreground tabular-nums">{asOf}</span>
+                        )}
+                      </div>
+                      {rows.map((r) => (
+                        <label
+                          key={r.id}
+                          htmlFor={"map-layer-" + r.id}
+                          title={GRADED_BY_ID.get(r.id)?.help}
+                          className="flex items-center gap-2 text-xs cursor-pointer py-0.5"
+                        >
+                          <input
+                            type="radio"
+                            id={"map-layer-" + r.id}
+                            name="map-layer"
+                            className="accent-primary h-3 w-3 shrink-0"
+                            checked={prefs.colorMode === r.id}
+                            onChange={() => setPrefs({ ...prefs, colorMode: r.id })}
+                            disabled={!loaded}
+                          />
+                          <span className="flex-1">{r.label}</span>
+                        </label>
+                      ))}
                     </div>
-                    {rows.map((r) => (
-                      <label
-                        key={r.id}
-                        htmlFor={"map-layer-" + r.id}
-                        title={GRADED_BY_ID.get(r.id)?.help}
-                        className="flex items-center gap-2 text-xs cursor-pointer py-0.5"
-                      >
-                        <input
-                          type="radio"
-                          id={"map-layer-" + r.id}
-                          name="map-layer"
-                          className="accent-primary h-3 w-3 shrink-0"
-                          checked={prefs.colorMode === r.id}
-                          onChange={() => setPrefs({ ...prefs, colorMode: r.id })}
-                          disabled={!loaded}
-                        />
-                        <span className="flex-1">{r.label}</span>
-                      </label>
+                  );
+                })}
+              </div>
+  
+              {/* Legend for whichever layer is active. */}
+              <div className="p-3 space-y-1.5 border-b border-hairline">
+                {prefs.colorMode === "crime" && (
+                  <>
+                    {CRIME_BUCKETS.map((b) => (
+                      <div key={b.label} className="flex items-center gap-2 text-xs">
+                        <span className="h-3 w-3 rounded-full shrink-0" style={{ background: b.hex }} />
+                        <span className="text-muted-foreground">{b.label}</span>
+                      </div>
                     ))}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Legend for whichever layer is active. */}
-            <div className="p-3 space-y-1.5 border-b border-hairline">
-              {prefs.colorMode === "crime" && (
-                <>
-                  {CRIME_BUCKETS.map((b) => (
-                    <div key={b.label} className="flex items-center gap-2 text-xs">
-                      <span className="h-3 w-3 rounded-full shrink-0" style={{ background: b.hex }} />
-                      <span className="text-muted-foreground">{b.label}</span>
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="h-3 w-3 rounded-full shrink-0" style={{ background: CRIME_UNKNOWN_HEX }} />
+                      <span className="text-muted-foreground">Not enriched</span>
                     </div>
-                  ))}
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="h-3 w-3 rounded-full shrink-0" style={{ background: CRIME_UNKNOWN_HEX }} />
-                    <span className="text-muted-foreground">Not enriched</span>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground pt-1">100 is the US average.</p>
-                </>
-              )}
-
-              {layer && (
-                <>
-                  {legendBands(layer).map((b) => (
-                    <div key={b.label} className="flex items-center gap-2 text-xs">
-                      <span className="h-3 w-3 rounded-full shrink-0" style={{ background: b.hex }} />
-                      <span className="text-muted-foreground tabular-nums">{b.label}</span>
+                    <p className="text-[11px] text-muted-foreground pt-1">100 is the US average.</p>
+                  </>
+                )}
+  
+                {layer && (
+                  <>
+                    {legendBands(layer).map((b) => (
+                      <div key={b.label} className="flex items-center gap-2 text-xs">
+                        <span className="h-3 w-3 rounded-full shrink-0" style={{ background: b.hex }} />
+                        <span className="text-muted-foreground tabular-nums">{b.label}</span>
+                      </div>
+                    ))}
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="h-3 w-3 rounded-full shrink-0" style={{ background: NO_DATA_HEX }} />
+                      <span className="text-muted-foreground">No value</span>
                     </div>
+                    {/* The one line that stops a mostly-grey map from reading as
+                        a finding. Without it, "no data" and "nothing to worry
+                        about" look the same from across the room. */}
+                    {coverage && (
+                      <p className="text-[11px] text-muted-foreground pt-1 tabular-nums">
+                        {coverage.withValue} of {coverage.total} shown {coverage.total === 1 ? "deal has" : "deals have"} a value
+                      </p>
+                    )}
+                    <p className="text-[11px] text-muted-foreground">{layer.help}</p>
+                    {layer.source === "costar" && signalsError && (
+                      <p className="text-[11px] text-destructive">
+                        CoStar signals could not be loaded, so every pin is grey.
+                      </p>
+                    )}
+                  </>
+                )}
+  
+                {prefs.colorMode === "status" && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Pins take their pipeline status colour. The filters below control which appear.
+                  </p>
+                )}
+              </div>
+  
+              <div className="p-3 space-y-3">
+                <div className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-medium">
+                  Status filter
+                </div>
+  
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" className="flex-1 text-xs h-7"
+                    onClick={() => setPrefs({ ...prefs, visible: [...DEAL_STATUSES] })}>
+                    Show all
+                  </Button>
+                  <Button size="sm" variant="outline" className="flex-1 text-xs h-7"
+                    onClick={() => setPrefs({ ...prefs, visible: [...ACTIVE_STATUSES] })}>
+                    Active only
+                  </Button>
+                </div>
+  
+                <div className="space-y-1.5">
+                  {DEAL_STATUSES.map((s) => (
+                    <label key={s} htmlFor={"map-st-" + s}
+                      className="flex items-center gap-2 text-xs cursor-pointer py-0.5">
+                      <Checkbox id={"map-st-" + s} checked={prefs.visible.includes(s)}
+                        onCheckedChange={() => toggle(s)} disabled={!loaded} />
+                      <span className="h-3 w-3 rounded-full shrink-0" style={{ background: DEAL_STATUS_HEX[s] }} />
+                      <span className="flex-1">{s}</span>
+                      <span className="tabular-nums text-muted-foreground">{countsByStatus.get(s) ?? 0}</span>
+                    </label>
                   ))}
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="h-3 w-3 rounded-full shrink-0" style={{ background: NO_DATA_HEX }} />
-                    <span className="text-muted-foreground">No value</span>
-                  </div>
-                  {/* The one line that stops a mostly-grey map from reading as
-                      a finding. Without it, "no data" and "nothing to worry
-                      about" look the same from across the room. */}
-                  {coverage && (
-                    <p className="text-[11px] text-muted-foreground pt-1 tabular-nums">
-                      {coverage.withValue} of {coverage.total} shown {coverage.total === 1 ? "deal has" : "deals have"} a value
-                    </p>
-                  )}
-                  <p className="text-[11px] text-muted-foreground">{layer.help}</p>
-                  {layer.source === "costar" && signalsError && (
-                    <p className="text-[11px] text-destructive">
-                      CoStar signals could not be loaded, so every pin is grey.
-                    </p>
-                  )}
-                </>
-              )}
-
-              {prefs.colorMode === "status" && (
-                <p className="text-[11px] text-muted-foreground">
-                  Pins take their pipeline status colour. The filters below control which appear.
-                </p>
-              )}
-            </div>
-
-            <div className="p-3 space-y-3">
-              <div className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-medium">
-                Status filter
+                </div>
               </div>
-
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" className="flex-1 text-xs h-7"
-                  onClick={() => setPrefs({ ...prefs, visible: [...DEAL_STATUSES] })}>
-                  Show all
-                </Button>
-                <Button size="sm" variant="outline" className="flex-1 text-xs h-7"
-                  onClick={() => setPrefs({ ...prefs, visible: [...ACTIVE_STATUSES] })}>
-                  Active only
-                </Button>
-              </div>
-
-              <div className="space-y-1.5">
-                {DEAL_STATUSES.map((s) => (
-                  <label key={s} htmlFor={"map-st-" + s}
-                    className="flex items-center gap-2 text-xs cursor-pointer py-0.5">
-                    <Checkbox id={"map-st-" + s} checked={prefs.visible.includes(s)}
-                      onCheckedChange={() => toggle(s)} disabled={!loaded} />
-                    <span className="h-3 w-3 rounded-full shrink-0" style={{ background: DEAL_STATUS_HEX[s] }} />
-                    <span className="flex-1">{s}</span>
-                    <span className="tabular-nums text-muted-foreground">{countsByStatus.get(s) ?? 0}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          </aside>
-        )}
+            </aside>
+          )}
+        </div>
 
         {/* A deal with no coordinates is invisible on a map by definition, so
             the count stays on screen; the list opens over the map rather than
