@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { requireUserOrService } from "../_shared/auth.ts";
 import { resolveAtlasKey } from "../_shared/outlookKeys.ts";
+import { resolveContact, type ContactLike } from "../_shared/contactMatch.ts";
 import {
   graphFetch,
   resolveMailbox,
@@ -149,10 +150,15 @@ Deno.serve(async (req) => {
     // Load partner_contacts for email matching (shared across mailboxes)
     const { data: contacts } = await supabase
       .from("partner_contacts")
-      .select("id, email, partner_id");
+      .select("id, name, email, partner_id");
     const contactMap = new Map<string, { id: string; partner_id: string | null }>();
+    const contactsByPartner = new Map<string, ContactLike[]>();
     for (const c of contacts || []) {
       if (c.email) contactMap.set(c.email.toLowerCase(), { id: c.id, partner_id: c.partner_id });
+      if (c.partner_id) {
+        if (!contactsByPartner.has(c.partner_id)) contactsByPartner.set(c.partner_id, []);
+        contactsByPartner.get(c.partner_id)!.push({ id: c.id, name: c.name, email: c.email });
+      }
     }
 
     // domain -> set of partner_ids that have a contact on it (unambiguous ownership only)
@@ -407,7 +413,8 @@ Deno.serve(async (req) => {
         const seen = new Set(
           (prior || [])
             .map((s: any) =>
-              ((s.proposed_value?.email || s.proposed_value?.fills?.email || "") as string)
+              ((s.proposed_value?.email || s.proposed_value?.fills?.email
+                || s.proposed_value?.changes?.email?.new || "") as string)
                 .toString().toLowerCase().trim())
             .filter(Boolean),
         );
@@ -418,6 +425,40 @@ Deno.serve(async (req) => {
           const name = c.display_name || nameFromLocalPart(c.email);
           const nameSource = c.display_name ? "header" : (name ? "inferred" : "unknown");
           const role = c.is_sender && c.body_text ? titleFromSignature(c.body_text, name) : null;
+
+          // Someone already on file under this name, writing from a new firm address: their
+          // email changed. Propose replacing it on the existing row rather than adding a twin.
+          // Header names only — a name guessed from the local part is too weak to overwrite with.
+          const domain = c.email.split("@")[1];
+          const existing = nameSource === "header"
+            ? resolveContact(contactsByPartner.get(c.partner_id) || [], { name, email: c.email }, [domain])
+            : { kind: "none" as const };
+          if (existing.kind === "name") {
+            const who = existing.contact.name || name;
+            const old = existing.contact.email;
+            rows.push({
+              partner_id: c.partner_id,
+              type: "contact_update",
+              field: `contact:${existing.contact.id}`,
+              current_value: { name: existing.contact.name, email: old },
+              proposed_value: {
+                contact_id: existing.contact.id,
+                contact_name: who,
+                ...(old
+                  ? { changes: { email: { old, new: c.email } } }
+                  : { fills: { email: c.email } }),
+                detected_by: "sync",
+              },
+              summary: old
+                ? `Update ${who} — replace email ${old} → ${c.email}`
+                : `Update ${who} — fill email ${c.email}`,
+              rationale: `${who} is on file ${old ? `as <${old}>` : "with no email"}, and was seen ${c.is_sender ? "sending" : "on to/cc"} from <${c.email}> in "${c.subject || "(no subject)"}".`,
+              evidence: { message_ids: [c.message_id] },
+              confidence: 0.8,
+              status: "pending",
+            });
+            continue;
+          }
 
           rows.push({
             partner_id: c.partner_id,

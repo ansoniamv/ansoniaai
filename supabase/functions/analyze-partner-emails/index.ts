@@ -5,6 +5,7 @@ import { completeJSON } from "../_shared/ai.ts";
 import { isAnthropicConfigured } from "../_shared/anthropic.ts";
 import { ATLAS_MODEL } from "../_shared/featureModels.ts";
 import { requireUserOrService } from "../_shared/auth.ts";
+import { normalizeNameToken, resolveContact, splitFullName } from "../_shared/contactMatch.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -33,84 +34,10 @@ const MIN_CONF: Record<string, number> = {
 const LOCKED_MIN_CONF = 0.8;
 const CONTACT_UPDATE_CHANGE_CONF = 0.8; // higher bar when overwriting an existing non-empty value
 
-// --- Name / nickname matching for contact resolution ---
-const NICKNAMES: Record<string, string[]> = {
-  sarah: ["sara","sadie"], sara: ["sarah"],
-  robert: ["bob","rob","bobby","robbie"], bob: ["robert"], rob: ["robert"],
-  william: ["will","bill","billy","liam"], bill: ["william"], will: ["william"],
-  michael: ["mike","mick","mickey"], mike: ["michael"],
-  richard: ["rick","dick","rich","richie"], rick: ["richard"],
-  thomas: ["tom","tommy"], tom: ["thomas"],
-  james: ["jim","jimmy","jamie"], jim: ["james"],
-  john: ["johnny","jack","jonathan"], jack: ["john","jackson"],
-  charles: ["charlie","chuck"], chuck: ["charles"], charlie: ["charles"],
-  daniel: ["dan","danny"], dan: ["daniel"],
-  david: ["dave","davey"], dave: ["david"],
-  christopher: ["chris"], chris: ["christopher","christina","christine"],
-  matthew: ["matt","matty"], matt: ["matthew"],
-  andrew: ["andy","drew"], andy: ["andrew"],
-  anthony: ["tony"], tony: ["anthony"],
-  joseph: ["joe","joey"], joe: ["joseph"],
-  benjamin: ["ben","benji"], ben: ["benjamin"],
-  nicholas: ["nick","nicky"], nick: ["nicholas"],
-  alexander: ["alex","xander"], alex: ["alexander","alexandra","alexandria"],
-  samuel: ["sam","sammy"], sam: ["samuel","samantha"],
-  elizabeth: ["liz","beth","betsy","eliza","lizzy"], liz: ["elizabeth"], beth: ["elizabeth"],
-  katherine: ["kate","katie","kathy","kat"], kate: ["katherine","kathryn"], katie: ["katherine","kathryn"],
-  jennifer: ["jen","jenny"], jen: ["jennifer"],
-  margaret: ["maggie","meg","peggy"], maggie: ["margaret"],
-  patricia: ["pat","patty","tricia"], pat: ["patrick","patricia"],
-  patrick: ["pat","paddy"],
-  jonathan: ["jon","jonny","john"], jon: ["jonathan"],
-  edward: ["ed","eddie","ted"], ed: ["edward"], ted: ["edward","theodore"],
-  theodore: ["theo","ted","teddy"],
-};
-
-function normalizeNameToken(s: string): string {
-  return s.toLowerCase().normalize("NFKD").replace(/[^\p{L}]/gu, "");
-}
-function splitFullName(raw: string | null | undefined): { first: string; last: string } | null {
-  if (!raw) return null;
-  const cleaned = String(raw)
-    .replace(/["'`]/g, "")
-    .replace(/\b(mr|mrs|ms|miss|dr|prof|sir|jr|sr|ii|iii|iv|esq|phd|md|cfa)\.?\b/gi, "")
-    .replace(/\s+/g, " ").trim();
-  if (!cleaned) return null;
-  const parts = cleaned.split(/\s+/).map(p => p.replace(/\.$/, "")).filter(p => p && !/^[A-Za-z]$/.test(p)); // drop single-letter middle initials
-  if (parts.length === 0) return null;
-  const first = normalizeNameToken(parts[0]);
-  const last = normalizeNameToken(parts[parts.length - 1]);
-  if (!first || !last) return null;
-  return { first, last };
-}
-function firstNameMatches(a: string, b: string): boolean {
-  if (!a || !b) return false;
-  if (a === b) return true;
-  // Explicit nickname table only — no bare prefix rule (e.g. "danielle" must not match "dan").
-  const aliases = new Set([...(NICKNAMES[a] || []), ...(NICKNAMES[b] || [])]);
-  return aliases.has(a) || aliases.has(b);
-}
 type ContactRow = {
   id: string; name: string | null; email: string | null; phone: string | null;
   role: string | null; linkedin_url: string | null; firm_location: string | null;
 };
-function findContactByEmail(contacts: ContactRow[], email: string | null | undefined): ContactRow | null {
-  if (!email) return null;
-  const e = email.toLowerCase().trim();
-  return contacts.find(c => c.email && c.email.toLowerCase().trim() === e) || null;
-}
-function findContactByName(contacts: ContactRow[], name: string | null | undefined): ContactRow | null {
-  const parsed = splitFullName(name);
-  if (!parsed) return null;
-  const candidates = contacts
-    .map(c => ({ c, p: splitFullName(c.name) }))
-    .filter(x => x.p && x.p.last === parsed.last && firstNameMatches(x.p.first, parsed.first));
-  if (candidates.length === 1) return candidates[0].c;
-  // If multiple last-name matches, prefer exact first-name match
-  const exact = candidates.filter(x => x.p!.first === parsed.first);
-  if (exact.length === 1) return exact[0].c;
-  return null;
-}
 
 function stripHtml(html: string | null | undefined): string {
   if (!html) return "";
@@ -860,6 +787,7 @@ CONTACT proposals (from email signature blocks, headers, or explicit "loop in ..
   - proposed_value: { "contact_id": "<uuid of existing contact>", "contact_name": "<display name>", "fills": { field?: value }, "changes": { field: { "old": <current>, "new": <new> } } }
   - Put a field in "fills" ONLY when the existing value is null/empty.
   - Put a field in "changes" ONLY when the existing value differs; require confidence >= 0.8.
+  - A matched person writing from a DIFFERENT address than the one on file is an email change, not a new contact: "changes": { "email": { "old": <stored email>, "new": <address they wrote from> } }.
 - Use "contact_add" ONLY for a NEW person who plainly works at this partner firm AND does NOT match any existing contact.
   - proposed_value: { "name": "<full name>", "email"?, "phone"?, "role"?, "linkedin_url"?, "firm_location"? } — populate every field you can read from the signature; a bare name is low value.
 - Firm domains for this partner: ${firmDomainsArr.length ? firmDomainsArr.join(", ") : "none known"}.
@@ -954,9 +882,11 @@ Notes on noise reduction:
             // Ignore anyone with an Ansonia domain — never a partner contact
             if (proposedEmail && proposedEmail.endsWith("@ansoniaproperties.com")) continue;
 
-            // STRONG match = same email (case-insensitive). Name-only similarity is NOT strong enough.
-            const byEmail = findContactByEmail(partnerContacts, proposedEmail);
-            const byName = !byEmail ? findContactByName(partnerContacts, proposedName) : null;
+            // Same email → that contact. Otherwise the same name with a firm-domain address is the
+            // same person whose email changed: update the row, never add a second one.
+            const resolved = resolveContact(partnerContacts, { name: proposedName, email: proposedEmail }, firmDomains);
+            const matchedContact = resolved.kind === "email" || resolved.kind === "name" ? resolved.contact : null;
+            const byName = resolved.kind === "lookalike" ? resolved.contact : null;
 
             // Assemble candidate new values from either shape
             const assembleProposals = (): Record<string, string> => {
@@ -973,17 +903,17 @@ Notes on noise reduction:
               return proposals;
             };
 
-            if (byEmail) {
-              // Strong identity match — safe to coerce into a contact_update on this row.
-              const matched = byEmail;
+            if (matchedContact) {
+              // Identity match — coerce into a contact_update on this row.
+              const matched = matchedContact;
               const current: Record<string, any> = {
                 email: matched.email, phone: matched.phone, role: matched.role,
                 linkedin_url: matched.linkedin_url, firm_location: matched.firm_location,
               };
               const proposals = assembleProposals();
-              // Identity guard: never change email to a different address on an existing row.
-              // (byEmail matched, so proposed email — if any — already equals current; drop it defensively.)
-              if (proposals.email && current.email && proposals.email !== String(current.email).trim().toLowerCase()) {
+              // Matched BY email: the proposed email already equals current; drop any stray one defensively.
+              // Matched by name: a different address is the point — it lands in changes.email and replaces the old one.
+              if (resolved.kind === "email" && proposals.email && current.email && proposals.email !== String(current.email).trim().toLowerCase()) {
                 delete proposals.email;
               }
               const fills: Record<string, string> = {};
@@ -996,12 +926,13 @@ Notes on noise reduction:
                 } else {
                   const curNorm = String(cur).trim().toLowerCase();
                   const newNorm = String(newVal).trim().toLowerCase();
-                  // Non-identity field changes are allowed; identity (email) is guarded above.
                   if (curNorm !== newNorm) changes[k] = { old: cur, new: newVal };
                 }
               }
               if (Object.keys(fills).length === 0 && Object.keys(changes).length === 0) continue;
 
+              // An "Add …" summary written for the add shape would misdescribe the update.
+              const wasAdd = s.type === "contact_add";
               s.type = "contact_update";
               s.field = `contact:${matched.id}`;
               s.current_value = { name: matched.name, ...current };
@@ -1011,16 +942,18 @@ Notes on noise reduction:
                 ...(Object.keys(fills).length ? { fills } : {}),
                 ...(Object.keys(changes).length ? { changes } : {}),
               };
-              if (!s.summary) {
+              if (!s.summary || wasAdd || changes.email) {
                 const parts: string[] = [];
+                if (changes.email) parts.push(`replace email ${changes.email.old} → ${changes.email.new}`);
+                const otherChanges = Object.keys(changes).filter(k => k !== "email");
                 if (Object.keys(fills).length) parts.push(`fill ${Object.keys(fills).join(", ")}`);
-                if (Object.keys(changes).length) parts.push(`change ${Object.keys(changes).join(", ")}`);
+                if (otherChanges.length) parts.push(`change ${otherChanges.join(", ")}`);
                 s.summary = `Update ${matched.name || "contact"} — ${parts.join("; ")}`;
               }
             } else if (s.type === "contact_update") {
-              // AI proposed an update but no existing contact matched by email.
-              // If a name lookalike exists, this is almost certainly a different person —
-              // convert to a contact_add (when we have enough info) instead of overwriting anyone.
+              // AI proposed an update but nobody matched by email, and either nobody matched by
+              // name or the namesake's new address is off the firm's domains — not safe to
+              // overwrite. Convert to a contact_add (when we have enough info) for review.
               if (!splitFullName(proposedName)) continue;
               const addPv: Record<string, any> = { name: proposedName };
               const proposals = assembleProposals();
@@ -1029,19 +962,15 @@ Notes on noise reduction:
               s.proposed_value = addPv;
               s.field = `contact_add:${normalizeNameToken(proposedName)}`;
               if (byName) {
-                s.summary = `Add ${proposedName} — possible duplicate of ${byName.name || "existing contact"} (different email)`;
+                s.summary = `Add ${proposedName} — possible duplicate of ${byName.name || "existing contact"} (email off the firm's domain)`;
               }
             } else {
               // contact_add path. Require a plausible full name (first + last).
               if (!splitFullName(proposedName)) continue;
               s.field = `contact_add:${normalizeNameToken(proposedName)}`;
-              // Name-only lookalike with a DIFFERENT (or missing-on-existing) email → keep as add, flag for reviewer.
+              // Namesake whose address is off the firm's domains → keep as add, flag for reviewer.
               if (byName) {
-                const existingEmail = byName.email ? byName.email.toLowerCase().trim() : null;
-                const looksDifferent = !proposedEmail || !existingEmail || proposedEmail !== existingEmail;
-                if (looksDifferent) {
-                  s.summary = `Add ${proposedName}${proposedEmail ? ` <${proposedEmail}>` : ""} — possible duplicate of ${byName.name || "existing contact"}; human review`;
-                }
+                s.summary = `Add ${proposedName}${proposedEmail ? ` <${proposedEmail}>` : ""} — possible duplicate of ${byName.name || "existing contact"}; human review`;
               }
             }
           }
@@ -1102,7 +1031,9 @@ Notes on noise reduction:
         if (conf < gate) continue;
 
         // Require a grounded quote for every AI-proposed change (recipient harvester is exempt — it's structural).
-        const isRecipientHarvest = s.type === "contact_add" && s.rationale?.startsWith("Appeared as from/to/cc");
+        // A harvested address routed onto an existing contact (email replacement) is still structural.
+        const isRecipientHarvest = (s.type === "contact_add" || s.type === "contact_update")
+          && !!s.rationale?.startsWith("Appeared as from/to/cc");
         const quote = (s.evidence as any)?.quote;
         if (!isRecipientHarvest && (!quote || typeof quote !== "string" || quote.trim().length < 8)) continue;
 
