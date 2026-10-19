@@ -1,6 +1,41 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { domainOfEmail, resolveContact } from "../../supabase/functions/_shared/contactMatch";
+
+const CONTACT_FIELDS = ["email","phone","role","linkedin_url","firm_location"] as const;
+
+/**
+ * Apply a contact_add. If the person is already on file for this partner — same email,
+ * or same name writing from a firm-domain address — update that row instead of inserting
+ * a twin: the new email replaces the stored one, and the other proposed fields overwrite.
+ * Suggestions filed before the analyzer learned this ("possible duplicate … different
+ * email") arrive here as adds, so the guard has to live at apply time too.
+ */
+async function addOrReplaceContact(partnerId: string | null, pv: any): Promise<{ error?: string }> {
+  const proposed: Record<string, string> = {};
+  for (const f of CONTACT_FIELDS) {
+    if (typeof pv[f] === "string" && pv[f].trim()) proposed[f] = f === "email" ? pv[f].trim().toLowerCase() : pv[f].trim();
+  }
+  let existing: { id: string; name: string | null; email: string | null }[] = [];
+  if (partnerId) {
+    const { data, error: lErr } = await (supabase as any)
+      .from("partner_contacts").select("id, name, email").eq("partner_id", partnerId);
+    if (lErr) return { error: lErr.message };
+    existing = data || [];
+  }
+  const firmDomains = existing
+    .map((c) => domainOfEmail(c.email))
+    .filter((d): d is string => !!d && d !== "ansoniaproperties.com");
+  const match = resolveContact(existing, { name: pv.name, email: proposed.email }, firmDomains);
+  if (match.kind === "email" || match.kind === "name") {
+    if (Object.keys(proposed).length === 0) return {};
+    const { error } = await (supabase as any).from("partner_contacts").update(proposed).eq("id", match.contact.id);
+    return error ? { error: error.message } : {};
+  }
+  const { error } = await (supabase as any).from("partner_contacts").insert({ partner_id: partnerId, name: pv.name, ...proposed });
+  return error ? { error: error.message } : {};
+}
 
 export type PartnerSuggestion = {
   id: string;
@@ -410,12 +445,8 @@ export function useApplySuggestion() {
       } else if (type === "contact_add") {
         const pv: any = proposedValue || {};
         if (!pv.name) return { ok: false, reason: "error", message: "name required" };
-        const insertRow: any = { partner_id: suggestion.partner_id, name: pv.name };
-        for (const f of ["email","phone","role","linkedin_url","firm_location"]) {
-          if (typeof pv[f] === "string" && pv[f].trim()) insertRow[f] = pv[f].trim();
-        }
-        const { error } = await (supabase as any).from("partner_contacts").insert(insertRow);
-        if (error) return { ok: false, reason: "error", message: error.message };
+        const { error } = await addOrReplaceContact(suggestion.partner_id, pv);
+        if (error) return { ok: false, reason: "error", message: error };
       } else if (type === "contact_update") {
         const pv: any = proposedValue || {};
         const contactId: string | undefined = pv.contact_id;
@@ -645,12 +676,8 @@ async function applyOne(suggestion: PartnerSuggestion, reviewer: string | null):
   } else if (type === "contact_add") {
     const pv: any = proposedValue || {};
     if (!pv.name) return { ok: false, message: "name required" };
-    const row: any = { partner_id: suggestion.partner_id, name: pv.name };
-    for (const f of ["email","phone","role","linkedin_url","firm_location"]) {
-      if (typeof pv[f] === "string" && pv[f].trim()) row[f] = pv[f].trim();
-    }
-    const { error } = await (supabase as any).from("partner_contacts").insert(row);
-    if (error) return { ok: false, message: error.message };
+    const { error } = await addOrReplaceContact(suggestion.partner_id, pv);
+    if (error) return { ok: false, message: error };
   } else if (type === "contact_update") {
     const pv: any = proposedValue || {};
     if (!pv.contact_id) return { ok: false, message: "contact_id required" };
