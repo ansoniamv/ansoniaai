@@ -2,10 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { ACTIVE_STATUSES, DEAL_STATUSES, type DealStatus } from "@/lib/dealStatus";
 import { GRADED_BY_ID, MAP_PREF_KEY, type ColorMode } from "@/lib/mapLayers";
+import { AREA_BY_ID, type AreaLayerId } from "@/lib/censusLayers";
 
 export type MapPrefs = {
   visible: DealStatus[];
   colorMode: ColorMode;
+  /** Census layer shading the whole map under the pins, or none. */
+  areaLayer: AreaLayerId | null;
 };
 
 /**
@@ -17,6 +20,7 @@ export type MapPrefs = {
 export const DEFAULT_PREFS: MapPrefs = {
   visible: DEAL_STATUSES.filter((s) => s !== "Pass"),
   colorMode: "status",
+  areaLayer: null,
 };
 
 function sanitize(raw: unknown): MapPrefs {
@@ -35,7 +39,11 @@ function sanitize(raw: unknown): MapPrefs {
     saved === "status" || saved === "crime" || (saved != null && GRADED_BY_ID.has(saved as ColorMode))
       ? (saved as ColorMode)
       : "status";
-  return { visible, colorMode };
+  // Same rule for the area layer: an id that no longer resolves means none,
+  // not a layer that silently fetches nothing.
+  const area = v.areaLayer as string | null | undefined;
+  const areaLayer = area != null && AREA_BY_ID.has(area as AreaLayerId) ? (area as AreaLayerId) : null;
+  return { visible, colorMode, areaLayer };
 }
 
 /**
