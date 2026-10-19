@@ -19,6 +19,7 @@ export function SubmarketPicker({
   state,
   msa,
   disabled,
+  children,
 }: {
   value: string | null;
   onChange: (code: string | null) => void;
@@ -26,6 +27,8 @@ export function SubmarketPicker({
   state?: string | null;
   msa?: string | null;
   disabled?: boolean;
+  /** Replaces the default combobox button as the popover trigger. */
+  children?: React.ReactElement;
 }) {
   const [open, setOpen] = useState(false);
   const { data: all = [], isLoading } = useAllSignals(COMBINED);
@@ -70,20 +73,21 @@ export function SubmarketPicker({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          role="combobox"
-          aria-expanded={open}
-          disabled={disabled || isLoading}
-          className="justify-between font-normal w-full max-w-md"
-        >
-          <span className="truncate">
-            {selected?.geography_name ?? (value ? value : isLoading ? "Loading submarkets…" : "Pick CoStar submarket…")}
-          </span>
-          <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
-        </Button>
+      <PopoverTrigger asChild disabled={disabled || isLoading}>
+        {children ?? (
+          <Button
+            variant="outline"
+            size="sm"
+            role="combobox"
+            aria-expanded={open}
+            className="justify-between font-normal w-full max-w-md"
+          >
+            <span className="truncate">
+              {selected?.geography_name ?? (value ? value : isLoading ? "Loading submarkets…" : "Pick CoStar submarket…")}
+            </span>
+            <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+          </Button>
+        )}
       </PopoverTrigger>
       <PopoverContent className="w-[min(32rem,calc(100vw-2rem))] p-0" align="start">
         <Command>

@@ -1,7 +1,5 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 import { Info, Loader2 } from "lucide-react";
 import {
   Bar,
@@ -16,7 +14,6 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SubmarketPicker } from "@/components/SubmarketPicker";
@@ -29,7 +26,7 @@ import {
   useSubmarketSignals,
   type SubmarketSignals,
 } from "@/lib/marketData";
-import { persistDealScore } from "@/lib/persistDealScore";
+import { useAssignSubmarket } from "@/hooks/useAssignSubmarket";
 import { cn } from "@/lib/utils";
 
 type DealLike = {
@@ -49,41 +46,15 @@ const fmtUnits = (v: number | null | undefined) => (v == null ? "—" : Math.rou
  * positioning (rent gap to comps) are separate legs and aren't in this panel.
  */
 export function SubmarketSignalsPanel({ deal }: { deal: DealLike }) {
-  const queryClient = useQueryClient();
   const code = deal.costar_submarket_code ?? null;
   const [scope, setScope] = useState<string>(COMBINED);
-  const [saving, setSaving] = useState(false);
+  const { assign, saving } = useAssignSubmarket(deal.id);
   const { data: current, isLoading: loadingImport } = useCurrentImport();
   const { data: rows = [], isLoading: loadingSignals } = useSubmarketSignals(code);
   const { data: series = [] } = useSubmarketSeries(code, current?.id);
 
   const scopes = rows.map((r) => r.scope!).sort((a, b) => (a === COMBINED ? -1 : b === COMBINED ? 1 : a.localeCompare(b)));
   const s: SubmarketSignals | undefined = rows.find((r) => r.scope === scope) ?? rows.find((r) => r.scope === COMBINED);
-
-  const assign = async (next: string | null) => {
-    setSaving(true);
-    try {
-      const { data: fresh, error } = await supabase
-        .from("deals")
-        .update({ costar_submarket_code: next })
-        .eq("id", deal.id)
-        .select("*")
-        .single();
-      if (error) throw error;
-      // Supply feeds the buybox score, so rescore on the new figure.
-      try {
-        await persistDealScore(fresh);
-      } catch (e) {
-        console.error("[SubmarketSignalsPanel] rescore failed", e);
-      }
-      queryClient.invalidateQueries({ queryKey: ["deals"] });
-      toast.success(next ? "Submarket set; supply now from CoStar" : "Submarket cleared");
-    } catch (e) {
-      toast.error("Couldn't save submarket: " + (e as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  };
 
   if (loadingImport) return null;
 

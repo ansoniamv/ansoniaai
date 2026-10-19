@@ -4,12 +4,23 @@ import { AlertTriangle, Check, Info, Loader2, Minus, X } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
+import { SubmarketPicker } from "@/components/SubmarketPicker";
+import { useAssignSubmarket } from "@/hooks/useAssignSubmarket";
 import { usePipelineRentScores } from "@/hooks/usePipelineRentScores";
-import { useCurrentImport, useSubmarketSeries } from "@/lib/marketData";
+import { COMBINED, useCurrentImport, useSubmarketSeries, useSubmarketSignals } from "@/lib/marketData";
 import { forecastCheck, LEGS, type DealScore, type Factor, type Leg } from "@/lib/rentGrowthScore";
 import { cn } from "@/lib/utils";
 
-type DealLike = { id: string; costar_submarket_code?: string | null; unit_count?: number | null; vintage_year?: number | null };
+type DealLike = {
+  id: string;
+  city?: string | null;
+  state?: string | null;
+  msa?: string | null;
+  costar_submarket_code?: string | null;
+  unit_count?: number | null;
+  vintage_year?: number | null;
+};
 
 const scoreTone = (v: number | null) =>
   v == null ? "text-muted-foreground" : v >= 60 ? "text-emerald-600" : v < 40 ? "text-amber-600" : "text-foreground";
@@ -70,6 +81,7 @@ export function AiScoreTab({ deal }: { deal: DealLike }) {
               </>
             }
           />
+          <SubmarketLine deal={deal} />
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {LEGS.map((l) => (
               <LegCard key={l.key} label={l.label} horizon={l.horizon} basis={l.basis} leg={score.legs[l.key]} />
@@ -104,7 +116,7 @@ export function AiScoreTab({ deal }: { deal: DealLike }) {
                   </ul>
                   {l.key === "cyclical" && !deal.costar_submarket_code && (
                     <p className="text-xs text-muted-foreground mt-2">
-                      Pick the CoStar submarket in Submarket Signals on the Overview tab to score this leg.
+                      Pick the CoStar submarket above to score this leg.
                     </p>
                   )}
                 </CardContent>
@@ -233,6 +245,31 @@ export function AiScoreTab({ deal }: { deal: DealLike }) {
 }
 
 // ---------------------------------------------------------------- pieces
+
+/** The deal's CoStar submarket, editable here so the cyclical leg can be fixed without leaving the tab. */
+function SubmarketLine({ deal }: { deal: DealLike }) {
+  const code = deal.costar_submarket_code ?? null;
+  const { assign, saving } = useAssignSubmarket(deal.id);
+  const { data: rows = [], isLoading } = useSubmarketSignals(code);
+  const name = (rows.find((r) => r.scope === COMBINED) ?? rows[0])?.geography_name ?? null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-3 text-sm">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">CoStar submarket</span>
+      {code ? (
+        <span className="font-medium">{name ?? (isLoading ? "…" : code)}</span>
+      ) : (
+        <span className="text-muted-foreground">None picked</span>
+      )}
+      <SubmarketPicker value={code} onChange={assign} city={deal.city} state={deal.state} msa={deal.msa} disabled={saving}>
+        <Button variant="link" size="sm" className="h-auto p-0 text-xs">
+          {code ? "Edit sub-market" : "Pick sub-market"}
+        </Button>
+      </SubmarketPicker>
+      {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+    </div>
+  );
+}
 
 function Header({ title, right }: { title: string; right?: React.ReactNode }) {
   return (
