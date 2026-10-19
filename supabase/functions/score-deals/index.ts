@@ -7,7 +7,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage, logAiFailure } from "../_shared/logUsage.ts";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 import { computeDealScore } from "../_shared/dealScoreEngine.ts";
-import { capNote, capTier, evaluateBuyBox, inboxBuyBoxDeal } from "../_shared/buyBoxRules.ts";
+import { applyBuyBox, buyBoxNote, evaluateBuyBox, inboxBuyBoxDeal, type Flag } from "../_shared/buyBoxRules.ts";
 import { effectiveFeedback, LEARNING_ACTIONS, FEEDBACK_SCAN_LIMIT } from "../_shared/feedbackLearning.ts";
 
 // One LLM call is issued per deal, so the batch must be bounded server-side.
@@ -24,6 +24,7 @@ async function generateRationale(
   deal: any,
   finalScore: number,
   breakdown: any[],
+  flags: Flag[],
   thesis: string,
   learnedStrategy: string,
   examples: Array<{ category: string | null; reason: string | null; deal: any }>,
@@ -45,6 +46,7 @@ async function generateRationale(
     asking_price: deal.asking_price,
     fit_score: finalScore,
     pillars: breakdown.map((p) => ({ name: p.name, weight: p.weight, score: p.score })),
+    buybox_flags: flags.filter((f) => f.verdict !== "no-data").map((f) => `${f.verdict.toUpperCase()} ${f.rule}: ${f.detail}`),
     highest_pillar: highest?.name,
     lowest_pillar: lowest?.name,
   };
@@ -57,7 +59,7 @@ async function generateRationale(
         .map((e, i) => `${i + 1}. [${e.category ?? "uncategorized"}] ${e.reason ?? ""}`)
         .join("\n")}`
     : "";
-  const system = "You are an investment analyst at Ansonia Properties triaging multifamily deals at the TOP of the funnel. This is a FIT signal, not an underwriting verdict. Reason ONLY about market, submarket demand, demographics, asset type, vintage, size, location, and value-add potential. NEVER mention or penalize for missing/absent deal economics, pricing, asking price, purchase price, cap rate, returns, IRR, yield, rent-to-market gap, or underwriting data — those are evaluated later in the pipeline, not here. Write a single concise 2-sentence rationale (<=55 words total) explaining the fit score against the thesis. Reference the strongest and weakest pillar by name. No preamble, no markdown, no bullet points.";
+  const system = "You are an investment analyst at Ansonia Properties triaging multifamily deals at the TOP of the funnel. This is a FIT signal, not an underwriting verdict. Reason ONLY about market, submarket demand, demographics, asset type, vintage, size, location, and value-add potential. NEVER mention or penalize for missing/absent deal economics, pricing, asking price, purchase price, cap rate, returns, IRR, yield, rent-to-market gap, or underwriting data — those are evaluated later in the pipeline, not here. The buybox_flags are Ansonia's hard criteria and override the pillar scores: a RED or YELLOW flag (outside target markets, too few units, wrong vintage, not value-add) is the headline, and a deal outside the target markets must never be described as a strong fit. Write a single concise 2-sentence rationale (<=55 words total) explaining the fit score against the thesis. Lead with the most serious buybox flag if there is one, then reference the strongest and weakest pillar by name. No preamble, no markdown, no bullet points.";
   const user = `ANSONIA INVESTMENT THESIS:\n${thesis || "(no thesis configured)"}${strategyBlock}${examplesBlock}\n\nDEAL + PILLAR SCORES:\n${JSON.stringify(summary, null, 2)}\n\nWrite the 2-sentence rationale now.`;
   try {
     // Sonnet 5 via DEAL_INBOX_MODEL, no gateway fallback — see _shared/ai.ts.
@@ -111,21 +113,23 @@ async function scoreOne(
 ) {
   // Arithmetic lives in _shared/dealScoreEngine so it can be unit tested. Null
   // inputs are excluded and the weights renormalised at both levels there.
-  const { breakdown, finalScore, tier: scoreTier, scoredPillarCount } = computeDealScore(deal, pillars, signals);
+  const { breakdown, finalScore } = computeDealScore(deal, pillars, signals);
   const hasEnoughSignal = finalScore != null;
-  // The score ranks; the buybox sets the ceiling. See capTier in _shared/buyBoxRules.
-  const cap = capTier(scoreTier, evaluateBuyBox(inboxBuyBoxDeal(deal)));
-  const tier = cap.tier;
+  // The pillars rank; the buybox caps and adjusts the number itself, so an
+  // out-of-market deal can never read as a 100. See applyBuyBox in _shared/buyBoxRules.
+  const flags = evaluateBuyBox(inboxBuyBoxDeal(deal));
+  const box = applyBuyBox(finalScore, flags);
+  const tier = box.tier;
   const rationale = hasEnoughSignal
-    ? await generateRationale(deal, finalScore as number, breakdown, thesis, learnedStrategy, examples, { supabase })
+    ? await generateRationale(deal, box.score as number, breakdown, flags, thesis, learnedStrategy, examples, { supabase })
     : { text: null, error: null };
-  // The cap goes first on the card, so a Maybe with a glowing rationale says why.
-  const fitRationale = cap.capped && tier
-    ? [capNote(tier, cap.reasons), rationale.text].filter(Boolean).join(" ")
+  // The buybox note goes first on the card, so a Maybe with a glowing rationale says why.
+  const fitRationale = box.adjusted && tier
+    ? [buyBoxNote(box), rationale.text].filter(Boolean).join(" ")
     : rationale.text;
 
   const { error: updErr } = await supabase.from("inbox_deals").update({
-    fit_score: finalScore,
+    fit_score: box.score,
     fit_tier: tier,
     fit_rationale: fitRationale,
     // Success clears a previous failure; a failure records why so the card can
