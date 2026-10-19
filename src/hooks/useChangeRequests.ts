@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useId } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -41,6 +41,10 @@ const QK = ["roadmap_change_requests"] as const;
 export function useChangeRequests() {
   const qc = useQueryClient();
   const { user } = useAuth();
+  // supabase.channel() returns the existing channel when the name is taken, and adding
+  // .on() to an already-subscribed channel throws. The hook mounts several times on
+  // /roadmap (header dialog, panel, panel dialog), so each instance needs its own name.
+  const channelId = useId();
 
   const query = useQuery({
     queryKey: QK,
@@ -56,7 +60,7 @@ export function useChangeRequests() {
 
   useEffect(() => {
     const channel = supabase
-      .channel("roadmap_change_requests_rt")
+      .channel(`roadmap_change_requests_rt:${channelId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "roadmap_change_requests" },
@@ -66,7 +70,7 @@ export function useChangeRequests() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [qc]);
+  }, [qc, channelId]);
 
   const submitRequest = useMutation({
     mutationFn: async (input: ChangeRequestInput) => {
