@@ -13,6 +13,9 @@ import { useDealCrime, type DealCrime } from "@/hooks/useDealCrime";
 import { useMapPrefs } from "@/hooks/useMapPrefs";
 import { searchDealsByName } from "@/lib/dealSearch";
 import { useMapSignals, type MapSignal } from "@/lib/marketData";
+import { useCensusAreas } from "@/hooks/useCensusAreas";
+import { AREA_BY_ID } from "@/lib/censusLayers";
+import { CensusAreaControls } from "@/components/map/CensusAreaControls";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -286,6 +289,9 @@ export default function PipelineMapPage() {
     () => located.filter((d) => prefs.visible.includes(getStatus(d))),
     [located, prefs.visible],
   );
+
+  const areaLayer = prefs.areaLayer ? AREA_BY_ID.get(prefs.areaLayer) : undefined;
+  const areas = useCensusAreas(map.current, ready, areaLayer, isDark);
 
   /** The active layer, or undefined for the two categorical modes. */
   const layer = GRADED_BY_ID.get(prefs.colorMode);
@@ -686,10 +692,20 @@ export default function PipelineMapPage() {
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
-  
+
+              <CensusAreaControls
+                value={prefs.areaLayer}
+                onChange={(id) => setPrefs({ ...prefs, areaLayer: id })}
+                state={areas}
+                disabled={!loaded}
+              />
+
               {/* One layer at a time, so a pin's colour always has a single
                   meaning. Radios rather than checkboxes for exactly that reason. */}
               <div className="p-3 space-y-3 border-b border-hairline">
+                <div className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-medium">
+                  Colour pins by
+                </div>
                 {GROUP_ORDER.map((group) => {
                   const rows = group === "Deal"
                     ? [{ id: "status" as LayerId, label: "Status" }, { id: "crime" as LayerId, label: "Crime index" }]
