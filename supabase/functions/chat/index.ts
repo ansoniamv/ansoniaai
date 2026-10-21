@@ -136,11 +136,7 @@ You have two jobs, and you should infer which one the user needs:
 
 - **Outlook (\`/outlook\`)** — connected email for deal and partner correspondence.
 
-- **Roadmap (\`/roadmap\`)** — product roadmap and status.
-
-- **API Status (\`/api-status\`)** — health of connected data sources.
-
-- **Admin → Users / Connectors** — admin-only user and integration management.
+- **Admin → Users / Connectors / Warmth Import / Roadmap / API Status** — admin-only: user and integration management, partner warmth import, the product roadmap and change-request queue (\`/roadmap\`), and health of connected data sources (\`/api-status\`). Anyone can still send a change request from the header button.
 
 ## Key terms (the glossary new users need)
 
