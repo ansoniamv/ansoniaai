@@ -25,9 +25,19 @@ export const MONTHLY_BUDGET_USD = Number(Deno.env.get("AI_MONTHLY_BUDGET_USD") ?
  */
 export type CallPriority = "background" | "interactive";
 
-/** Functions whose spend is exempt from the DAILY cap (still counts monthly). */
-const DAILY_EXEMPT = (Deno.env.get("AI_DAILY_EXEMPT_FUNCTIONS") ?? "")
-  .split(",").map((s) => s.trim()).filter(Boolean);
+/**
+ * Functions whose spend is exempt from the DAILY cap (still counts monthly).
+ *
+ * parse-deal-document is built in rather than left to the env var: it is
+ * interactive, so the day cap never refuses it, but its spend still counted
+ * toward the day total — a few uploads (about $0.09 each) were enough to push
+ * the inbox summaries over the cap and pause them for the rest of the day.
+ */
+const DAILY_EXEMPT = [
+  "parse-deal-document",
+  ...(Deno.env.get("AI_DAILY_EXEMPT_FUNCTIONS") ?? "")
+    .split(",").map((s) => s.trim()).filter(Boolean),
+];
 
 export class BudgetExceededError extends Error {
   constructor(
