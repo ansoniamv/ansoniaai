@@ -33,6 +33,18 @@ export function supportsEffort(model: string): boolean {
   return hit ? hit.effort : true;
 }
 
+/**
+ * Models that 400 on thinking: {type: "disabled"} — thinking is always on and
+ * effort is the only control. Sonnet 5, Opus 5 (at effort high or below) and
+ * Haiku accept it.
+ */
+const ALWAYS_THINKING_PREFIXES = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-", "claude-mythos-"];
+
+/** True when the model accepts thinking: {type: "disabled"}. */
+export function supportsDisabledThinking(model: string): boolean {
+  return !ALWAYS_THINKING_PREFIXES.some((p) => model.startsWith(p));
+}
+
 const API_URL = "https://api.anthropic.com/v1/messages";
 const API_VERSION = "2023-06-01";
 
@@ -86,6 +98,11 @@ export interface ClaudeRequest {
   /** "low" | "medium" | "high" | "xhigh" | "max" — omit to use the API default. */
   effort?: string;
   /**
+   * Turn thinking off, for pure transcription where reasoning tokens are waste.
+   * Ignored on models that cannot disable it (see supportsDisabledThinking).
+   */
+  disableThinking?: boolean;
+  /**
    * JSON Schema for a structured output. When set, the API constrains the
    * response to match it, so the caller gets schema-valid JSON instead of
    * fishing an object out of prose. Strongly preferred for scoring calls,
@@ -134,6 +151,9 @@ export async function callClaudeRaw(req: ClaudeRequest): Promise<ClaudeResponse>
   };
   if (req.system) body.system = req.system;
   if (req.tools?.length) body.tools = req.tools;
+  // Dropped, like effort, for models that reject it: the caller wanted a cheaper
+  // call, and running with thinking beats failing outright.
+  if (req.disableThinking && supportsDisabledThinking(model)) body.thinking = { type: "disabled" };
   // effort and format both live under output_config; merge rather than clobber.
   // effort is dropped for models that reject it rather than passed through and
   // 400ing — the caller asked for cheap reasoning, and the right answer on a
