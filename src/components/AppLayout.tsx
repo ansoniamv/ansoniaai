@@ -24,6 +24,7 @@ const ROUTE_LABELS: Array<{ match: RegExp; label: string }> = [
   { match: /^\/partners\/[^/]+/, label: "Partner Detail" },
   { match: /^\/partners/, label: "Capital Partners" },
   { match: /^\/capital-raise/, label: "Capital Raise" },
+  { match: /^\/data-room/, label: "Data Room" },
   { match: /^\/buy-box/, label: "Buy Box" },
   { match: /^\/market-data/, label: "Market Data" },
   { match: /^\/notes/, label: "Notes & Tags" },

@@ -42,5 +42,12 @@ export const DENY_REASON_MODEL = Deno.env.get("DENY_REASON_MODEL") ?? "claude-ha
  */
 export const DEAL_DOCS_MODEL = Deno.env.get("DEAL_DOCS_MODEL") ?? "claude-sonnet-5";
 
+/**
+ * Data Room: summarising a source and compiling the Company Brief. Sonnet, as
+ * for the partner summaries: the brief is read by every other feature, so its
+ * wording matters, and it is rebuilt only when someone asks.
+ */
+export const DATA_ROOM_MODEL = Deno.env.get("DATA_ROOM_MODEL") ?? "claude-sonnet-5";
+
 /** Partner summaries, enrichment and the learning loops. */
 export const PARTNER_MODEL = Deno.env.get("PARTNER_MODEL") ?? "claude-sonnet-5";

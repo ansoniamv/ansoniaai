@@ -7,6 +7,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage } from "../_shared/logUsage.ts";
+import { companyBriefBlock, loadCompanyBrief } from "../_shared/companyBrief.ts";
 import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -531,6 +532,9 @@ Deno.serve(async (req) => {
     } catch {
       // buy_box_thesis unavailable — use the default summary.
     }
+    // The firm's own context from the Data Room, for the buybox_fit judgement.
+    const brief = companyBriefBlock(await loadCompanyBrief(supabase), 8000);
+    if (brief) buybox = `${buybox}\n\n${brief}`;
 
     const target = [property_name, address].filter(Boolean).join(" — ");
     const userText = `Research this multifamily property and return the structured snapshot: ${target}`;
