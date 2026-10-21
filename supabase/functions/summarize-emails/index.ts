@@ -552,6 +552,10 @@ Deno.serve(async (req) => {
     let visionSkipped = 0;
     let advancedRows = 0;
     const touchedDealIds = new Set<string>();
+    // Why the text pass failed, per deal. Without it a deal whose emails all
+    // failed showed only "No per-email summary was produced", which read the same
+    // whether the model was down or the day's budget had simply run out.
+    const textErrorByDeal = new Map<string, string>();
 
     const CONCURRENCY = 8;
     const queue = [...(emails ?? [])];
@@ -593,6 +597,12 @@ Deno.serve(async (req) => {
             }
           } catch (err) {
             console.error("text extract failed", e.id, err);
+            if (e.deal_id) {
+              textErrorByDeal.set(
+                e.deal_id as string,
+                err instanceof Error ? err.message : String(err),
+              );
+            }
           }
         }
 
@@ -760,7 +770,8 @@ Deno.serve(async (req) => {
         dealUpdate.summary_error = null;
         dealUpdate.summary_attempted_at = new Date().toISOString();
       } else if (summaryError || withSummary.length === 0) {
-        dealUpdate.summary_error = summaryError ?? "No per-email summary was produced.";
+        dealUpdate.summary_error =
+          summaryError ?? textErrorByDeal.get(dealId) ?? "No per-email summary was produced.";
         dealUpdate.summary_attempted_at = new Date().toISOString();
       }
 

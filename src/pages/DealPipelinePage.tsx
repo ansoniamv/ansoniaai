@@ -38,6 +38,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/useAuth";
 import DOMPurify from "dompurify";
+import { budgetPause } from "@/lib/aiBudgetPause";
 import { DUPLICATE_CATEGORY } from "../../supabase/functions/_shared/feedbackLearning";
 
 const DENIAL_CATEGORIES = [
@@ -1175,6 +1176,7 @@ function EmailSummaryBlock({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const qc = useQueryClient();
+  const pause = budgetPause(summaryError);
 
   /**
    * Re-runs the summariser for this one deal. Self-contained rather than
@@ -1255,6 +1257,15 @@ function EmailSummaryBlock({
           >
             <p className="text-xs text-foreground/80 leading-relaxed">{summary}</p>
           </button>
+        ) : pause ? (
+          // The spend cap refused the call; nothing failed. No Retry: it goes
+          // through the same capped path and would be refused again.
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            <span className="font-medium text-foreground/80">Summary paused until reset.</span>{" "}
+            {pause.scope === "daily"
+              ? "The daily AI budget for background jobs is used up; this deal is summarized after 00:00 UTC."
+              : "The monthly AI budget is used up; summaries resume when the limit is raised or the month rolls over."}
+          </p>
         ) : summaryError ? (
           <div className="rounded border border-destructive/30 bg-destructive/5 px-2.5 py-2 space-y-1.5">
             <p className="text-xs text-foreground/80 leading-relaxed">
