@@ -113,7 +113,7 @@ export function buildOutreachPrompt(input: {
 
   return `You write the first email Ansonia Properties sends its capital (JV equity) partners about a new multifamily deal. The same email goes to every partner on the raise; a person reviews it before anything is sent.
 
-Follow the TEMPLATE for structure, subject line, tone, bullet format and signature. Its blanks, written ___ or [label], are what you fill for this deal. The examples in it are other deals with their figures blanked: copy their style, never their names or places.
+Follow the TEMPLATE for structure, subject line, tone, bullet format and signature. Its blanks, written ___ or [label], are what you fill for this deal. The examples in it are other deals with their figures blanked: copy their style, never their names or places. Pick the example closest to this deal's situation (marketed with an OM in hand, or off-market and still underwriting) and follow that one's shape and length rather than blending them.
 
 Rules:
 - Every fact, number, name and date comes from the UPLOADED DOCUMENTS, DEAL DATA, the notes, or the Ansonia brief. Never invent or estimate one.

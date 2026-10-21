@@ -34,14 +34,6 @@ function fillTokens(tpl: string, ctx: Record<string, string>) {
   return tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => ctx[k] ?? "");
 }
 
-const DEFAULT_SUBJECT = "{{deal_name}} — capital partner intro";
-const DEFAULT_BODY =
-  `Hi {{contact_first_name}},\n\n` +
-  `Wanted to share a new opportunity we're raising on: {{deal_name}}. We're targeting {{target_raise}} in equity ` +
-  `and thought it might fit {{partner_name}}'s box.\n\n` +
-  `Happy to send the deck and underwriting if you'd like to take a look.\n\n` +
-  `Best,\n{{owner}}`;
-
 type Recipient = {
   engagement: Engagement;
   contactId: string | null;
@@ -60,11 +52,12 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [subject, setSubject] = useState(DEFAULT_SUBJECT);
-  const [body, setBody] = useState(DEFAULT_BODY);
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [aiNotes, setAiNotes] = useState("");
   const [drafting, setDrafting] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [aiCheck, setAiCheck] = useState<{ items: string[]; templates: string[]; documents: string[] } | null>(null);
   const [results, setResults] = useState<
     { partner: string; ok: boolean; webLink?: string; error?: string }[] | null
@@ -146,6 +139,7 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
   // tokens in it are filled per recipient when the Outlook drafts are made.
   const draftWithAi = async () => {
     setDrafting(true);
+    setAiError(null);
     try {
       const { data, error } = await supabase.functions.invoke("draft-partner-outreach", {
         body: { deal_id: deal.id, notes: aiNotes },
@@ -164,11 +158,19 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
       setBody(data.body);
       setAiCheck({ items: data.check ?? [], templates: data.templates ?? [], documents: data.documents ?? [] });
     } catch (e) {
-      toast.error((e as Error).message || "Could not draft the email");
+      setAiError((e as Error).message || "Could not draft the email");
     } finally {
       setDrafting(false);
     }
   };
+
+  // The template is the starting point, not an option: draft as soon as the
+  // dialog opens with nothing written yet. A draft already in the editor
+  // (reopening the dialog) is kept; "Redraft" replaces it on request.
+  useEffect(() => {
+    if (open && !subject && !body && !drafting && !aiCheck && !aiError) draftWithAi();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const submit = async () => {
     if (selectedWithEmail.length === 0) {
@@ -354,9 +356,15 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
                   ) : (
                     <Sparkles className="h-4 w-4 mr-1" />
                   )}
-                  {aiCheck ? "Redraft" : "Draft with AI"}
+                  {drafting ? "Drafting…" : aiCheck || aiError ? "Redraft" : "Draft with AI"}
                 </Button>
               </div>
+              {aiError && (
+                <div className="text-[11px] text-destructive inline-flex items-start gap-1">
+                  <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                  <span>{aiError} You can still write the email below by hand.</span>
+                </div>
+              )}
               <Textarea
                 value={aiNotes}
                 onChange={(e) => setAiNotes(e.target.value)}
@@ -403,8 +411,10 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
                   <Textarea
                     value={body}
                     onChange={(e) => setBody(e.target.value)}
-                    rows={aiCheck ? 18 : 10}
+                    rows={18}
                     className="font-mono text-xs"
+                    disabled={drafting}
+                    placeholder={drafting ? "Drafting from the partner outreach template, this deal's OM, rent roll and T12…" : ""}
                   />
                   {placeholders.length > 0 && (
                     <div className="text-[11px] text-amber-600 dark:text-amber-500 inline-flex items-start gap-1">
@@ -448,7 +458,10 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
               </Button>
               <Button
                 onClick={submit}
-                disabled={submitting || drafting || selectedWithEmail.length === 0 || placeholders.length > 0}
+                disabled={
+                  submitting || drafting || selectedWithEmail.length === 0 || placeholders.length > 0 ||
+                  !subject.trim() || !body.trim()
+                }
               >
                 {submitting ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-1" />
