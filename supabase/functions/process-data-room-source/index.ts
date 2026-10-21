@@ -20,6 +20,7 @@ import { logAiUsage } from "../_shared/logUsage.ts";
 import { DATA_ROOM_MODEL } from "../_shared/featureModels.ts";
 import { errorResponse } from "../_shared/errors.ts";
 import { clampDocumentText, SCANNED_CHARS_PER_PAGE } from "../_shared/dealDocuments.ts";
+import { trimToData } from "../_shared/sheetRange.ts";
 import {
   chunkSections,
   dataRoomFileKind,
@@ -208,7 +209,9 @@ async function readFile(admin: any, src: any): Promise<Read> {
 
   if (kind === "spreadsheet") {
     const wb = XLSX.read(bytes, { type: "array", cellDates: true });
-    const sections = wb.SheetNames.map((name: string) => ({
+    // Trim each sheet to its data first: a pro forma's declared range can run
+    // to XFD1048576, and converting that ran this function out of time.
+    const sections = wb.SheetNames.filter((name: string) => trimToData(wb.Sheets[name])).map((name: string) => ({
       locator: `Sheet: ${name}`,
       text: XLSX.utils.sheet_to_csv(wb.Sheets[name], { blankrows: false, strip: true, rawNumbers: true }),
     }));
