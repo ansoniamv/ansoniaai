@@ -95,7 +95,7 @@ export function AtlasAutomationCard() {
         {lastError && (
           <div className="text-xs text-destructive">
             {lastError}
-            {needsReconnect && " Atlas mailbox isn't syncing — check the Microsoft Graph connection on the API Status page."}
+            {needsReconnect && " Atlas mailbox isn't syncing — an admin should check the Microsoft Graph connection on the API Status page."}
           </div>
         )}
 

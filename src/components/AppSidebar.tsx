@@ -42,8 +42,6 @@ const workspaceNav = [
   { title: "Market Data", url: "/market-data", icon: LineChart },
   { title: "Notes & Tags", url: "/notes", icon: StickyNote },
   { title: "Ask Atlas", url: "/chat", icon: MessageSquare },
-  { title: "Roadmap", url: "/roadmap", icon: Map },
-  { title: "API Status", url: "/api-status", icon: Activity },
 ];
 
 const navItem = (item: { title: string; url: string; icon: React.ComponentType<{ className?: string }> }, collapsed: boolean) => (
@@ -159,8 +157,8 @@ export function AppSidebar() {
                 {navItem({ title: "Users", url: "/admin/users", icon: ShieldCheck }, collapsed)}
                 {navItem({ title: "Connectors", url: "/admin/connectors", icon: Plug }, collapsed)}
                 {navItem({ title: "Warmth Import", url: "/admin/warmth-import", icon: Thermometer }, collapsed)}
-
-
+                {navItem({ title: "Roadmap", url: "/roadmap", icon: Map }, collapsed)}
+                {navItem({ title: "API Status", url: "/api-status", icon: Activity }, collapsed)}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

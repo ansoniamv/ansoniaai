@@ -85,11 +85,11 @@ const App = () => (
               <Route path="/chat" element={<Protected><ChatPage /></Protected>} />
               <Route path="/chat/:threadId" element={<Protected><ChatPage /></Protected>} />
               <Route path="/dev-notes" element={<Protected><DevNotesPage /></Protected>} />
-              <Route path="/roadmap" element={<Protected><RoadmapPage /></Protected>} />
+              <Route path="/roadmap" element={<Protected admin><RoadmapPage /></Protected>} />
               <Route path="/buy-box" element={<Protected><BuyBoxPage /></Protected>} />
               <Route path="/market-data" element={<Protected><MarketDataPage /></Protected>} />
               <Route path="/admin/users" element={<Protected admin><AdminUsersPage /></Protected>} />
-              <Route path="/api-status" element={<Protected><ApiStatusPage /></Protected>} />
+              <Route path="/api-status" element={<Protected admin><ApiStatusPage /></Protected>} />
               <Route path="/admin/connectors" element={<Protected admin><ConnectorsPage /></Protected>} />
               <Route path="/admin/warmth-import" element={<Protected admin><WarmthImportPage /></Protected>} />
               <Route

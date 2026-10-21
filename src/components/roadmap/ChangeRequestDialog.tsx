@@ -62,7 +62,7 @@ export function ChangeRequestDialog({
       },
       {
         onSuccess: () => {
-          toast.success("Request sent — you can follow it on the Roadmap page.");
+          toast.success("Request sent — an admin will review it.");
           setDraft(emptyDraft(pageLabel));
           onOpenChange(false);
         },
