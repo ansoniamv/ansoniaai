@@ -43,6 +43,7 @@ import { DealNotes } from "@/components/DealNotes";
 import { DealStatusHistory } from "@/components/DealStatusHistory";
 import { ComposeEmailDialog } from "@/components/ComposeEmailDialog";
 import { PropertyResearchPanel } from "@/components/PropertyResearchPanel";
+import { DealDocumentsPanel } from "@/components/DealDocumentsPanel";
 import { SubmarketSignalsPanel } from "@/components/SubmarketSignalsPanel";
 import { AiScoreTab } from "@/components/AiScoreTab";
 import { NoteComposerDialog } from "@/components/NoteComposerDialog";
@@ -816,6 +817,12 @@ export default function DealDetail() {
           propertyName={deal.property_name}
         />
       </div>
+
+      {/* ============ Deal Documents ============ */}
+      <section>
+        <SectionHeader title="Deal Documents" />
+        <DealDocumentsPanel deal={deal} />
+      </section>
 
       {/* ============ Financial Underwriting ============ */}
       {(isNum(deal.asking_price) || hasInPlace || hasProForma || hasReturns) && (

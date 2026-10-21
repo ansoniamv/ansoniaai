@@ -32,5 +32,15 @@ export const CHAT_MODEL = Deno.env.get("CHAT_MODEL") ?? "claude-opus-5-5";
  */
 export const DENY_REASON_MODEL = Deno.env.get("DENY_REASON_MODEL") ?? "claude-haiku-4-5";
 
+/**
+ * Deal documents: stated figures out of an OM, rent roll or T12.
+ *
+ * Sonnet, not Haiku, despite this being extraction: the figures sit in wide
+ * tables flattened to CSV, often with two-row headers. On the Summerlin rent
+ * roll Haiku read the "Market Rent" column as "Lease Charges" twice, proposing
+ * market rent as in-place rent. Cost is a few cents a document.
+ */
+export const DEAL_DOCS_MODEL = Deno.env.get("DEAL_DOCS_MODEL") ?? "claude-sonnet-5";
+
 /** Partner summaries, enrichment and the learning loops. */
 export const PARTNER_MODEL = Deno.env.get("PARTNER_MODEL") ?? "claude-sonnet-5";
