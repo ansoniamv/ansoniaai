@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import path from "path";
-import { capRateHint, grmHint } from "@/lib/dealRatios";
+import { capRateHint, equityCheck, grmHint, latestT3Noi, pricePerSqft } from "@/lib/dealRatios";
 
 describe("capRateHint", () => {
   it.each([
@@ -44,5 +44,51 @@ describe("generated columns", () => {
   it("computes GRM when rent and price are both positive", () => {
     expect(sql).toContain("WHEN gross_scheduled_rent > 0 AND asking_price > 0");
     expect(sql).toContain("asking_price * 1000000 / gross_scheduled_rent");
+  });
+});
+
+describe("equityCheck", () => {
+  it("is 35% of asking, in dollars", () => {
+    expect(equityCheck(24)).toBeCloseTo(8_400_000);
+  });
+  it.each([null, 0, -5, undefined])("is null for asking=%s", (p) => {
+    expect(equityCheck(p)).toBeNull();
+  });
+});
+
+describe("pricePerSqft", () => {
+  it("prefers the stored figure", () => {
+    expect(pricePerSqft(210, 24, 100_000)).toEqual({ value: 210 });
+  });
+  it("derives from asking and rentable SF when nothing is stored", () => {
+    expect(pricePerSqft(null, 24, 120_000)).toEqual({ value: 200, hint: "Asking price ÷ rentable SF" });
+  });
+  it("names what is missing", () => {
+    expect(pricePerSqft(null, 24, null)).toEqual({ value: null, hint: "Needs rentable SF" });
+    expect(pricePerSqft(null, null, null)).toEqual({ value: null, hint: "Needs asking price and rentable SF" });
+  });
+});
+
+describe("latestT3Noi", () => {
+  const t12 = (over: Record<string, unknown>) => ({
+    doc_type: "t12",
+    parse_status: "parsed",
+    doc_as_of: null,
+    created_at: "2026-10-01T00:00:00Z",
+    summary: { t12: { period: "Sep 2026", t3_noi: 1_000_000 } },
+    ...over,
+  });
+  it("is null with no parsed T12", () => {
+    expect(latestT3Noi([])).toBeNull();
+    expect(latestT3Noi([t12({ parse_status: "parsing" })])).toBeNull();
+    expect(latestT3Noi([t12({ doc_type: "om" })])).toBeNull();
+    expect(latestT3Noi([t12({ summary: { t12: { period: null, t3_noi: null } } })])).toBeNull();
+  });
+  it("takes the newest statement, then the newest upload", () => {
+    const old = t12({ doc_as_of: "2026-06-30", summary: { t12: { period: "Jun 2026", t3_noi: 900_000 } } });
+    const recent = t12({ doc_as_of: "2026-09-30", created_at: "2026-01-01T00:00:00Z" });
+    expect(latestT3Noi([old, recent])).toEqual({ value: 1_000_000, period: "Sep 2026" });
+    const a = t12({ created_at: "2026-10-02T00:00:00Z", summary: { t12: { period: "x", t3_noi: 5 } } });
+    expect(latestT3Noi([t12({}), a])?.value).toBe(5);
   });
 });
