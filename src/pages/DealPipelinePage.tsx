@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { ChevronDown, Filter, RefreshCw, Inbox, Mail, ShieldAlert, EyeOff, RotateCcw, Download } from "lucide-react";
@@ -653,9 +653,16 @@ function DenyDialog({
   const [category, setCategory] = useState<string>("");
   const [reason, setReason] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  // AI-drafted reason per category, so flipping between categories does not
+  // pay for the same draft twice. null while the request is in flight.
+  const [suggestions, setSuggestions] = useState<Record<string, string | null>>({});
+  const reasonRef = useRef<HTMLTextAreaElement | null>(null);
+  // A draft for the previous deal must not land after the dialog moves on.
+  const dealIdRef = useRef<string | null>(null);
+  dealIdRef.current = deal?.id ?? null;
 
   useEffect(() => {
-    if (deal) { setCategory(""); setReason(""); setSaving(false); }
+    if (deal) { setCategory(""); setReason(""); setSaving(false); setSuggestions({}); }
   }, [deal?.id]);
 
   const open = deal !== null;
@@ -667,6 +674,31 @@ function DenyDialog({
   const reasonRequired = !!category && category !== DUPLICATE_CATEGORY;
   const reasonLongEnough = reason.trim().length >= MIN_REASON_CHARS;
   const canSubmit = !!category && (!reasonRequired || reasonLongEnough) && !saving;
+
+  useEffect(() => {
+    if (!deal || !reasonRequired || category in suggestions) return;
+    const dealId = deal.id;
+    setSuggestions((s) => ({ ...s, [category]: null }));
+    supabase.functions
+      .invoke("suggest-deny-reason", {
+        body: { inbox_deal_id: dealId, category, question: prompt?.label },
+      })
+      .then(({ data, error }) => {
+        if (dealIdRef.current !== dealId) return;
+        const text = !error && typeof data?.suggestion === "string" ? data.suggestion.trim() : "";
+        // An empty draft falls back to the static example placeholder.
+        setSuggestions((s) => ({ ...s, [category]: text }));
+      });
+  }, [deal?.id, category]);
+
+  const suggestion = category ? suggestions[category] : undefined;
+  const drafting = reasonRequired && suggestion === null;
+  const canAccept = !!suggestion && reason.trim() === "";
+  const acceptSuggestion = () => {
+    if (!suggestion) return;
+    setReason(suggestion);
+    reasonRef.current?.focus();
+  };
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -699,6 +731,10 @@ function DenyDialog({
                 <label
                   key={c}
                   htmlFor={`deny-cat-${c}`}
+                  // Clicking a category puts the cursor in the reason box, so the
+                  // draft can be taken with one key. Arrow-key selection keeps
+                  // focus on the radios.
+                  onClick={() => requestAnimationFrame(() => reasonRef.current?.focus())}
                   className={cn(
                     "flex items-center gap-2 rounded-md border border-hairline px-3 py-2 text-sm cursor-pointer hover:bg-muted/50",
                     category === c && "border-primary bg-primary/5",
@@ -719,12 +755,35 @@ function DenyDialog({
                 : <span className="text-muted-foreground/70">(optional)</span>}
             </Label>
             <Textarea
+              ref={reasonRef}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder={prompt ? prompt.placeholder : "Pick a category first…"}
+              onKeyDown={(e) => {
+                // Tab or Enter on an empty box takes the AI draft. Once anything
+                // is typed both keys behave normally again.
+                if (canAccept && (e.key === "Tab" || e.key === "Enter") && !e.shiftKey) {
+                  e.preventDefault();
+                  acceptSuggestion();
+                }
+              }}
+              placeholder={
+                !prompt ? "Pick a category first…"
+                  : suggestion ? suggestion
+                  : drafting ? "Drafting a reason from the deal…"
+                  : prompt.placeholder
+              }
               rows={4}
               className="mt-2"
             />
+            {canAccept && (
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                AI draft from the deal data —{" "}
+                <button type="button" onClick={acceptSuggestion} className="font-medium text-primary hover:underline">
+                  press Tab or Enter to use it
+                </button>
+                , then edit anything it got wrong.
+              </p>
+            )}
             {prompt?.hint && (
               <p className="mt-1.5 text-[11px] text-muted-foreground">{prompt.hint}</p>
             )}

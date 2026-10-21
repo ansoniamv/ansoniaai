@@ -25,5 +25,12 @@ export const ATLAS_MODEL = Deno.env.get("ATLAS_MODEL") ?? "claude-haiku-4-5";
 /** Ask Atlas: open-ended questions over deals, partners and mail. */
 export const CHAT_MODEL = Deno.env.get("CHAT_MODEL") ?? "claude-opus-5-5";
 
+/**
+ * Suggested pass reason in the Deny dialog. Someone is waiting on it with the
+ * dialog open, so latency matters more than polish: one sentence from fields
+ * already on the row.
+ */
+export const DENY_REASON_MODEL = Deno.env.get("DENY_REASON_MODEL") ?? "claude-haiku-4-5";
+
 /** Partner summaries, enrichment and the learning loops. */
 export const PARTNER_MODEL = Deno.env.get("PARTNER_MODEL") ?? "claude-sonnet-5";
