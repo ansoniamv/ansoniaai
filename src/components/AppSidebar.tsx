@@ -1,4 +1,4 @@
-import { Inbox, Mail, List, Plus, Target, BarChart3, LayoutDashboard, Users, Columns3, StickyNote, MessageSquare, ShieldCheck, LogOut, Map, Activity, Plug, Thermometer, Sparkles, FileText, Building2, LineChart } from "lucide-react";
+import { Inbox, Mail, List, Plus, Target, BarChart3, LayoutDashboard, Users, Columns3, StickyNote, MessageSquare, ShieldCheck, LogOut, Map, Activity, Plug, Thermometer, Sparkles, FileText, Building2, LineChart, Brain } from "lucide-react";
 import logoAsset from "@/assets/ansonia-logo.png.asset.json";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/useAuth";
@@ -38,6 +38,7 @@ const capitalNav = [
 
 const workspaceNav = [
   { title: "General Dashboard", url: "/", icon: BarChart3 },
+  { title: "Data Room", url: "/data-room", icon: Brain },
   { title: "Buy Box", url: "/buy-box", icon: Target },
   { title: "Market Data", url: "/market-data", icon: LineChart },
   { title: "Notes & Tags", url: "/notes", icon: StickyNote },

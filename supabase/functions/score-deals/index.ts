@@ -2,6 +2,7 @@
 // Reads pillars + active signals fresh on every invocation — never use hardcoded weights.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { completeText } from "../_shared/ai.ts";
+import { companyBriefBlock, loadCompanyBrief } from "../_shared/companyBrief.ts";
 import { DEAL_INBOX_MODEL } from "../_shared/dealInboxModel.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage, logAiFailure } from "../_shared/logUsage.ts";
@@ -60,7 +61,10 @@ async function generateRationale(
         .join("\n")}`
     : "";
   const system = "You are an investment analyst at Ansonia Properties triaging multifamily deals at the TOP of the funnel. This is a FIT signal, not an underwriting verdict. Reason ONLY about market, submarket demand, demographics, asset type, vintage, size, location, and value-add potential. NEVER mention or penalize for missing/absent deal economics, pricing, asking price, purchase price, cap rate, returns, IRR, yield, rent-to-market gap, or underwriting data — those are evaluated later in the pipeline, not here. The buybox_flags are Ansonia's hard criteria and override the pillar scores: a RED or YELLOW flag (outside target markets, too few units, wrong vintage, not value-add) is the headline, and a deal outside the target markets must never be described as a strong fit. Write a single concise 2-sentence rationale (<=55 words total) explaining the fit score against the thesis. Lead with the most serious buybox flag if there is one, then reference the strongest and weakest pillar by name. No preamble, no markdown, no bullet points.";
-  const user = `ANSONIA INVESTMENT THESIS:\n${thesis || "(no thesis configured)"}${strategyBlock}${examplesBlock}\n\nDEAL + PILLAR SCORES:\n${JSON.stringify(summary, null, 2)}\n\nWrite the 2-sentence rationale now.`;
+  // The Company Brief is cached per isolate, so a batch reads it once.
+  const brief = companyBriefBlock(ctx?.supabase ? await loadCompanyBrief(ctx.supabase) : "", 8000);
+  const briefBlock = brief ? `\n\n${brief}` : "";
+  const user = `ANSONIA INVESTMENT THESIS:\n${thesis || "(no thesis configured)"}${briefBlock}${strategyBlock}${examplesBlock}\n\nDEAL + PILLAR SCORES:\n${JSON.stringify(summary, null, 2)}\n\nWrite the 2-sentence rationale now.`;
   try {
     // Sonnet 5 via DEAL_INBOX_MODEL, no gateway fallback — see _shared/ai.ts.
     // The rationale is two sentences, but adaptive thinking shares max_tokens, so

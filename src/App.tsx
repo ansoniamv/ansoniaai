@@ -15,6 +15,7 @@ const NewDeal = lazy(() => import("./pages/NewDeal"));
 const DealDetail = lazy(() => import("./pages/DealDetail"));
 const EditDeal = lazy(() => import("./pages/EditDeal"));
 const MarketDataPage = lazy(() => import("./pages/MarketDataPage"));
+const DataRoomPage = lazy(() => import("./pages/DataRoomPage"));
 const PartnersPage = lazy(() => import("./pages/PartnersPage"));
 const PartnerDetail = lazy(() => import("./pages/PartnerDetail"));
 const NewPartner = lazy(() => import("./pages/NewPartner"));
@@ -86,6 +87,7 @@ const App = () => (
               <Route path="/chat/:threadId" element={<Protected><ChatPage /></Protected>} />
               <Route path="/dev-notes" element={<Protected><DevNotesPage /></Protected>} />
               <Route path="/roadmap" element={<Protected admin><RoadmapPage /></Protected>} />
+              <Route path="/data-room" element={<Protected><DataRoomPage /></Protected>} />
               <Route path="/buy-box" element={<Protected><BuyBoxPage /></Protected>} />
               <Route path="/market-data" element={<Protected><MarketDataPage /></Protected>} />
               <Route path="/admin/users" element={<Protected admin><AdminUsersPage /></Protected>} />

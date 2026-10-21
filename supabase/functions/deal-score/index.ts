@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { completeJSON } from "../_shared/ai.ts";
+import { companyBriefBlock, loadCompanyBrief } from "../_shared/companyBrief.ts";
 import { DEAL_INBOX_MODEL } from "../_shared/dealInboxModel.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage } from "../_shared/logUsage.ts";
@@ -248,8 +249,9 @@ serve(async (req) => {
         // Claude Opus 5 primary, gateway fallback — see _shared/ai.ts.
         // Asking for a JSON object rather than a forced tool call keeps this
         // provider-agnostic across the primary and fallback models.
+        const brief = companyBriefBlock(await loadCompanyBrief(supabase), 10_000);
         const prompt =
-          `THESIS:\n${thesis}\n\nDEAL DATA:\n${JSON.stringify(summaryPayload, null, 2)}\n\n` +
+          `THESIS:\n${thesis}\n\n${brief ? `${brief}\n\n` : ""}DEAL DATA:\n${JSON.stringify(summaryPayload, null, 2)}\n\n` +
           `Return ONLY a JSON object, no prose and no code fences:\n` +
           `{"rationale":"2-3 sentence narrative justifying the adjustment",` +
           `"adjustment":<integer between -10 and 10 reflecting how well the deal aligns ` +
