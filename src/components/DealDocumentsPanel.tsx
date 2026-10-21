@@ -91,6 +91,20 @@ export function DealDocumentsPanel({ deal }: { deal: Record<string, unknown> & {
   const [uploading, setUploading] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState<DealDocument | null>(null);
 
+  // A read that dies changes nothing in the row, so polling alone never redraws
+  // the card; "stopped" is a matter of time passing. Redraw on a timer while
+  // anything is reading so the card turns to "stopped" without a reload.
+  const [, setTick] = useState(0);
+  const anyReading = docs.some((d) => {
+    const s = readState(d);
+    return s === "reading" || s === "breakdown";
+  });
+  useEffect(() => {
+    if (!anyReading) return;
+    const t = setInterval(() => setTick((n) => n + 1), 15_000);
+    return () => clearInterval(t);
+  }, [anyReading]);
+
   // A document finishing its parse is what creates proposals, so refresh them then.
   const parsedSignature = docs.map((d) => `${d.id}:${d.parse_status}:${d.parsed_at}`).join("|");
   useEffect(() => {

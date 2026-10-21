@@ -261,3 +261,44 @@ export async function callClaudeJSON<T = any>(
   }
   return { parsed: JSON.parse(match[0]) as T, usage: res.usage, model: res.model };
 }
+
+const FILES_URL = "https://api.anthropic.com/v1/files";
+
+/**
+ * Upload a file to the Files API and return its file_id, for a message to
+ * reference as { type: "document", source: { type: "file", file_id } }.
+ *
+ * Used for PDFs too heavy to read inside an edge function or to send inline
+ * (base64 adds a third, and a request is capped at 32 MB). The Blob is sent
+ * as-is, with no copy into a buffer. Files persist until deleted: callers
+ * delete with deleteClaudeFile when done.
+ */
+export async function uploadClaudeFile(file: Blob, fileName: string): Promise<string> {
+  if (!ANTHROPIC_API_KEY) throw new AnthropicNotConfiguredError();
+  const form = new FormData();
+  form.append("file", file, fileName);
+  const resp = await fetch(FILES_URL, {
+    method: "POST",
+    headers: { "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": API_VERSION },
+    body: form,
+  });
+  const txt = await resp.text();
+  if (!resp.ok) throw new AnthropicHttpError(resp.status, txt.slice(0, 2000), `anthropic files ${resp.status}: ${txt.slice(0, 400)}`);
+  const id = JSON.parse(txt)?.id;
+  if (typeof id !== "string") throw new Error(`anthropic files: no id in ${txt.slice(0, 200)}`);
+  return id;
+}
+
+/** Delete an uploaded file. Never throws: a leftover file costs storage, not correctness. */
+export async function deleteClaudeFile(fileId: string): Promise<void> {
+  if (!ANTHROPIC_API_KEY) return;
+  try {
+    const resp = await fetch(`${FILES_URL}/${encodeURIComponent(fileId)}`, {
+      method: "DELETE",
+      headers: { "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": API_VERSION },
+    });
+    if (!resp.ok) console.error(JSON.stringify({ fn: "anthropic", op: "deleteFile", fileId, status: resp.status }));
+  } catch (e) {
+    console.error(JSON.stringify({ fn: "anthropic", op: "deleteFile", fileId, detail: String(e) }));
+  }
+}

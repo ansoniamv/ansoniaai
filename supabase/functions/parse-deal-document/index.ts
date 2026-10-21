@@ -10,7 +10,9 @@
 //
 // Text is pulled out of the file here and sent as text. Sending a PDF as a
 // document makes the model read every page as an image too, which costs several
-// times as many tokens; only a scanned PDF with no text layer goes that way.
+// times as many tokens. Two kinds of PDF go that way anyway, through the Files
+// API: a scan with no text layer, and one over LOCAL_PDF_MAX_BYTES, which is
+// too heavy to open inside the function at all.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { extractText, getDocumentProxy } from "https://esm.sh/unpdf@0.12.1";
@@ -21,7 +23,7 @@ import { extractText, getDocumentProxy } from "https://esm.sh/unpdf@0.12.1";
 // (sha256 8fd6cb925d6f890f17a52902e50c501702bb1da5e7a5d1f606cb2fd0c005fa20).
 import * as XLSX from "../_shared/vendor/xlsx-0.20.3.mjs";
 import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
-import { callClaudeRaw } from "../_shared/anthropic.ts";
+import { callClaudeRaw, deleteClaudeFile, uploadClaudeFile } from "../_shared/anthropic.ts";
 import { assertWithinBudget, BudgetExceededError } from "../_shared/aiBudget.ts";
 import { logAiUsage } from "../_shared/logUsage.ts";
 import { DEAL_DOCS_MODEL } from "../_shared/featureModels.ts";
@@ -59,9 +61,13 @@ const BUCKET = "deal-documents";
 const STALE_PARSE_MS = 7 * 60_000;
 /** Parallel transcription calls for one rent roll (~150 rows each). */
 const MAX_DETAIL_PIECES = 12;
-/** Scanned PDFs go to the model as a document: its limits are 100 pages, 32MB a request. */
-const SCANNED_MAX_PAGES = 100;
-const SCANNED_MAX_BYTES = 20 * 1024 * 1024;
+/**
+ * A PDF over this size goes to the model whole, without being opened here.
+ * Pulling the text out of the 82-page, 27.5 MB 1900 at Canterfield OM took
+ * ~1 s of CPU and ~260 MB on a laptop. The edge runtime allows 2 s of CPU and
+ * 256 MB, so the function was killed every time before it called the model.
+ */
+const LOCAL_PDF_MAX_BYTES = 8 * 1024 * 1024;
 
 class UserFacingError extends Error {}
 
@@ -96,7 +102,9 @@ Deno.serve(async (req) => {
       return exists ? json({ status: "parsing" }, 409) : json({ error: "Document not found" }, 404);
     }
 
-    const work = parseDocument(admin, claimed).catch(async (e) => {
+    // Files uploaded to the model for this read, deleted once it ends either way.
+    const uploaded: string[] = [];
+    const work = parseDocument(admin, claimed, uploaded).catch(async (e) => {
       const message = e instanceof UserFacingError || e instanceof BudgetExceededError
         ? e.message
         : "Parsing failed. Try again, or check the function logs.";
@@ -105,7 +113,7 @@ Deno.serve(async (req) => {
         .from("deal_documents")
         .update({ parse_status: "failed", parse_error: message })
         .eq("id", document_id);
-    });
+    }).finally(() => Promise.all(uploaded.map(deleteClaudeFile)));
 
     if (typeof EdgeRuntime !== "undefined") {
       EdgeRuntime.waitUntil(work);
@@ -119,7 +127,7 @@ Deno.serve(async (req) => {
 });
 
 
-async function parseDocument(admin: any, doc: any): Promise<void> {
+async function parseDocument(admin: any, doc: any, uploaded: string[]): Promise<void> {
   const kind = documentKind(doc.file_name, doc.content_type);
   if (kind === "unsupported") {
     throw new UserFacingError("Unsupported file type. Upload a PDF, Excel workbook or CSV.");
@@ -127,15 +135,29 @@ async function parseDocument(admin: any, doc: any): Promise<void> {
 
   const { data: blob, error: dlErr } = await admin.storage.from(BUCKET).download(doc.storage_path);
   if (dlErr || !blob) throw new Error(`download failed: ${dlErr?.message}`);
-  const bytes = new Uint8Array(await blob.arrayBuffer());
 
-  // Build the model input: extracted text, or the PDF itself when it is a scan.
-  // `body` keeps the full text so a long rent roll can be split for transcription.
+  // The whole PDF as a document for the model, uploaded through the Files API.
+  // Both stages reference the same file, so it is uploaded once.
+  const pdfDocument = async () => {
+    const fileId = await uploadClaudeFile(new Blob([blob], { type: "application/pdf" }), doc.file_name);
+    uploaded.push(fileId);
+    return [
+      { type: "document", source: { type: "file", file_id: fileId } },
+      { type: "text", text: `File name: ${doc.file_name}\nExtract the figures from this document.` },
+    ];
+  };
+
+  // Build the model input: extracted text, or the PDF itself when it is too
+  // large to open here or is a scan. `body` keeps the full text so a long rent
+  // roll can be split for transcription.
   let content: any[];
   let body: string | null = null;
   const warnings: string[] = [];
-  if (kind === "pdf") {
-    const pdf = await getDocumentProxy(bytes.slice());
+  if (kind === "pdf" && blob.size > LOCAL_PDF_MAX_BYTES) {
+    warnings.push("Large PDF: read whole by the model, pages included.");
+    content = await pdfDocument();
+  } else if (kind === "pdf") {
+    const pdf = await getDocumentProxy(new Uint8Array(await blob.arrayBuffer()));
     const { totalPages, text } = await extractText(pdf, { mergePages: false });
     const pages = text as string[];
     const chars = pages.reduce((n, p) => n + p.trim().length, 0);
@@ -143,19 +165,11 @@ async function parseDocument(admin: any, doc: any): Promise<void> {
       body = pages.map((p, i) => `=== Page ${i + 1} ===\n${p.trim()}`).join("\n\n");
       content = [textBlock(doc.file_name, body, warnings)];
     } else {
-      if (totalPages > SCANNED_MAX_PAGES || bytes.length > SCANNED_MAX_BYTES) {
-        throw new UserFacingError(
-          `This PDF looks scanned (no text layer) and is too large to read as images ` +
-            `(${totalPages} pages; limit ${SCANNED_MAX_PAGES} pages / 20MB). Upload the Excel version or a text PDF.`,
-        );
-      }
       warnings.push("Scanned PDF: read from page images.");
-      content = [
-        { type: "document", source: { type: "base64", media_type: "application/pdf", data: toBase64(bytes) } },
-        { type: "text", text: `File name: ${doc.file_name}\nExtract the figures from this document.` },
-      ];
+      content = await pdfDocument();
     }
   } else if (kind === "spreadsheet") {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
     const wb = XLSX.read(bytes, { type: "array", cellDates: true });
     // Trimmed to the data first; see _shared/sheetRange.ts.
     const sheets: string = wb.SheetNames.filter((name: string) => trimToData(wb.Sheets[name])).map((name: string) => {
@@ -165,8 +179,9 @@ async function parseDocument(admin: any, doc: any): Promise<void> {
     body = sheets;
     content = [textBlock(doc.file_name, sheets, warnings)];
   } else {
-    body = new TextDecoder().decode(bytes);
-    content = [textBlock(doc.file_name, body, warnings)];
+    const text: string = await blob.text();
+    body = text;
+    content = [textBlock(doc.file_name, text, warnings)];
   }
 
   // One metered, logged call.
@@ -337,11 +352,4 @@ function sameNumber(current: unknown, proposed: number): boolean {
   if (current === null || current === undefined || current === "") return false;
   const n = Number(current);
   return Number.isFinite(n) && Math.abs(n - proposed) <= Math.max(0.005, Math.abs(proposed) * 1e-6);
-}
-
-function toBase64(bytes: Uint8Array): string {
-  let s = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) s += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  return btoa(s);
 }
