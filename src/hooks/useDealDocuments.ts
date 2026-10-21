@@ -51,9 +51,20 @@ export const STALE_READ_MS = 7 * 60_000;
 const startedLongAgo = (d: DealDocument) =>
   !d.parse_started_at || Date.now() - new Date(d.parse_started_at).getTime() > STALE_READ_MS;
 
+/**
+ * 'pending' only lasts from upload until the parser claims the row, which takes
+ * seconds; a re-read goes straight to the function, which claims from any
+ * state. A row still pending this long after upload was never started: the tab
+ * closed or the network dropped before startParse could mark it failed. The
+ * function claims a pending row, so "Read again" recovers it.
+ */
+const neverStarted = (d: DealDocument) =>
+  d.parse_status === "pending" && Date.now() - new Date(d.created_at).getTime() > STALE_READ_MS;
+
 /** Where a document's read stands, including a run that died without saying so. */
 export function readState(d: DealDocument): "reading" | "breakdown" | "stopped" | "breakdown_stopped" | "done" | "failed" {
   if (d.parse_status === "failed") return "failed";
+  if (neverStarted(d)) return "stopped";
   if (d.parse_status === "pending" || d.parse_status === "parsing") return startedLongAgo(d) && d.parse_status === "parsing" ? "stopped" : "reading";
   if (d.detail_status === "reading") return startedLongAgo(d) ? "breakdown_stopped" : "breakdown";
   return "done";
