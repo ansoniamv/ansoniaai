@@ -4,6 +4,7 @@ import { DEAL_INBOX_MODEL } from "../_shared/dealInboxModel.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage } from "../_shared/logUsage.ts";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
+import { enrichMarketMetrics } from "../_shared/marketMetrics.ts";
 
 /** Shape of the thesis-alignment adjustment, enforced by Opus 5. */
 const DEAL_ADJUSTMENT_SCHEMA = {
@@ -103,12 +104,12 @@ serve(async (req) => {
     const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
     // Ensure market metrics (pop growth, new supply, job growth) are populated
-    // on the deal row before scoring. Best-effort — never blocks scoring.
+    // on the deal row before scoring. In-process, not via functions.invoke: the
+    // HTTP hop failed silently. Best-effort — never blocks scoring.
     try {
-      const { error: mmErr } = await supabase.functions.invoke("market-metrics-enrich", { body: { deal_id } });
-      if (mmErr) console.error("market-metrics-enrich error:", mmErr);
+      await enrichMarketMetrics(supabase, deal_id);
     } catch (e) {
-      console.error("market-metrics-enrich invoke failed:", e);
+      console.error("market metrics enrichment failed:", e);
     }
 
     // Load deal + enrichment + pillars + signals + thesis
