@@ -27,6 +27,9 @@ export type DealDocument = {
   doc_type: "om" | "rent_roll" | "t12" | "other" | null;
   doc_as_of: string | null;
   doc_property_name: string | null;
+  /** Read out of extraction; see checkDocumentAgainstDeal. */
+  doc_unit_count: number | null;
+  doc_address: string | null;
   parse_status: "pending" | "parsing" | "parsed" | "failed";
   parse_error: string | null;
   parse_notes: string | null;
@@ -79,7 +82,9 @@ export function useDealDocuments(dealId: string | undefined) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("deal_documents" as never)
-        .select("id,deal_id,storage_path,file_name,file_size,content_type,uploaded_by,doc_type,doc_as_of,doc_property_name,parse_status,parse_error,parse_notes,parse_started_at,parsed_at,created_at,summary,detail_status")
+        // Two values from extraction, not the whole column: a rent roll's is the
+        // full unit-by-unit transcription.
+        .select("id,deal_id,storage_path,file_name,file_size,content_type,uploaded_by,doc_type,doc_as_of,doc_property_name,doc_unit_count:extraction->figures->unit_count->value,doc_address:extraction->>property_address,parse_status,parse_error,parse_notes,parse_started_at,parsed_at,created_at,summary,detail_status")
         .eq("deal_id", dealId!)
         .order("created_at", { ascending: false });
       if (error) throw error;

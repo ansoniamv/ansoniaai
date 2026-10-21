@@ -82,6 +82,8 @@ export type FigureReading = { value: number | null; evidence: string | null };
 export type DocumentExtraction = {
   doc_type: DocType;
   property_name: string | null;
+  /** The property's street address as the document writes it; null when not stated. */
+  property_address: string | null;
   as_of: string | null;
   figures: Record<ExtractedFigure, FigureReading>;
   notes: string;
@@ -113,6 +115,7 @@ export const EXTRACTION_SCHEMA = {
   properties: {
     doc_type: { type: "string", enum: [...DOC_TYPES] },
     property_name: { type: "string" },
+    property_address: { type: "string" },
     as_of: { type: "string" },
     figures: {
       type: "object",
@@ -122,13 +125,14 @@ export const EXTRACTION_SCHEMA = {
     },
     notes: { type: "string" },
   },
-  required: ["doc_type", "property_name", "as_of", "figures", "notes"],
+  required: ["doc_type", "property_name", "property_address", "as_of", "figures", "notes"],
 };
 
 /** What the model returns under EXTRACTION_SCHEMA. */
 type RawExtraction = {
   doc_type?: string;
   property_name?: string;
+  property_address?: string;
   as_of?: string;
   figures?: Partial<Record<ExtractedFigure, { found?: boolean; value?: number; evidence?: string }>>;
   notes?: string;
@@ -152,6 +156,7 @@ export function normalizeExtraction(raw: RawExtraction): DocumentExtraction {
   return {
     doc_type: (DOC_TYPES as readonly string[]).includes(raw.doc_type ?? "") ? (raw.doc_type as DocType) : "other",
     property_name: text(raw.property_name),
+    property_address: text(raw.property_address),
     as_of: text(raw.as_of),
     figures,
     notes: text(raw.notes) ?? "",
@@ -184,7 +189,7 @@ Figures:
 
 For an OM, take in-place / trailing figures, never the broker's pro forma, year-1 or "stabilized" projections. For a T12, use the column that totals the twelve months; if the statement covers fewer than twelve months, mark the annual figures not found and say so in notes. Report dollar amounts as plain numbers (2431880, not "2.43M").
 
-property_name: the property the document is about, as written. as_of: the rent roll date or T12 period as written. Use "" for either when the document does not say.
+property_name: the property the document is about, as written. property_address: its street address with city, state and ZIP where given, as written. as_of: the rent roll date or T12 period as written. Use "" for any of these when the document does not say.
 notes: one or two sentences on anything a reviewer should know (partial periods, conflicting figures, pro forma only, unreadable pages). Empty string if nothing.`;
 
 export type Proposal = {

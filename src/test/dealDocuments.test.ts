@@ -25,6 +25,7 @@ function extraction(
   return {
     doc_type,
     property_name: "Test Apartments",
+    property_address: null,
     as_of: null,
     notes: "",
     detail: normalizeDetail({}),
