@@ -1,37 +1,48 @@
 import { describe, it, expect } from "vitest";
-import { grossRentMultiplier, inPlaceCapRate } from "@/lib/dealRatios";
+import { readFileSync } from "fs";
+import path from "path";
+import { capRateHint, grmHint } from "@/lib/dealRatios";
 
-describe("inPlaceCapRate", () => {
-  it("divides annual NOI by the price, which deals stores in $M", () => {
-    // Summerlin: $1,393,673 NOI on a $24.0M ask.
-    const r = inPlaceCapRate(1_393_673, 24);
-    expect(r.value).toBeCloseTo(5.807, 3);
-    expect(r.hint).toBe("T-12 NOI ÷ asking price");
-  });
-  it("keeps a negative NOI negative", () => {
-    expect(inPlaceCapRate(-120_000, 12).value).toBeCloseTo(-1, 6);
-  });
+describe("capRateHint", () => {
   it.each([
+    [1_393_673, 24, "T-12 NOI ÷ asking price"],
+    [-120_000, 12, "T-12 NOI ÷ asking price"],
     [null, 24, "Needs T-12 NOI"],
     [1_000_000, null, "Needs asking price"],
     [1_000_000, 0, "Needs asking price"],
     [undefined, undefined, "Needs T-12 NOI and asking price"],
-  ])("noi=%s price=%s -> %s", (noi, price, hint) => {
-    expect(inPlaceCapRate(noi, price)).toEqual({ value: null, hint });
+  ])("noi=%s price=%s -> %s", (noi, price, out) => {
+    expect(capRateHint(noi, price)).toBe(out);
   });
 });
 
-describe("grossRentMultiplier", () => {
-  it("divides the price in dollars by annual gross scheduled rent", () => {
-    // Summerlin: $24.0M on $2,589,200 a year.
-    expect(grossRentMultiplier(2_589_200, 24).value).toBeCloseTo(9.269, 3);
-  });
+describe("grmHint", () => {
   it.each([
+    [2_589_200, 24, "Asking price ÷ gross sched. rent"],
     [null, 24, "Needs gross sched. rent"],
     [0, 24, "Needs gross sched. rent"],
     [2_589_200, null, "Needs asking price"],
     [null, null, "Needs gross sched. rent and asking price"],
-  ])("gsr=%s price=%s -> %s", (gsr, price, hint) => {
-    expect(grossRentMultiplier(gsr, price)).toEqual({ value: null, hint });
+  ])("gsr=%s price=%s -> %s", (gsr, price, out) => {
+    expect(grmHint(gsr, price)).toBe(out);
+  });
+});
+
+/**
+ * The hints promise a value exactly when the generated column produces one.
+ * Pin the column's conditions so the two cannot drift apart.
+ */
+describe("generated columns", () => {
+  const sql = readFileSync(
+    path.resolve(__dirname, "../../supabase/migrations/20261021190000_deal_cap_rate_grm_generated.sql"),
+    "utf8",
+  );
+  it("computes cap rate when NOI exists and price is positive, in percent", () => {
+    expect(sql).toContain("WHEN t12_noi IS NOT NULL AND asking_price > 0");
+    expect(sql).toContain("t12_noi / (asking_price * 1000000) * 100");
+  });
+  it("computes GRM when rent and price are both positive", () => {
+    expect(sql).toContain("WHEN gross_scheduled_rent > 0 AND asking_price > 0");
+    expect(sql).toContain("asking_price * 1000000 / gross_scheduled_rent");
   });
 });
