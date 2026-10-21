@@ -35,6 +35,7 @@ import {
   summarizeDetail,
 } from "../_shared/dealDocumentDetail.ts";
 import { errorResponse } from "../_shared/errors.ts";
+import { trimToData } from "../_shared/sheetRange.ts";
 import {
   clampDocumentText,
   documentKind,
@@ -156,7 +157,8 @@ async function parseDocument(admin: any, doc: any): Promise<void> {
     }
   } else if (kind === "spreadsheet") {
     const wb = XLSX.read(bytes, { type: "array", cellDates: true });
-    const sheets: string = wb.SheetNames.map((name: string) => {
+    // Trimmed to the data first; see _shared/sheetRange.ts.
+    const sheets: string = wb.SheetNames.filter((name: string) => trimToData(wb.Sheets[name])).map((name: string) => {
       const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name], { blankrows: false, strip: true, rawNumbers: true });
       return `=== Sheet: ${name} ===\n${csv}`;
     }).join("\n\n");
