@@ -48,6 +48,7 @@ import { AiScoreTab } from "@/components/AiScoreTab";
 import { NoteComposerDialog } from "@/components/NoteComposerDialog";
 import { useDeal, useDeleteDeal } from "@/hooks/useDeals";
 import { persistDealScore } from "@/lib/persistDealScore";
+import { grossRentMultiplier, inPlaceCapRate } from "@/lib/dealRatios";
 import { cn } from "@/lib/utils";
 import {
   AlertDialog,
@@ -425,6 +426,11 @@ export default function DealDetail() {
     return (Number(d.asking_price) * 1_000_000) / Number(d.unit_count);
   }, [d?.asking_price, d?.unit_count]);
 
+  // Derived here rather than read from in_place_cap_rate / grm: nothing writes
+  // those columns. See src/lib/dealRatios.ts.
+  const inPlaceCap = inPlaceCapRate(d?.t12_noi, d?.asking_price);
+  const grm = grossRentMultiplier(d?.gross_scheduled_rent, d?.asking_price);
+
   const rentDeltaPct = useMemo(() => {
     if (!isNum(d?.in_place_avg_rent) || !isNum(d?.median_rent_tract) || d.median_rent_tract === 0)
       return null;
@@ -477,9 +483,9 @@ export default function DealDetail() {
     isNum(d.gross_scheduled_rent) ||
     isNum(d.occupancy_pct) ||
     isNum(d.t12_noi) ||
-    isNum(d.in_place_cap_rate) ||
+    isNum(inPlaceCap.value) ||
     isNum(d.expense_ratio) ||
-    isNum(d.grm);
+    isNum(grm.value);
 
   const hasProForma =
     isNum(d.stabilized_rent) ||
@@ -851,9 +857,9 @@ export default function DealDetail() {
                   <Stat label="Gross Sched. Rent" value={fmtMoney(d.gross_scheduled_rent)} />
                   <Stat label="Occupancy" value={fmtPct(d.occupancy_pct)} />
                   <Stat label="T-12 NOI" value={fmtMoney(d.t12_noi)} />
-                  <Stat label="In-Place Cap" value={fmtPct(d.in_place_cap_rate, 2)} />
+                  <Stat label="In-Place Cap" value={fmtPctPts(inPlaceCap.value, 2)} hint={inPlaceCap.hint} />
                   <Stat label="Expense Ratio" value={fmtPct(d.expense_ratio)} />
-                  <Stat label="GRM" value={isNum(d.grm) ? d.grm.toFixed(2) : null} />
+                  <Stat label="GRM" value={isNum(grm.value) ? `${grm.value.toFixed(2)}x` : null} hint={grm.hint} />
                 </CardContent>
               </Card>
             )}
