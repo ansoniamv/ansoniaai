@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { autoAssignSubmarket } from "@/lib/autoAssignSubmarket";
 import { domainOfEmail, resolveContact } from "../../supabase/functions/_shared/contactMatch";
 
 const CONTACT_FIELDS = ["email","phone","role","linkedin_url","firm_location"] as const;
@@ -119,8 +120,9 @@ async function applyCreateOrAttach(
     }
     if (typeof pv.unit_count === "number") row.unit_count = pv.unit_count;
     if (typeof pv.vintage_year === "number") row.vintage_year = pv.vintage_year;
-    const { error } = await (supabase as any).from("deals").insert(row);
+    const { data: created, error } = await (supabase as any).from("deals").insert(row).select("id").single();
     if (error) return { ok: false, message: error.message };
+    autoAssignSubmarket(created.id);
     return { ok: true };
   }
 

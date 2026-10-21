@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { DEAL_LIST_COLUMNS } from "@/lib/dealColumns";
 import { persistDealScore, rescoreAllDeals } from "@/lib/persistDealScore";
+import { autoAssignSubmarket } from "@/lib/autoAssignSubmarket";
 
 async function scoreAfterWrite<T extends { id: string }>(row: T): Promise<T> {
   try {
@@ -97,6 +98,8 @@ export function useCreateDeal() {
         .then(({ error: geoErr }) => {
           if (geoErr) console.error("geocode-deals error:", geoErr);
         });
+
+      autoAssignSubmarket(data.id, queryClient);
 
       return await scoreAfterWrite(data);
     },

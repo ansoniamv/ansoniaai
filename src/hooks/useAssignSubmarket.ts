@@ -17,7 +17,8 @@ export function useAssignSubmarket(dealId: string) {
     try {
       const { data: fresh, error } = await supabase
         .from("deals")
-        .update({ costar_submarket_code: next })
+        // Clearing is a decision too: assign-submarket never fills a manual blank.
+        .update({ costar_submarket_code: next, costar_submarket_source: "manual", costar_submarket_note: null })
         .eq("id", dealId)
         .select("*")
         .single();

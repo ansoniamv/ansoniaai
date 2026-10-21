@@ -882,6 +882,8 @@ export type Database = {
           cfo_date: string | null
           cfo_note: string | null
           costar_submarket_code: string | null
+          costar_submarket_note: string | null
+          costar_submarket_source: string | null
           city: string | null
           classic_units_remaining: number | null
           concessions_history: Json | null
@@ -1039,6 +1041,8 @@ export type Database = {
           cfo_date?: string | null
           cfo_note?: string | null
           costar_submarket_code?: string | null
+          costar_submarket_note?: string | null
+          costar_submarket_source?: string | null
           city?: string | null
           classic_units_remaining?: number | null
           concessions_history?: Json | null
@@ -1196,6 +1200,8 @@ export type Database = {
           cfo_date?: string | null
           cfo_note?: string | null
           costar_submarket_code?: string | null
+          costar_submarket_note?: string | null
+          costar_submarket_source?: string | null
           city?: string | null
           classic_units_remaining?: number | null
           concessions_history?: Json | null

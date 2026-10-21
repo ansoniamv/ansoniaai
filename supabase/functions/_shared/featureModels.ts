@@ -58,3 +58,11 @@ export const OUTREACH_MODEL = Deno.env.get("OUTREACH_MODEL") ?? "claude-sonnet-5
 
 /** Partner summaries, enrichment and the learning loops. */
 export const PARTNER_MODEL = Deno.env.get("PARTNER_MODEL") ?? "claude-sonnet-5";
+
+/**
+ * CoStar submarket for a new deal, chosen from that state's submarket list.
+ * Sonnet, not Haiku: the input is an address and the answer is local
+ * geography the model has to know (which ZIP is Uptown, which county a suburb
+ * sits in), not a fact to find in the text. One call per deal, once.
+ */
+export const SUBMARKET_MODEL = Deno.env.get("SUBMARKET_MODEL") ?? "claude-sonnet-5";
