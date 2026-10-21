@@ -1,7 +1,11 @@
 // Drafts the first email to capital partners about a deal, from the Data Room's
 // partner outreach template.
 //
-// Body: { deal_id, notes? }. Returns { subject, body, check, templates }.
+// The template leaves the financials blank; they are filled from the deal's
+// uploaded OM, rent roll and T12 (as parsed by parse-deal-document), then the
+// deal record.
+//
+// Body: { deal_id, notes? }. Returns { subject, body, check, templates, documents }.
 // Nothing is saved or sent here: the Draft Outreach dialog puts the result in
 // its editor, the person reviews it, and only then are Outlook drafts created.
 import { completeText } from "../_shared/ai.ts";
@@ -13,9 +17,12 @@ import { loadCompanyBrief } from "../_shared/companyBrief.ts";
 import {
   buildOutreachPrompt,
   dealFactsBlock,
+  documentFactsBlock,
   normalizeOutreachDraft,
   OUTREACH_DEAL_FIELDS,
+  OUTREACH_DOC_TYPES,
   OUTREACH_SCHEMA,
+  type OutreachDocument,
   type OutreachTemplate,
 } from "../_shared/partnerOutreach.ts";
 
@@ -70,22 +77,27 @@ Deno.serve(async (req) => {
       .single();
     if (dealErr) throw dealErr;
 
-    const { data: docs } = await sb
+    // The newest parsed OM, rent roll and T12. Only the figures are selected
+    // from extraction: the rest of it is every unit row and ledger line.
+    const { data: docs, error: docErr } = await sb
       .from("deal_documents")
-      .select("file_name, summary")
+      .select("doc_type, file_name, doc_as_of, summary, figures:extraction->figures")
       .eq("deal_id", deal_id)
-      .eq("doc_type", "om")
-      .not("summary", "is", null)
+      .in("doc_type", [...OUTREACH_DOC_TYPES])
       .order("created_at", { ascending: false })
-      .limit(2);
-    const omSummaries = (docs ?? [])
-      .filter((d: any) => d.summary?.om)
-      .map((d: any) => `${d.file_name}: ${JSON.stringify(d.summary.om)}`);
+      .limit(30);
+    if (docErr) throw docErr;
+    const documents: string[] = [];
+    for (const type of OUTREACH_DOC_TYPES) {
+      const doc = (docs ?? []).find((d: any) => d.doc_type === type && (d.summary || d.figures));
+      const block = doc ? documentFactsBlock(doc as OutreachDocument) : "";
+      if (block) documents.push(block);
+    }
 
     const prompt = buildOutreachPrompt({
       templates,
       dealFacts: dealFactsBlock(deal as unknown as Record<string, unknown>),
-      omSummaries,
+      documents,
       companyBrief: await loadCompanyBrief(sb),
       notes: typeof notes === "string" ? notes : undefined,
     });
@@ -113,7 +125,11 @@ Deno.serve(async (req) => {
     });
 
     const draft = normalizeOutreachDraft(JSON.parse(res.text));
-    return json({ ...draft, templates: templates.map((t) => t.title) });
+    return json({
+      ...draft,
+      templates: templates.map((t) => t.title),
+      documents: documents.map((d) => d.split("\n")[0]),
+    });
   } catch (e) {
     return errorResponse(e, corsHeaders, { fn: "draft-partner-outreach", publicMessage: "Could not draft the email." });
   }

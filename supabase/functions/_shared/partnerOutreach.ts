@@ -40,21 +40,70 @@ export function dealFactsBlock(deal: Record<string, unknown>): string {
     .join("\n");
 }
 
+/** The deal documents the email's financials come from, newest first per type. */
+export const OUTREACH_DOC_TYPES = ["om", "rent_roll", "t12"] as const;
+const DOC_LABEL: Record<string, string> = { om: "OFFERING MEMORANDUM", rent_roll: "RENT ROLL", t12: "T12" };
+
+export type OutreachDocument = {
+  doc_type: string | null;
+  file_name: string;
+  doc_as_of: string | null;
+  /** extraction->figures: the headline figures as the document states them. */
+  figures: Record<string, { value: number | null; evidence?: string | null }> | null;
+  /** deal_documents.summary: the computed read (see summarizeDetail). */
+  summary: { rent_roll?: any; t12?: any; om?: any } | null;
+};
+
+/**
+ * One parsed document as prompt text: the stated figures, then the part of the
+ * computed summary that matches its type. Lease expirations by month and the
+ * T12's line names are left out: no outreach email quotes them, and the T12
+ * category totals and unit mix are what it does quote.
+ */
+export function documentFactsBlock(doc: OutreachDocument): string {
+  const lines: string[] = [];
+  for (const [k, f] of Object.entries(doc.figures ?? {})) {
+    if (f?.value == null) continue;
+    lines.push(`${k}: ${f.value}${f.evidence ? ` ("${String(f.evidence).slice(0, 120)}")` : ""}`);
+  }
+  const s = doc.summary ?? {};
+  if (doc.doc_type === "om" && s.om) {
+    for (const f of s.om.facts ?? []) lines.push(`${f.label}: ${f.value}`);
+    for (const m of s.om.metrics ?? []) lines.push(`${m.label}: ${m.value}${m.basis ? ` (${m.basis})` : ""}`);
+    if (s.om.amenities?.length) lines.push(`Amenities: ${s.om.amenities.join(", ")}`);
+  }
+  if (doc.doc_type === "rent_roll" && s.rent_roll) {
+    const { expirations: _e, other_income_monthly: _o, ...rr } = s.rent_roll;
+    lines.push(`Rent roll summary: ${JSON.stringify(rr)}`);
+  }
+  if (doc.doc_type === "t12" && s.t12) {
+    const t = s.t12;
+    lines.push(
+      `T12 period: ${t.period ?? "?"}; total income ${t.total_income}; total expenses ${t.total_expenses}; NOI ${t.noi}; ` +
+        `T3 annualized income ${t.t3_total_income}, expenses ${t.t3_total_expenses}, NOI ${t.t3_noi}`,
+    );
+    for (const c of t.categories ?? []) lines.push(`${c.category}: ${c.annual} (T3 annualized ${c.t3_annualized})`);
+  }
+  if (!lines.length) return "";
+  const head = `${DOC_LABEL[doc.doc_type ?? ""] ?? "DOCUMENT"} — ${doc.file_name}${doc.doc_as_of ? `, as of ${doc.doc_as_of}` : ""}`;
+  return `${head}\n${lines.join("\n")}`.slice(0, 8000);
+}
+
 export type OutreachTemplate = { title: string; text: string };
 
 export function buildOutreachPrompt(input: {
   templates: OutreachTemplate[];
   dealFacts: string;
-  omSummaries: string[];
+  documents: string[];
   companyBrief: string;
   notes?: string;
 }): string {
   const templates = input.templates
     .map((t) => `--- ${t.title} ---\n${t.text.slice(0, 20_000)}`)
     .join("\n\n");
-  const om = input.omSummaries.length
-    ? `\nFROM THE DEAL'S OFFERING MEMORANDUM (parsed):\n${input.omSummaries.join("\n\n").slice(0, 8000)}\n`
-    : "";
+  const docs = input.documents.length
+    ? `\nTHE DEAL'S UPLOADED DOCUMENTS (parsed OM, rent roll, T12):\n${input.documents.join("\n\n")}\n`
+    : "\nTHE DEAL'S UPLOADED DOCUMENTS: none parsed yet.\n";
   const brief = input.companyBrief.trim()
     ? `\nABOUT ANSONIA (the firm's own brief; use it for "what we own nearby" and track record only):\n${input.companyBrief.slice(0, 6000)}\n`
     : "";
@@ -64,10 +113,12 @@ export function buildOutreachPrompt(input: {
 
   return `You write the first email Ansonia Properties sends its capital (JV equity) partners about a new multifamily deal. The same email goes to every partner on the raise; a person reviews it before anything is sent.
 
-Follow the TEMPLATE for structure, subject line, tone, bullet format and signature. The examples in it are other deals: never reuse their names, places or numbers.
+Follow the TEMPLATE for structure, subject line, tone, bullet format and signature. Its blanks, written ___ or [label], are what you fill for this deal. The examples in it are other deals with their figures blanked: copy their style, never their names or places.
 
 Rules:
-- Every fact, number, name and date comes from DEAL DATA, the OM, the notes, or the Ansonia brief. Never invent or estimate one.
+- Every fact, number, name and date comes from the UPLOADED DOCUMENTS, DEAL DATA, the notes, or the Ansonia brief. Never invent or estimate one.
+- The financials (price, $/unit, going-in cap, NOI, occupancy, in-place vs. market rents, loss-to-lease, unit mix and sizes) come from the documents first: the OM for price, returns and the story; the rent roll for occupancy, rents, loss-to-lease and unit mix; the T12 for income, expenses and NOI. DEAL DATA fills what the documents lack. When two sources disagree, use the document and add the disagreement to "check".
+- You may derive a figure by plain arithmetic from stated ones (price / units = $/unit; T12 NOI / price = going-in cap), and must name each derived figure in "check". Do not compute returns (IRR, equity multiple, yield-on-cost, cash yield): use them only when a source states them.
 - When the template calls for something we do not have (a CFO date, HH incomes, a nearby Ansonia property, an IRR), either leave that line out, or, when the email would read wrong without it, write a placeholder in double square brackets saying what goes there, e.g. [[CFO date]] or [[1/3/5-mile avg. HH income]]. Never put a guess inside a placeholder.
 - Greeting: "Hey ${FIRST_NAME_TOKEN} –" exactly, with that token; it is filled per recipient.
 - Reading the data: ratios such as projected_irr, cap rates, year1_coc and occupancy_pct may be stored as a fraction (0.19) or a percent (19); write them as percents. Round the way the template does (19%+, 2.0x+, ~$17M, mid $40M). marketed = false means off-market. cfo_date is the call for offers.
@@ -78,9 +129,10 @@ Also list, in "check", each thing the reviewer should confirm before sending: ev
 TEMPLATE:
 ${templates}
 
-DEAL DATA:
+${docs}
+DEAL DATA (the platform's record of the deal):
 ${input.dealFacts || "(none)"}
-${om}${brief}${notes}`;
+${brief}${notes}`;
 }
 
 export const OUTREACH_SCHEMA = {

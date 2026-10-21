@@ -65,7 +65,7 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
   const [submitting, setSubmitting] = useState(false);
   const [aiNotes, setAiNotes] = useState("");
   const [drafting, setDrafting] = useState(false);
-  const [aiCheck, setAiCheck] = useState<{ items: string[]; templates: string[] } | null>(null);
+  const [aiCheck, setAiCheck] = useState<{ items: string[]; templates: string[]; documents: string[] } | null>(null);
   const [results, setResults] = useState<
     { partner: string; ok: boolean; webLink?: string; error?: string }[] | null
   >(null);
@@ -162,7 +162,7 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
       }
       setSubject(data.subject);
       setBody(data.body);
-      setAiCheck({ items: data.check ?? [], templates: data.templates ?? [] });
+      setAiCheck({ items: data.check ?? [], templates: data.templates ?? [], documents: data.documents ?? [] });
     } catch (e) {
       toast.error((e as Error).message || "Could not draft the email");
     } finally {
@@ -345,7 +345,7 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
                 <div className="min-w-0">
                   <div className="text-xs font-medium">Draft from the partner outreach template</div>
                   <div className="text-[11px] text-muted-foreground">
-                    Writes the email from this deal's data and OM, in the style of the Data Room template.
+                    Fills the Data Room template's blanks from this deal's OM, rent roll, T12 and deal record.
                   </div>
                 </div>
                 <Button size="sm" variant="secondary" onClick={draftWithAi} disabled={drafting} className="shrink-0">
@@ -375,6 +375,14 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
                         ))}
                       </ul>
                     </>
+                  )}
+                  {aiCheck.documents.length > 0 ? (
+                    <div className="text-muted-foreground">Financials from: {aiCheck.documents.join(" · ")}</div>
+                  ) : (
+                    <div className="text-amber-600 dark:text-amber-500">
+                      No parsed OM, rent roll or T12 on this deal: financials came from the deal record only. Upload
+                      them under Deal Documents on the Overview tab and redraft.
+                    </div>
                   )}
                   {aiCheck.templates.length > 0 && (
                     <div className="text-muted-foreground">Template: {aiCheck.templates.join(", ")}</div>

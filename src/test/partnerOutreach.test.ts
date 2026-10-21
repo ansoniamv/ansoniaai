@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildOutreachPrompt,
   dealFactsBlock,
+  documentFactsBlock,
   FIRST_NAME_TOKEN,
   normalizeOutreachDraft,
 } from "../../supabase/functions/_shared/partnerOutreach";
@@ -30,7 +31,7 @@ describe("buildOutreachPrompt", () => {
     const p = buildOutreachPrompt({
       templates: [{ title: "New JV email", text: "Hey {first name} –" }],
       dealFacts: "property_name: Arlington Club",
-      omSummaries: [],
+      documents: [],
       companyBrief: "",
       notes: "Prior contact left the firm",
     });
@@ -38,8 +39,74 @@ describe("buildOutreachPrompt", () => {
     expect(p).toContain("property_name: Arlington Club");
     expect(p).toContain("Prior contact left the firm");
     expect(p).toContain(`"Hey ${FIRST_NAME_TOKEN} –"`);
-    expect(p).not.toContain("OFFERING MEMORANDUM");
+    expect(p).toContain("UPLOADED DOCUMENTS: none parsed yet");
     expect(p).not.toContain("ABOUT ANSONIA");
+  });
+
+  it("puts the parsed documents ahead of the deal record", () => {
+    const p = buildOutreachPrompt({
+      templates: [{ title: "t", text: "x" }],
+      dealFacts: "unit_count: 146",
+      documents: ["T12 — t12.xlsx\nNOI 1200000"],
+      companyBrief: "",
+    });
+    expect(p.indexOf("NOI 1200000")).toBeGreaterThan(-1);
+    expect(p.indexOf("NOI 1200000")).toBeLessThan(p.indexOf("unit_count: 146"));
+  });
+});
+
+describe("documentFactsBlock", () => {
+  it("reads a T12's totals and category totals, not its months", () => {
+    const block = documentFactsBlock({
+      doc_type: "t12",
+      file_name: "T12.xlsx",
+      doc_as_of: "2026-08",
+      figures: { noi_annual: { value: 1_200_000, evidence: "Net Operating Income 1,200,000" }, unit_count: { value: null } },
+      summary: {
+        t12: {
+          months: ["2025-09"],
+          period: "Sep 2025 – Aug 2026",
+          total_income: 2_500_000,
+          total_expenses: 1_300_000,
+          noi: 1_200_000,
+          t3_total_income: 2_600_000,
+          t3_total_expenses: 1_320_000,
+          t3_noi: 1_280_000,
+          categories: [{ category: "payroll", annual: 300_000, t3_annualized: 310_000, lines: ["Salaries"] }],
+        },
+      },
+    });
+    expect(block.split("\n")[0]).toBe("T12 — T12.xlsx, as of 2026-08");
+    expect(block).toContain('noi_annual: 1200000 ("Net Operating Income 1,200,000")');
+    expect(block).not.toContain("unit_count");
+    expect(block).toContain("NOI 1200000");
+    expect(block).toContain("payroll: 300000 (T3 annualized 310000)");
+    expect(block).not.toContain("Salaries");
+  });
+
+  it("drops a rent roll's expirations and keeps its unit mix", () => {
+    const block = documentFactsBlock({
+      doc_type: "rent_roll",
+      file_name: "RR.pdf",
+      doc_as_of: null,
+      figures: null,
+      summary: {
+        rent_roll: {
+          physical_occupancy_pct: 94.5,
+          loss_to_lease_pct: 6.2,
+          unit_mix: [{ beds: 2, units: 80 }],
+          expirations: [{ month: "2026-11", count: 9 }],
+          other_income_monthly: [],
+        },
+      },
+    });
+    expect(block).toContain('"loss_to_lease_pct":6.2');
+    expect(block).toContain('"unit_mix":[{"beds":2,"units":80}]');
+    expect(block).not.toContain("expirations");
+  });
+
+  it("is empty for a document with nothing read", () => {
+    expect(documentFactsBlock({ doc_type: "om", file_name: "OM.pdf", doc_as_of: null, figures: null, summary: null })).toBe("");
   });
 });
 
