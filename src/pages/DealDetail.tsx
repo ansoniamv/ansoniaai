@@ -48,7 +48,7 @@ import { AiScoreTab } from "@/components/AiScoreTab";
 import { NoteComposerDialog } from "@/components/NoteComposerDialog";
 import { useDeal, useDeleteDeal } from "@/hooks/useDeals";
 import { persistDealScore } from "@/lib/persistDealScore";
-import { grossRentMultiplier, inPlaceCapRate } from "@/lib/dealRatios";
+import { capRateHint, grmHint } from "@/lib/dealRatios";
 import { cn } from "@/lib/utils";
 import {
   AlertDialog,
@@ -426,10 +426,10 @@ export default function DealDetail() {
     return (Number(d.asking_price) * 1_000_000) / Number(d.unit_count);
   }, [d?.asking_price, d?.unit_count]);
 
-  // Derived here rather than read from in_place_cap_rate / grm: nothing writes
-  // those columns. See src/lib/dealRatios.ts.
-  const inPlaceCap = inPlaceCapRate(d?.t12_noi, d?.asking_price);
-  const grm = grossRentMultiplier(d?.gross_scheduled_rent, d?.asking_price);
+  // The database generates both from NOI, rent and price (20261021190000), so
+  // this page, the pipeline list, exports and Atlas all read one figure.
+  const inPlaceCap = { value: d?.in_place_cap_rate, hint: capRateHint(d?.t12_noi, d?.asking_price) };
+  const grm = { value: d?.grm, hint: grmHint(d?.gross_scheduled_rent, d?.asking_price) };
 
   const rentDeltaPct = useMemo(() => {
     if (!isNum(d?.in_place_avg_rent) || !isNum(d?.median_rent_tract) || d.median_rent_tract === 0)
