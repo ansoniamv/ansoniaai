@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { DealDocumentSummary } from "@/components/DealDocumentSummary";
+import { blocksApply, checkDocumentAgainstDeal, type DocumentIssue } from "@/lib/documentMatch";
 import {
   MAX_DEAL_DOCUMENT_BYTES,
   getDealDocumentUrl,
@@ -72,16 +73,6 @@ function fmtField(field: string, v: unknown): string {
   if (v === null || v === undefined || v === "") return "—";
   const n = Number(v);
   return isNum(n) && FIELDS[field] ? FIELDS[field].fmt(n) : String(v);
-}
-
-/** Loose match: a document for "Alara North Burnet" on deal "Alara" is fine. */
-function sameProperty(a: string | null | undefined, b: string | null | undefined): boolean {
-  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\b(apartments?|apts?|homes?|the|at)\b/g, " ").replace(/\s+/g, " ").trim();
-  if (!a || !b) return true;
-  const x = norm(a);
-  const y = norm(b);
-  if (!x || !y) return true;
-  return x.includes(y) || y.includes(x) || x.split(" ")[0] === y.split(" ")[0];
 }
 
 export function DealDocumentsPanel({ deal }: { deal: Record<string, unknown> & { id: string; property_name: string } }) {
@@ -136,6 +127,22 @@ export function DealDocumentsPanel({ deal }: { deal: Record<string, unknown> & {
 
   const docsById = useMemo(() => Object.fromEntries(docs.map((d) => [d.id, d])), [docs]);
 
+  // Documents that look like another property are held: their figures cannot be
+  // ticked until someone confirms the document. Session-only on purpose — the
+  // confirmation is a judgement about this document today, not a setting.
+  const [confirmed, setConfirmed] = useState<Set<string>>(new Set());
+  const issuesById = useMemo(
+    () =>
+      Object.fromEntries(
+        docs.map((d) => [d.id, d.parse_status === "parsed" ? checkDocumentAgainstDeal(d, deal) : []]),
+      ) as Record<string, DocumentIssue[]>,
+    [docs, deal],
+  );
+  const heldDocIds = useMemo(
+    () => new Set(docs.filter((d) => blocksApply(issuesById[d.id] ?? []) && !confirmed.has(d.id)).map((d) => d.id)),
+    [docs, issuesById, confirmed],
+  );
+
   return (
     <Card
       className={cn("surface-card border-hairline transition-colors", dragging && "border-primary bg-primary/5")}
@@ -179,7 +186,9 @@ export function DealDocumentsPanel({ deal }: { deal: Record<string, unknown> & {
               <DocumentRow
                 key={doc.id}
                 doc={doc}
-                dealName={deal.property_name}
+                issues={issuesById[doc.id] ?? []}
+                held={heldDocIds.has(doc.id)}
+                onConfirm={() => setConfirmed((s) => new Set(s).add(doc.id))}
                 unitCount={typeof deal.unit_count === "number" && deal.unit_count > 0 ? deal.unit_count : null}
                 onOpen={() => openDoc(doc)}
                 onReparse={() =>
@@ -196,6 +205,7 @@ export function DealDocumentsPanel({ deal }: { deal: Record<string, unknown> & {
             deal={deal}
             proposals={proposals}
             docsById={docsById}
+            heldDocIds={heldDocIds}
             applying={apply.isPending}
             dismissing={dismiss.isPending}
             onApply={(ids) =>
@@ -240,14 +250,18 @@ export function DealDocumentsPanel({ deal }: { deal: Record<string, unknown> & {
 
 function DocumentRow({
   doc,
-  dealName,
+  issues,
+  held,
+  onConfirm,
   unitCount,
   onOpen,
   onReparse,
   onDelete,
 }: {
   doc: DealDocument;
-  dealName: string;
+  issues: DocumentIssue[];
+  held: boolean;
+  onConfirm: () => void;
   unitCount: number | null;
   onOpen: () => void;
   onReparse: () => void;
@@ -259,7 +273,8 @@ function DocumentRow({
   // and a newer read takes the row over from the older one.
   const busy = state === "reading";
   const isSheet = /\.(xlsx|xlsm|xls|csv)$/i.test(doc.file_name);
-  const mismatch = doc.parse_status === "parsed" && !sameProperty(doc.doc_property_name, dealName);
+  const blocking = issues.filter((i) => i.severity === "block");
+  const warnings = issues.filter((i) => i.severity === "warn");
   return (
     <div className="py-2 flex items-start gap-3">
       {isSheet ? (
@@ -288,10 +303,33 @@ function DocumentRow({
           <p className="text-xs text-destructive">Reading stopped before it finished. Read it again to retry.</p>
         )}
         {state === "failed" && <p className="text-xs text-destructive">{doc.parse_error ?? "Parsing failed."}</p>}
-        {mismatch && (
-          <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-            <AlertTriangle className="h-3 w-3 shrink-0" />
-            This document is for “{doc.doc_property_name}”. Check it belongs to this deal before applying anything.
+        {blocking.length > 0 && (
+          <div
+            className={cn(
+              "text-xs flex items-start gap-1.5",
+              held ? "text-destructive" : "text-amber-600 dark:text-amber-400",
+            )}
+          >
+            <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p>
+                {held
+                  ? `This may be another property's document. ${blocking.map((i) => i.message).join(" ")}`
+                  : `Confirmed for this deal. ${blocking.map((i) => i.message).join(" ")}`}
+                {held && " Its figures are held back from the review below."}
+              </p>
+              {held && (
+                <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={onConfirm}>
+                  It belongs to this deal
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+        {warnings.length > 0 && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
+            <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+            {warnings.map((i) => i.message).join(" ")} Check it before applying anything.
           </p>
         )}
         {doc.parse_status === "parsed" && doc.parse_notes && (
@@ -343,6 +381,7 @@ function ProposalReview({
   deal,
   proposals,
   docsById,
+  heldDocIds,
   applying,
   dismissing,
   onApply,
@@ -351,6 +390,7 @@ function ProposalReview({
   deal: Record<string, unknown>;
   proposals: DealDocumentProposal[];
   docsById: Record<string, DealDocument>;
+  heldDocIds: Set<string>;
   applying: boolean;
   dismissing: boolean;
   onApply: (ids: string[]) => void;
@@ -370,17 +410,21 @@ function ProposalReview({
     const sel: Record<string, string | null> = {};
     for (const { field, candidates } of groups) {
       const blank = deal[field] === null || deal[field] === undefined || deal[field] === "";
-      sel[field] = blank ? candidates[0].id : null;
+      const best = candidates.find((c) => !heldDocIds.has(c.document_id));
+      sel[field] = blank && best ? best.id : null;
     }
     return sel;
-  }, [groups, deal]);
+  }, [groups, deal, heldDocIds]);
 
   // field -> chosen proposal id (one per field at most)
   const [selected, setSelected] = useState<Record<string, string | null>>(defaultSelection);
   const proposalKey = proposals.map((p) => p.id).join(",");
-  useEffect(() => setSelected(defaultSelection), [proposalKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const heldKey = [...heldDocIds].sort().join(",");
+  useEffect(() => setSelected(defaultSelection), [proposalKey, heldKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const chosen = Object.values(selected).filter((v): v is string => !!v);
+  // Filtered again here, so a document held after a box was ticked cannot slip through.
+  const heldProposal = (id: string) => heldDocIds.has(proposals.find((p) => p.id === id)?.document_id ?? "");
+  const chosen = Object.values(selected).filter((v): v is string => !!v && !heldProposal(v));
 
   return (
     <div className="space-y-2 rounded-md border border-hairline p-3">
@@ -410,7 +454,8 @@ function ProposalReview({
             {groups.flatMap(({ field, candidates }) =>
               candidates.map((p, i) => {
                 const doc = docsById[p.document_id];
-                const checked = selected[field] === p.id;
+                const held = heldDocIds.has(p.document_id);
+                const checked = !held && selected[field] === p.id;
                 const current = deal[field];
                 const replaces = current !== null && current !== undefined && current !== "";
                 return (
@@ -418,6 +463,7 @@ function ProposalReview({
                     <TableCell className="align-top">
                       <Checkbox
                         checked={checked}
+                        disabled={held}
                         aria-label={`Apply ${FIELDS[field]?.label ?? field} from ${doc?.file_name ?? "document"}`}
                         onCheckedChange={(v) => setSelected((s) => ({ ...s, [field]: v ? p.id : null }))}
                       />
@@ -428,7 +474,7 @@ function ProposalReview({
                     <TableCell className="align-top text-sm whitespace-nowrap text-muted-foreground">
                       {i === 0 ? fmtField(field, current) : ""}
                     </TableCell>
-                    <TableCell className="align-top">
+                    <TableCell className={cn("align-top", held && "opacity-60")}>
                       <div className="text-sm font-medium tabular-nums">
                         {fmtField(field, p.value)}
                         {replaces && checked && (
@@ -438,6 +484,11 @@ function ProposalReview({
                       <div className="text-xs text-muted-foreground">
                         {doc ? `${DOC_TYPE_LABEL[doc.doc_type ?? "other"] ?? "Document"} · ${doc.file_name}` : "Document"}
                       </div>
+                      {held && (
+                        <div className="text-xs text-destructive">
+                          Held: this document may be for another property. Confirm it above to apply.
+                        </div>
+                      )}
                       {p.evidence && <div className="text-xs text-muted-foreground italic break-words">{p.evidence}</div>}
                     </TableCell>
                   </TableRow>
