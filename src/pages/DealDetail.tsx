@@ -48,7 +48,8 @@ import { AiScoreTab } from "@/components/AiScoreTab";
 import { NoteComposerDialog } from "@/components/NoteComposerDialog";
 import { useDeal, useDeleteDeal } from "@/hooks/useDeals";
 import { persistDealScore } from "@/lib/persistDealScore";
-import { capRateHint, grmHint } from "@/lib/dealRatios";
+import { capRateHint, equityCheck, grmHint, latestT3Noi, pricePerSqft } from "@/lib/dealRatios";
+import { useDealDocuments } from "@/hooks/useDealDocuments";
 import { cn } from "@/lib/utils";
 import {
   AlertDialog,
@@ -430,6 +431,11 @@ export default function DealDetail() {
   // this page, the pipeline list, exports and Atlas all read one figure.
   const inPlaceCap = { value: d?.in_place_cap_rate, hint: capRateHint(d?.t12_noi, d?.asking_price) };
   const grm = { value: d?.grm, hint: grmHint(d?.gross_scheduled_rent, d?.asking_price) };
+  const ppsf = pricePerSqft(d?.price_per_sqft, d?.asking_price, d?.total_sqft);
+  const equity = equityCheck(d?.asking_price);
+  // Same query as the Deal Documents panel, so this costs no extra request.
+  const { data: docs = [] } = useDealDocuments(id);
+  const t3 = latestT3Noi(docs);
 
   const rentDeltaPct = useMemo(() => {
     if (!isNum(d?.in_place_avg_rent) || !isNum(d?.median_rent_tract) || d.median_rent_tract === 0)
@@ -479,11 +485,17 @@ export default function DealDetail() {
     : null;
   const meetsIncome = isNum(incomeForCheck) ? incomeForCheck >= 55_000 : null;
 
+  const hasPricing =
+    isNum(deal.asking_price) ||
+    isNum(pricePerUnit) ||
+    isNum(ppsf.value) ||
+    isNum(d.t12_noi) ||
+    isNum(t3?.value) ||
+    isNum(inPlaceCap.value);
+
   const hasInPlace =
     isNum(d.gross_scheduled_rent) ||
     isNum(d.occupancy_pct) ||
-    isNum(d.t12_noi) ||
-    isNum(inPlaceCap.value) ||
     isNum(d.expense_ratio) ||
     isNum(grm.value);
 
@@ -825,12 +837,12 @@ export default function DealDetail() {
       </section>
 
       {/* ============ Financial Underwriting ============ */}
-      {(isNum(deal.asking_price) || hasInPlace || hasProForma || hasReturns) && (
+      {(hasPricing || hasInPlace || hasProForma || hasReturns) && (
         <section>
           <SectionHeader title="Financial Underwriting" />
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Pricing */}
-            {(isNum(deal.asking_price) || isNum(pricePerUnit) || isNum(d.price_per_sqft)) && (
+            {hasPricing && (
               <Card className="surface-card border-hairline">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground font-display">
@@ -840,7 +852,19 @@ export default function DealDetail() {
                 <CardContent className="grid grid-cols-3 gap-2">
                   <Stat label="Asking Price" value={fmtMillions(deal.asking_price)} />
                   <Stat label="$ / Unit" value={fmtMoney(pricePerUnit)} />
-                  <Stat label="$ / Sq Ft" value={fmtMoney(d.price_per_sqft, 2)} />
+                  <Stat label="$ / Sq Ft" value={fmtMoney(ppsf.value, 2)} hint={ppsf.hint} />
+                  <Stat label="T-12 NOI" value={fmtMoney(d.t12_noi)} />
+                  <Stat
+                    label="T-3 NOI"
+                    value={fmtMoney(t3?.value)}
+                    hint={t3 ? `Annualized${t3.period ? ` · ${t3.period}` : ""}` : "From a parsed T12"}
+                  />
+                  <Stat label="Cap Rate" value={fmtPctPts(inPlaceCap.value, 2)} hint={inPlaceCap.hint} />
+                  <Stat
+                    label="Equity Check"
+                    value={fmtMillions(isNum(equity) ? equity / 1_000_000 : null)}
+                    hint="35% of asking"
+                  />
                 </CardContent>
               </Card>
             )}
@@ -856,8 +880,6 @@ export default function DealDetail() {
                 <CardContent className="grid grid-cols-3 gap-2">
                   <Stat label="Gross Sched. Rent" value={fmtMoney(d.gross_scheduled_rent)} />
                   <Stat label="Occupancy" value={fmtPct(d.occupancy_pct)} />
-                  <Stat label="T-12 NOI" value={fmtMoney(d.t12_noi)} />
-                  <Stat label="In-Place Cap" value={fmtPctPts(inPlaceCap.value, 2)} hint={inPlaceCap.hint} />
                   <Stat label="Expense Ratio" value={fmtPct(d.expense_ratio)} />
                   <Stat label="GRM" value={isNum(grm.value) ? `${grm.value.toFixed(2)}x` : null} hint={grm.hint} />
                 </CardContent>
