@@ -12,9 +12,17 @@ export const DATA_ROOM_CATEGORIES = [
   { value: "track_record", label: "Track record" },
   { value: "market", label: "Market research" },
   { value: "operations", label: "Operations" },
+  { value: "partner_outreach", label: "Partner outreach template" },
   { value: "other", label: "Other" },
 ] as const;
 export type DataRoomCategory = (typeof DATA_ROOM_CATEGORIES)[number]["value"];
+
+/**
+ * Partner outreach templates teach the email drafter how Ansonia writes to
+ * capital partners. They are not facts about the firm, so they stay out of the
+ * Company Brief.
+ */
+export const keptOutOfBrief = (c: string) => c === "partner_outreach";
 
 export const categoryLabel = (c: string) => DATA_ROOM_CATEGORIES.find((x) => x.value === c)?.label ?? c;
 

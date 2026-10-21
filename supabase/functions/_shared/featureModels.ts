@@ -49,5 +49,12 @@ export const DEAL_DOCS_MODEL = Deno.env.get("DEAL_DOCS_MODEL") ?? "claude-sonnet
  */
 export const DATA_ROOM_MODEL = Deno.env.get("DATA_ROOM_MODEL") ?? "claude-sonnet-5";
 
+/**
+ * Partner outreach email for a new deal, from the Data Room template. Sonnet:
+ * it goes out under a partner's name to every capital partner on the raise, so
+ * the wording is the product. One call per deal, not per partner.
+ */
+export const OUTREACH_MODEL = Deno.env.get("OUTREACH_MODEL") ?? "claude-sonnet-5";
+
 /** Partner summaries, enrichment and the learning loops. */
 export const PARTNER_MODEL = Deno.env.get("PARTNER_MODEL") ?? "claude-sonnet-5";

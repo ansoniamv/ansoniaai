@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { sourceState, type DataRoomBrief, type DataRoomCategory, type DataRoomHit, type DataRoomSource } from "@/lib/dataRoom";
+import { keptOutOfBrief, sourceState, type DataRoomBrief, type DataRoomCategory, type DataRoomHit, type DataRoomSource } from "@/lib/dataRoom";
 
 export * from "@/lib/dataRoom";
 
@@ -85,6 +85,7 @@ async function startProcessing(sourceId: string) {
 }
 
 async function insertSource(row: Record<string, unknown>): Promise<string> {
+  if (keptOutOfBrief(String(row.category))) row = { ...row, include_in_brief: false };
   const { data, error } = await supabase
     .from("data_room_sources" as never)
     .insert(row as never)
@@ -147,7 +148,13 @@ export function useSaveDataRoomNote() {
       if (id) {
         const { error } = await supabase
           .from("data_room_sources" as never)
-          .update({ title: note.title, body: note.body, category: note.category, status: "pending" } as never)
+          .update({
+            title: note.title,
+            body: note.body,
+            category: note.category,
+            status: "pending",
+            ...(keptOutOfBrief(note.category) ? { include_in_brief: false } : {}),
+          } as never)
           .eq("id", id);
         if (error) throw error;
       } else {
@@ -165,6 +172,7 @@ export function useUpdateDataRoomSource() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, ...fields }: { id: string } & Partial<Pick<DataRoomSource, "title" | "category" | "include_in_brief">>) => {
+      if (fields.category && keptOutOfBrief(fields.category)) fields = { ...fields, include_in_brief: false };
       const { error } = await supabase.from("data_room_sources" as never).update(fields as never).eq("id", id);
       if (error) throw error;
     },
