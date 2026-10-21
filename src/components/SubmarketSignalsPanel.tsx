@@ -35,6 +35,8 @@ type DealLike = {
   state?: string | null;
   msa?: string | null;
   costar_submarket_code?: string | null;
+  costar_submarket_source?: string | null;
+  costar_submarket_note?: string | null;
 };
 
 const fmtUnits = (v: number | null | undefined) => (v == null ? "—" : Math.round(v).toLocaleString());
@@ -106,6 +108,14 @@ export function SubmarketSignalsPanel({ deal }: { deal: DealLike }) {
             </div>
           )}
         </div>
+
+        {deal.costar_submarket_source === "ai" && (
+          <p className="text-xs text-muted-foreground">
+            {code ? "Picked automatically from the address" : "Couldn't place this automatically"}
+            {deal.costar_submarket_note ? `: ${deal.costar_submarket_note}` : "."}
+            {code && " Change it above if it's wrong."}
+          </p>
+        )}
 
         {!code && (
           <p className="text-sm text-muted-foreground">

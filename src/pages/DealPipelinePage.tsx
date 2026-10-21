@@ -39,6 +39,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/useAuth";
 import DOMPurify from "dompurify";
 import { budgetPause } from "@/lib/aiBudgetPause";
+import { autoAssignSubmarket } from "@/lib/autoAssignSubmarket";
 import { DUPLICATE_CATEGORY } from "../../supabase/functions/_shared/feedbackLearning";
 
 const DENIAL_CATEGORIES = [
@@ -397,6 +398,7 @@ export default function DealPipelinePage() {
         .then(({ error: scoreErr }) => {
           if (scoreErr) console.error("deal-score error:", scoreErr);
         });
+      autoAssignSubmarket(newDealId, queryClient);
     }
 
     queryClient.invalidateQueries({ queryKey: ["deals"] });

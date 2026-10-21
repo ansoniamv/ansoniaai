@@ -297,13 +297,17 @@ type DealRow = {
   msa: string | null;
   status: string | null;
   costar_submarket_code: string | null;
+  costar_submarket_source: string | null;
+  costar_submarket_note: string | null;
   new_supply_pct_of_stock: number | null;
 };
 
 function DealAssignments() {
   const queryClient = useQueryClient();
+  const { isAdmin } = useAuth();
   const [onlyMissing, setOnlyMissing] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [autoRunning, setAutoRunning] = useState<{ assigned: number; declined: number } | null>(null);
   const { data: signals = [] } = useAllSignals(COMBINED);
   const byCode = useMemo(() => new Map(signals.map((s) => [s.geography_code, s])), [signals]);
   const { data: deals = [], error } = useQuery({
@@ -311,7 +315,9 @@ function DealAssignments() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("deals")
-        .select("id, property_name, city, state, msa, status, costar_submarket_code, new_supply_pct_of_stock")
+        .select(
+          "id, property_name, city, state, msa, status, costar_submarket_code, costar_submarket_source, costar_submarket_note, new_supply_pct_of_stock",
+        )
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as DealRow[];
@@ -326,7 +332,7 @@ function DealAssignments() {
     try {
       const { data: fresh, error } = await supabase
         .from("deals")
-        .update({ costar_submarket_code: code })
+        .update({ costar_submarket_code: code, costar_submarket_source: "manual", costar_submarket_note: null })
         .eq("id", deal.id)
         .select("*")
         .single();
@@ -340,6 +346,46 @@ function DealAssignments() {
     }
   };
 
+  // Backfill for deals that predate auto-assignment, in batches the function
+  // can finish inside its time limit. Stops when a batch decides nothing: the
+  // rows left are ones with no state or metro to narrow by, which a retry
+  // would only skip again.
+  const autoAssignMissing = async () => {
+    const tally = { assigned: 0, declined: 0 };
+    setAutoRunning({ ...tally });
+    try {
+      for (let batch = 0; batch < 50; batch++) {
+        const { data, error } = await supabase.functions.invoke("assign-submarket", {
+          body: { backfill: true, limit: 10 },
+        });
+        if (error) throw error;
+        const results: Array<{ deal_id: string; status: string }> = data?.results ?? [];
+        const assignedIds = results.filter((r) => r.status === "assigned").map((r) => r.deal_id);
+        const declined = results.filter((r) => r.status === "declined").length;
+        if (assignedIds.length) {
+          const { data: fresh } = await supabase.from("deals").select("*").in("id", assignedIds);
+          for (const row of fresh ?? []) {
+            await persistDealScore(row).catch((e) => console.error("rescore failed", e));
+          }
+        }
+        tally.assigned += assignedIds.length;
+        tally.declined += declined;
+        setAutoRunning({ ...tally });
+        queryClient.invalidateQueries({ queryKey: ["deals"] });
+        if (assignedIds.length + declined === 0) break;
+      }
+      toast.success(
+        `Assigned ${tally.assigned} submarket${tally.assigned === 1 ? "" : "s"}` +
+          (tally.declined ? `; ${tally.declined} too uncertain to pick, left for you` : ""),
+      );
+    } catch (e) {
+      toast.error("Auto-assign stopped: " + (e as Error).message);
+    } finally {
+      setAutoRunning(null);
+      queryClient.invalidateQueries({ queryKey: ["rent_growth_scores"] });
+    }
+  };
+
   return (
     <Card className="surface-card border-hairline">
       <CardHeader className="pb-3 flex flex-row items-center justify-between gap-4 space-y-0">
@@ -349,9 +395,23 @@ function DealAssignments() {
             {missing} of {deals.length} deals have no submarket and still show Esri's housing-growth figure as New Supply.
           </p>
         </div>
-        <Button size="sm" variant="outline" onClick={() => setOnlyMissing((v) => !v)}>
-          {onlyMissing ? "Show all deals" : "Only unassigned"}
-        </Button>
+        <div className="flex gap-2">
+          {isAdmin && missing > 0 && (
+            <Button size="sm" variant="outline" onClick={autoAssignMissing} disabled={!!autoRunning}>
+              {autoRunning ? (
+                <>
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  {autoRunning.assigned} assigned…
+                </>
+              ) : (
+                "Auto-assign missing"
+              )}
+            </Button>
+          )}
+          <Button size="sm" variant="outline" onClick={() => setOnlyMissing((v) => !v)}>
+            {onlyMissing ? "Show all deals" : "Only unassigned"}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {error && <p className="text-sm text-destructive">{(error as Error).message}</p>}
@@ -388,6 +448,12 @@ function DealAssignments() {
                         msa={d.msa}
                         disabled={savingId === d.id}
                       />
+                      {d.costar_submarket_source === "ai" && (
+                        <p className="mt-1 text-[11px] text-muted-foreground line-clamp-2" title={d.costar_submarket_note ?? undefined}>
+                          {d.costar_submarket_code ? "Auto-picked" : "Couldn't auto-pick"}
+                          {d.costar_submarket_note ? `: ${d.costar_submarket_note}` : ""}
+                        </p>
+                      )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{s ? formatSignal(s.uc_pct, "pct") : "—"}</TableCell>
                     <TableCell className="text-right tabular-nums">{s?.cyclical_score ?? "—"}</TableCell>
