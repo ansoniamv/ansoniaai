@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Mail, ExternalLink, AlertTriangle } from "lucide-react";
+import { Loader2, Mail, ExternalLink, AlertTriangle, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,6 +19,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import type { Engagement } from "@/hooks/useCapitalRaiseEngagements";
 import type { Deal } from "@/hooks/useDeals";
+import { unfilledPlaceholders } from "@/lib/outreachDraft";
 
 const fmtCurrency = (n: number | null | undefined) => {
   if (n == null || Number.isNaN(Number(n))) return "—";
@@ -62,6 +63,9 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
   const [subject, setSubject] = useState(DEFAULT_SUBJECT);
   const [body, setBody] = useState(DEFAULT_BODY);
   const [submitting, setSubmitting] = useState(false);
+  const [aiNotes, setAiNotes] = useState("");
+  const [drafting, setDrafting] = useState(false);
+  const [aiCheck, setAiCheck] = useState<{ items: string[]; templates: string[]; documents: string[] } | null>(null);
   const [results, setResults] = useState<
     { partner: string; ok: boolean; webLink?: string; error?: string }[] | null
   >(null);
@@ -136,10 +140,43 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
   const previewBody = previewCtx ? fillTokens(body, previewCtx) : body;
 
   const selectedWithEmail = recipients.filter((r) => selected.has(r.engagement.id) && r.email);
+  const placeholders = unfilledPlaceholders(subject, body);
+
+  // One draft for the whole raise from the Data Room's outreach template; the
+  // tokens in it are filled per recipient when the Outlook drafts are made.
+  const draftWithAi = async () => {
+    setDrafting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("draft-partner-outreach", {
+        body: { deal_id: deal.id, notes: aiNotes },
+      });
+      if (error) {
+        let detail = error.message;
+        try {
+          const b = await (error as { context?: { json?: () => Promise<{ error?: string }> } }).context?.json?.();
+          if (b?.error) detail = b.error;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(detail);
+      }
+      setSubject(data.subject);
+      setBody(data.body);
+      setAiCheck({ items: data.check ?? [], templates: data.templates ?? [], documents: data.documents ?? [] });
+    } catch (e) {
+      toast.error((e as Error).message || "Could not draft the email");
+    } finally {
+      setDrafting(false);
+    }
+  };
 
   const submit = async () => {
     if (selectedWithEmail.length === 0) {
       toast.error("Select at least one recipient with an email");
+      return;
+    }
+    if (placeholders.length > 0) {
+      toast.error(`Fill in or remove ${placeholders.map((p) => `[[${p}]]`).join(", ")} first`);
       return;
     }
     setSubmitting(true);
@@ -200,7 +237,7 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle>Draft Outreach Email</DialogTitle>
           <DialogDescription>
@@ -302,6 +339,58 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
               </ScrollArea>
             </div>
 
+            {/* AI draft from the Data Room template */}
+            <div className="rounded-sm border p-2 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-xs font-medium">Draft from the partner outreach template</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Fills the Data Room template's blanks from this deal's OM, rent roll, T12 and deal record.
+                  </div>
+                </div>
+                <Button size="sm" variant="secondary" onClick={draftWithAi} disabled={drafting} className="shrink-0">
+                  {drafting ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                  ) : (
+                    <Sparkles className="h-4 w-4 mr-1" />
+                  )}
+                  {aiCheck ? "Redraft" : "Draft with AI"}
+                </Button>
+              </div>
+              <Textarea
+                value={aiNotes}
+                onChange={(e) => setAiNotes(e.target.value)}
+                rows={2}
+                className="text-xs"
+                placeholder="Anything the data doesn't have (optional): CFO date, 1/3/5-mile incomes, our nearby properties, off-market…"
+              />
+              {aiCheck && (
+                <div className="text-[11px] space-y-1">
+                  {aiCheck.items.length > 0 && (
+                    <>
+                      <div className="font-medium">Check before sending</div>
+                      <ul className="list-disc pl-4 text-muted-foreground space-y-0.5">
+                        {aiCheck.items.map((c, i) => (
+                          <li key={i}>{c}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                  {aiCheck.documents.length > 0 ? (
+                    <div className="text-muted-foreground">Financials from: {aiCheck.documents.join(" · ")}</div>
+                  ) : (
+                    <div className="text-amber-600 dark:text-amber-500">
+                      No parsed OM, rent roll or T12 on this deal: financials came from the deal record only. Upload
+                      them under Deal Documents on the Overview tab and redraft.
+                    </div>
+                  )}
+                  {aiCheck.templates.length > 0 && (
+                    <div className="text-muted-foreground">Template: {aiCheck.templates.join(", ")}</div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Template */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -314,9 +403,18 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
                   <Textarea
                     value={body}
                     onChange={(e) => setBody(e.target.value)}
-                    rows={10}
+                    rows={aiCheck ? 18 : 10}
                     className="font-mono text-xs"
                   />
+                  {placeholders.length > 0 && (
+                    <div className="text-[11px] text-amber-600 dark:text-amber-500 inline-flex items-start gap-1">
+                      <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                      <span>
+                        Fill in or remove before creating drafts:{" "}
+                        {placeholders.map((p) => `[[${p}]]`).join(", ")}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <div className="text-[10px] text-muted-foreground leading-relaxed">
                   Tokens:{" "}
@@ -348,7 +446,10 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
               <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
                 Cancel
               </Button>
-              <Button onClick={submit} disabled={submitting || selectedWithEmail.length === 0}>
+              <Button
+                onClick={submit}
+                disabled={submitting || drafting || selectedWithEmail.length === 0 || placeholders.length > 0}
+              >
                 {submitting ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-1" />
                 ) : (

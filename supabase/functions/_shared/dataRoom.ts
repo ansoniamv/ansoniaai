@@ -2,6 +2,10 @@
 // build-data-room-brief and the tests. No Deno or network code here, so vitest
 // can import it directly.
 
+// The categories the reader may suggest for an "other" source. The table also
+// allows "partner_outreach", which is left out here on purpose: a template is
+// chosen by a person, and the app keeps it out of the Company Brief only when
+// it is moved there through the page.
 export const DATA_ROOM_CATEGORIES = [
   "company",
   "strategy",
