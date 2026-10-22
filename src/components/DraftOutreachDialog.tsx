@@ -19,7 +19,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import type { Engagement } from "@/hooks/useCapitalRaiseEngagements";
 import type { Deal } from "@/hooks/useDeals";
-import { unfilledPlaceholders } from "@/lib/outreachDraft";
+import { RichTextEditor } from "@/components/RichTextEditor";
+import { RichTextContent } from "@/components/RichTextContent";
+import {
+  fillTokensHtml,
+  outreachEmailHtml,
+  outreachTextToHtml,
+  unfilledPlaceholders,
+} from "@/lib/outreachDraft";
 
 const fmtCurrency = (n: number | null | undefined) => {
   if (n == null || Number.isNaN(Number(n))) return "—";
@@ -53,6 +60,7 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [subject, setSubject] = useState("");
+  // HTML from the rich-text editor; the drafter's plain text is converted on arrival.
   const [body, setBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [aiNotes, setAiNotes] = useState("");
@@ -130,7 +138,7 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
   const firstSelected = recipients.find((r) => selected.has(r.engagement.id) && r.email);
   const previewCtx = firstSelected ? buildCtx(firstSelected) : null;
   const previewSubject = previewCtx ? fillTokens(subject, previewCtx) : subject;
-  const previewBody = previewCtx ? fillTokens(body, previewCtx) : body;
+  const previewBody = previewCtx ? fillTokensHtml(body, previewCtx) : body;
 
   const selectedWithEmail = recipients.filter((r) => selected.has(r.engagement.id) && r.email);
   const placeholders = unfilledPlaceholders(subject, body);
@@ -155,7 +163,7 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
         throw new Error(detail);
       }
       setSubject(data.subject);
-      setBody(data.body);
+      setBody(outreachTextToHtml(data.body));
       setAiCheck({ items: data.check ?? [], templates: data.templates ?? [], documents: data.documents ?? [] });
     } catch (e) {
       setAiError((e as Error).message || "Could not draft the email");
@@ -190,7 +198,7 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
           body: {
             to: [r.email!],
             subject: fillTokens(subject, ctx),
-            text: fillTokens(body, ctx),
+            html: outreachEmailHtml(fillTokensHtml(body, ctx)),
             partnerId: r.engagement.partner_id,
             partnerContactId: r.contactId,
             dealId: deal.id,
@@ -408,14 +416,17 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Body</Label>
-                  <Textarea
-                    value={body}
-                    onChange={(e) => setBody(e.target.value)}
-                    rows={18}
-                    className="font-mono text-xs"
-                    disabled={drafting}
-                    placeholder={drafting ? "Drafting from the partner outreach template, this deal's OM, rent roll and T12…" : ""}
-                  />
+                  {drafting ? (
+                    <div className="rounded-md border p-3 text-xs text-muted-foreground min-h-[240px]">
+                      Drafting from the partner outreach template, this deal's OM, rent roll and T12…
+                    </div>
+                  ) : (
+                    <RichTextEditor
+                      value={body}
+                      onChange={setBody}
+                      className="text-xs [&_.ProseMirror]:min-h-[320px] [&_.ProseMirror]:max-h-[420px] [&_.ProseMirror]:overflow-y-auto"
+                    />
+                  )}
                   {placeholders.length > 0 && (
                     <div className="text-[11px] text-amber-600 dark:text-amber-500 inline-flex items-start gap-1">
                       <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
@@ -439,9 +450,11 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
                 </Label>
                 <div className="rounded-sm border bg-muted/30 p-2 text-xs h-full min-h-[240px]">
                   <div className="font-medium mb-1 break-words">{previewSubject}</div>
-                  <div className="whitespace-pre-wrap text-muted-foreground break-words">
-                    {previewBody}
-                  </div>
+                  <RichTextContent
+                    content={previewBody}
+                    format="html"
+                    className="text-xs text-muted-foreground break-words"
+                  />
                 </div>
               </div>
             </div>
