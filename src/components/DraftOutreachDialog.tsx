@@ -143,7 +143,7 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
   const selectedWithEmail = recipients.filter((r) => selected.has(r.engagement.id) && r.email);
   const placeholders = unfilledPlaceholders(subject, body);
 
-  // One draft for the whole raise from the Data Room's outreach template; the
+  // One draft for the whole raise from the Brain's outreach template; the
   // tokens in it are filled per recipient when the Outlook drafts are made.
   const draftWithAi = async () => {
     setDrafting(true);
@@ -355,13 +355,13 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
               </ScrollArea>
             </div>
 
-            {/* AI draft from the Data Room template */}
+            {/* AI draft from the Brain template */}
             <div className="rounded-sm border p-2 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <div className="text-xs font-medium">Draft from the partner outreach template</div>
                   <div className="text-[11px] text-muted-foreground">
-                    Fills the Data Room template's blanks from this deal's OM, rent roll, T12 and deal record.
+                    Fills the Brain template's blanks from this deal's OM, rent roll, T12 and deal record.
                   </div>
                 </div>
                 <Button size="sm" variant="secondary" onClick={draftWithAi} disabled={drafting} className="shrink-0">

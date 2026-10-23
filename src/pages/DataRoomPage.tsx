@@ -77,7 +77,7 @@ export default function DataRoomPage() {
   return (
     <div className="max-w-6xl mx-auto space-y-8">
       <header>
-        <h1 className="text-2xl font-serif-display">Data Room</h1>
+        <h1 className="text-2xl font-serif-display">Brain</h1>
         <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
           What the platform knows about Ansonia: the website, investor deck, pro formas, strategy memos and team
           notes. Each source is read and summarised, and the summaries compile into the Company Brief that Ask Atlas,
@@ -88,7 +88,7 @@ export default function DataRoomPage() {
 
       {error && (
         <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          Could not load the Data Room: {error instanceof Error ? error.message : String(error)}
+          Could not load the Brain: {error instanceof Error ? error.message : String(error)}
         </p>
       )}
       <BriefCard sources={sources} />
@@ -566,7 +566,7 @@ function UploadDialog({ open, onClose }: { open: boolean; onClose: () => void })
         <DialogFooter>
           <Button variant="ghost" onClick={close} disabled={busy}>Cancel</Button>
           <Button onClick={submit} disabled={busy || files.length === 0 || tooBig.length > 0}>
-            {busy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Add to Data Room
+            {busy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Add to Brain
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -714,7 +714,7 @@ function SearchCard() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
-          <Search className="h-4 w-4" /> Search the Data Room
+          <Search className="h-4 w-4" /> Search the Brain
         </CardTitle>
         <p className="text-xs text-muted-foreground">
           The same search Ask Atlas uses for detail beyond the brief. All words must match; use OR for alternatives and

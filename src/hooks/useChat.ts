@@ -206,7 +206,7 @@ function statusLabel(tool: string, table: string | null): string {
   if (tool === "query_table" && table) return `Querying ${table}…`;
   if (tool === "describe_table" && table) return `Reading ${table}…`;
   if (tool === "list_tables") return "Listing tables…";
-  if (tool === "search_data_room") return "Searching the Data Room…";
+  if (tool === "search_data_room") return "Searching the Brain…";
   return "Working…";
 }
 

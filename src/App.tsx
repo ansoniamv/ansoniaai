@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -87,7 +87,8 @@ const App = () => (
               <Route path="/chat/:threadId" element={<Protected><ChatPage /></Protected>} />
               <Route path="/dev-notes" element={<Protected><DevNotesPage /></Protected>} />
               <Route path="/roadmap" element={<Protected admin><RoadmapPage /></Protected>} />
-              <Route path="/data-room" element={<Protected><DataRoomPage /></Protected>} />
+              <Route path="/brain" element={<Protected><DataRoomPage /></Protected>} />
+              <Route path="/data-room" element={<Navigate to="/brain" replace />} />
               <Route path="/buy-box" element={<Protected><BuyBoxPage /></Protected>} />
               <Route path="/market-data" element={<Protected><MarketDataPage /></Protected>} />
               <Route path="/admin/users" element={<Protected admin><AdminUsersPage /></Protected>} />

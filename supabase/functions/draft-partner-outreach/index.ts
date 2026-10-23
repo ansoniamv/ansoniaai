@@ -1,4 +1,4 @@
-// Drafts the first email to capital partners about a deal, from the Data Room's
+// Drafts the first email to capital partners about a deal, from the Brain's
 // partner outreach template.
 //
 // The template leaves the financials blank; they are filled from the deal's
@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
     }
     if (!templates.length) {
       return json({
-        error: "No partner outreach template in the Data Room yet. Add one there with the category \"Partner outreach template\".",
+        error: "No partner outreach template in the Brain yet. Add one there with the category \"Partner outreach template\".",
       }, 400);
     }
 
