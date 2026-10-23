@@ -149,6 +149,7 @@ export default function NewPartner() {
         name: form.name.trim(),
         firm_type: form.firm_type || null,
         relationship_strength: form.relationship_strength || null,
+        manual_fields: form.relationship_strength ? ["relationship_strength"] : [],
         ansonia_poc: form.ansonia_poc.trim() || null,
         headquarters: form.headquarters.trim() || null,
         min_equity_m: min,

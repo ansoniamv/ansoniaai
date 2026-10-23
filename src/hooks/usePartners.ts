@@ -194,6 +194,17 @@ export function usePartnerInteractions(partnerId: string | undefined) {
   });
 }
 
+/**
+ * manual_fields with `field` added. A field in manual_fields is one a human
+ * set, and compute-partner-warmth only overwrites relationship_strength when
+ * it is NOT there -- so every UI path that writes warmth must lock it, or the
+ * next 30-minute run replaces the human's call with the email-derived guess.
+ */
+export function withManualField(existing: string[] | null | undefined, field: string): string[] {
+  const list = Array.isArray(existing) ? existing : [];
+  return list.includes(field) ? list : [...list, field];
+}
+
 export function useUpdatePartner() {
   const queryClient = useQueryClient();
   return useMutation({
