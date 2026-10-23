@@ -23,6 +23,7 @@ const DevNotesPage = lazy(() => import("./pages/DevNotesPage"));
 const RoadmapPage = lazy(() => import("./pages/RoadmapPage"));
 const BuyBoxPage = lazy(() => import("./pages/BuyBoxPage"));
 const CapitalRaisePage = lazy(() => import("./pages/CapitalRaisePage"));
+const CapitalFeedPage = lazy(() => import("./pages/CapitalFeedPage"));
 const NotesTagsPage = lazy(() => import("./pages/NotesTagsPage"));
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const OutlookPage = lazy(() => import("./pages/OutlookPage"));
@@ -80,6 +81,7 @@ const App = () => (
               <Route path="/partners/new" element={<Protected><NewPartner /></Protected>} />
               <Route path="/partners/:id" element={<Protected><PartnerDetail /></Protected>} />
               <Route path="/capital-raise" element={<Protected><CapitalRaisePage /></Protected>} />
+              <Route path="/capital-feed" element={<Protected><CapitalFeedPage /></Protected>} />
               <Route path="/suggestions" element={<Protected><SuggestionsPage /></Protected>} />
               <Route path="/notes" element={<Protected><NotesTagsPage /></Protected>} />
               <Route path="/outlook" element={<Protected><OutlookPage /></Protected>} />
