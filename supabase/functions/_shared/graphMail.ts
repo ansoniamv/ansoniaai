@@ -23,7 +23,8 @@ export const MAILBOX_UPN: Record<MailboxKey, string> = {
 };
 
 export type MailboxTransport = {
-  mailbox: MailboxKey;
+  /** A shared mailbox by key, or "user" for a person's own (see resolveUserMailbox). */
+  mailbox: MailboxKey | "user";
   /**
    * Always "graph". The union is kept because callers compare against it and
    * persist it, and narrowing it to a single literal would turn those reads into
@@ -48,6 +49,19 @@ export type MailboxTransport = {
  * failing somewhere less informative.
  */
 export function resolveMailbox(mailbox: MailboxKey): MailboxTransport {
+  return transportFor(mailbox, MAILBOX_UPN[mailbox]);
+}
+
+/**
+ * A person's own mailbox, named by the caller from the signed-in user, never
+ * from the request body. Graph answers 403 until the Exchange access policy
+ * that limits this app includes that person.
+ */
+export function resolveUserMailbox(upn: string): MailboxTransport {
+  return transportFor("user", upn);
+}
+
+function transportFor(mailbox: MailboxKey | "user", upn: string): MailboxTransport {
   if (!graphConfigured()) {
     throw new Error(
       "GRAPH_TENANT_ID, GRAPH_CLIENT_ID and GRAPH_CLIENT_SECRET are not set — " +
@@ -55,7 +69,6 @@ export function resolveMailbox(mailbox: MailboxKey): MailboxTransport {
     );
   }
 
-  const upn = MAILBOX_UPN[mailbox];
   const prefix = `${GRAPH_BASE}/users/${encodeURIComponent(upn)}`;
   return {
     mailbox,

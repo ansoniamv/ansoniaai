@@ -205,15 +205,21 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
           },
         });
         if (error) {
-          // Try to surface Graph detail
           let detail = error.message;
+          let mailboxRefused = false;
           try {
-            const ctx2 = (error as any).context;
-            if (ctx2?.text) detail = await ctx2.text();
+            const b = await (
+              error as { context?: { json?: () => Promise<{ error?: string; detail?: string; code?: string }> } }
+            ).context?.json?.();
+            if (b?.error) detail = `${b.error}${b.detail ? `: ${b.detail}` : ""}`;
+            mailboxRefused = b?.code === "mailbox_not_enabled";
           } catch {
             /* ignore */
           }
           out.push({ partner: r.engagement.partner_name || "Partner", ok: false, error: detail });
+          // The sender's own mailbox refused the draft: every other one would
+          // fail the same way, so stop at the first.
+          if (mailboxRefused) break;
         } else if ((data as any)?.error) {
           out.push({
             partner: r.engagement.partner_name || "Partner",
@@ -241,7 +247,7 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
     const failed = out.length - ok;
     const skipped = recipients.filter((r) => selected.has(r.engagement.id) && !r.email).length;
     if (ok > 0)
-      toast.success(`Created ${ok} draft${ok === 1 ? "" : "s"} in Atlas · ${skipped} skipped · ${failed} failed`);
+      toast.success(`Created ${ok} draft${ok === 1 ? "" : "s"} in your Outlook · ${skipped} skipped · ${failed} failed`);
     else toast.error(`No drafts created · ${failed} failed`);
   };
 
@@ -251,8 +257,8 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
         <DialogHeader>
           <DialogTitle>Draft Outreach Email</DialogTitle>
           <DialogDescription>
-            Create personalized draft emails in the Atlas mailbox for each selected pipeline partner.
-            Nothing is sent — review and send from Outlook Drafts.
+            Create personalized draft emails in your own Outlook for each selected pipeline partner.
+            Nothing is sent — review and send from your Drafts folder.
           </DialogDescription>
         </DialogHeader>
 
