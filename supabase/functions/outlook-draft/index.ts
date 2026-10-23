@@ -1,11 +1,10 @@
-// Creates a DRAFT (not sent) in the signed-in sender's own mailbox. Body:
+// Creates a DRAFT (not sent) in the Atlas mailbox. Body:
 //   { to: string[], cc?: string[], subject, html?, text?, partnerId?, dealId?, partnerContactId? }
 // Returns { ok, id, webLink }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
 import { errorResponse } from "../_shared/errors.ts";
-import { graphFetch, MAILBOX_UPN, resolveUserMailbox } from "../_shared/graphMail.ts";
-import { senderMailboxUpn } from "../_shared/senderMailbox.ts";
+import { graphFetch, resolveMailbox } from "../_shared/graphMail.ts";
 
 Deno.serve(async (req) => {
   const corsHeaders = corsFor(req);
@@ -17,21 +16,14 @@ Deno.serve(async (req) => {
   if (!authz.ok) return authz.response;
 
   try {
-    // The draft goes to the drafter's own Outlook, so they review and send it
-    // from their own address. The mailbox comes from the signed-in account,
-    // never the request, and must be in the company's own domain.
-    const upn = senderMailboxUpn(authz.user.email, MAILBOX_UPN.atlas.split("@")[1] ?? "");
-    if (!upn) {
-      return new Response(
-        JSON.stringify({
-          error: "No company mailbox for this account",
-          code: "mailbox_not_enabled",
-          detail: `Drafts go to your own Outlook, and ${authz.user.email ?? "this account"} is not an Ansonia mailbox.`,
-        }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+    // Drafts are always written into the Atlas mailbox, named explicitly.
+    const mb = resolveMailbox("atlas");
+    if (!mb) {
+      return new Response(JSON.stringify({ error: "Outlook connector not configured" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
-    const mb = resolveUserMailbox(upn);
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -67,24 +59,6 @@ Deno.serve(async (req) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(message),
     });
-
-    // 403: the Exchange access policy that limits this app does not include the
-    // sender yet. 404: Graph has no mailbox under that address. Every draft for
-    // this sender would fail the same way, so say what to fix.
-    if (res.status === 403 || res.status === 404) {
-      console.error(JSON.stringify({ fn: "outlook-draft", upn, status: res.status, detail: await res.text() }));
-      return new Response(
-        JSON.stringify({
-          error: res.status === 403 ? "Your mailbox isn't enabled for drafts yet" : "No Outlook mailbox found",
-          code: "mailbox_not_enabled",
-          detail:
-            res.status === 403
-              ? `Ask the Microsoft 365 admin to add ${upn} to the app's mail access group.`
-              : `Microsoft has no mailbox for ${upn}.`,
-        }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
 
     if (!res.ok) {
       // The raw Graph body names internal endpoints and mailbox identifiers: log
