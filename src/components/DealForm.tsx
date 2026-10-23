@@ -26,25 +26,17 @@ const valueAddLevels: ValueAddLevel[] = ["High", "Medium", "Low"];
  * building, and a city-level HelloData search against one is what matched ~44%
  * of enriched deals to the wrong property.
  */
-const looksLikeStreetAddress = (v: string) => /\d+\s+\S*[A-Za-z]{2,}/.test(v.trim());
+export const looksLikeStreetAddress = (v: string) => /\d+\s+\S*[A-Za-z]{2,}/.test(v.trim());
 
 const dealSchema = z.object({
   property_name: z.string().min(1, "Property name is required").max(255),
-  // deals.address is the HUMAN-entered street address and the only one the
-  // HelloData match gate will search on. deals.property_address is written BY
-  // HelloData. They are kept separate permanently: verifying a HelloData match
-  // against a HelloData-supplied address is circular.
-  address: z
-    .string()
-    .max(500)
-    .optional()
-    .or(z.literal(""))
-    .refine((v) => !v || looksLikeStreetAddress(v), {
-      message: "Enter a street number and name, e.g. 1100 Hidden Ridge Drive",
-    }),
   broker: z.string().max(255).optional().or(z.literal("")),
   status: z.enum(DEAL_STATUSES),
 
+  // The form used to show deals.address (human-entered) above this field, and
+  // people just copied one into the other. Now there is one input; NewDeal also
+  // saves it as deals.address when it was typed by hand rather than picked from
+  // HelloData, so the match gate still has a non-HelloData address to check.
   property_address: z.string().max(500).optional().or(z.literal("")),
   city: z.string().max(100).optional().or(z.literal("")),
   state: z.string().max(100).optional().or(z.literal("")),
@@ -91,7 +83,6 @@ export function DealForm({ defaultValues, onSubmit, isLoading, submitLabel = "Cr
       property_name: "",
       broker: "",
       status: "New",
-      address: "",
       property_address: "",
       city: "",
       state: "",
@@ -288,23 +279,13 @@ export function DealForm({ defaultValues, onSubmit, isLoading, submitLabel = "Cr
                 <FormMessage />
               </FormItem>
             )} />
-            <FormField control={form.control} name="address" render={({ field }) => (
-              <FormItem>
-                <FormLabel>Street address</FormLabel>
-                <FormControl>
-                  <Input placeholder="1100 Hidden Ridge Drive" {...field} />
-                </FormControl>
-                <p className="text-xs text-muted-foreground">
-                  Required to match this property to market data. A city alone cannot identify a building.
-                </p>
-                <FormMessage />
-              </FormItem>
-            )} />
-
             <FormField control={form.control} name="property_address" render={({ field }) => (
               <FormItem className="md:col-span-2">
-                <FormLabel>Street Address</FormLabel>
-                <FormControl><Input placeholder="e.g. 123 Main St" {...field} /></FormControl>
+                <FormLabel>Street Address *</FormLabel>
+                <FormControl><Input placeholder="e.g. 1100 Hidden Ridge Drive, Mansfield, TX 76063" {...field} /></FormControl>
+                <p className="text-xs text-muted-foreground">
+                  Filled from HelloData when you pick a match. Needed to match this property to market data; a city alone cannot identify a building.
+                </p>
                 <FormMessage />
               </FormItem>
             )} />
