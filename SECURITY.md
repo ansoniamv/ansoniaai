@@ -175,8 +175,11 @@ authorize time. Neither the client secret nor any minted token is ever logged â€
 not even a prefix.
 
 **Blast radius.** Graph *application* permissions reach **every mailbox in the
-tenant** by default. Scoping the app registration down to the two mailboxes with
-an application access policy is required, not optional.
+tenant** by default. Scoping the app registration down with an application access
+policy is required, not optional. The policy group holds the two shared mailboxes
+plus each person who creates outreach drafts: `outlook-draft` writes into the
+signed-in sender's own mailbox, so every sender added widens what the app can
+reach to that person's whole mailbox. Add senders deliberately, not the whole tenant.
 
 **Legacy path, until Graph is live.** `resolveMailbox()` falls back to the
 Lovable connector gateway while the `GRAPH_*` secrets are unset, authenticating

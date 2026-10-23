@@ -13,7 +13,7 @@ signed in at connect time. That is what makes the wrong-mailbox failure permanen
 | `outlook-sync/index.ts` | Mailboxes now carry a transport, not a connection key. `$skip` paging fallback **deleted** — Graph always returns a followable `@odata.nextLink`. Per-mailbox result now reports `via`. |
 | `sync-acquisitions-inbox/index.ts` | `/me/messages` → `/users/{acq upn}/messages`. Query string unchanged. The chained `summarize-emails` batch is now `SUMMARIZE_BATCH_SIZE` (default 20, was a hardcoded 200). |
 | `summarize-emails/index.ts` | Inline-attachment fetch moved onto the shared transport; `outlookKey` plumbing removed. Also drops the vestigial `LOVABLE_API_KEY` guard — the file has no gateway call left, so summarization now runs via Anthropic instead of failing fast. Changes what the first post-deploy batch costs; see step 5. |
-| `outlook-draft/index.ts` | Draft created in the Atlas mailbox by UPN. |
+| `outlook-draft/index.ts` | Draft created in the signed-in sender's own mailbox (their app email, company domain only). Was the Atlas mailbox until 2026-10-23. |
 | `outlook-send/index.ts` | `sendMail` / `reply` from the acquisitions mailbox by UPN. |
 | `api-status/index.ts` | Both Outlook probes rewritten: single `probeMailbox()`. On Graph, reachable == right mailbox, and 401/403/404 are each explained. On the gateway it reports **degraded** and says identity is unverifiable. |
 
@@ -49,7 +49,9 @@ New-ApplicationAccessPolicy -AppId <client-id> `
   -AccessRight RestrictAccess -Description "DPP: acquisitions + atlas only"
 ```
 
-(mail-enabled security group containing the two mailboxes; Exchange Online PowerShell).
+(mail-enabled security group containing the two mailboxes, plus each person who creates
+outreach drafts, since those land in the sender's own mailbox; Exchange Online PowerShell.
+Until a sender is in the group, `outlook-draft` answers "Your mailbox isn't enabled for drafts yet".)
 (group name is in the Azure setup notes, not in this repo — the repo is public.)
 
 ## Verify
