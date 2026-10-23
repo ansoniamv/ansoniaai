@@ -15,7 +15,7 @@ import { StoryCard } from "@/components/capital-feed/StoryCard";
 import { CATEGORY_TONE } from "@/components/capital-feed/tone";
 import { cn } from "@/lib/utils";
 
-const PERIODS = [7, 30, 90] as const;
+const PERIODS = [7, 30, 90, 180, 365] as const;
 const LAST_SEEN_KEY = "capital-feed-last-seen";
 const PAGE = 60;
 
