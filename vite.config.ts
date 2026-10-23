@@ -12,6 +12,15 @@ export default defineConfig(() => ({
     },
   },
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      // ms-auth.html is where the Outlook sign-in popup returns (src/msAuthRedirect.ts).
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        msAuth: path.resolve(__dirname, "ms-auth.html"),
+      },
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
