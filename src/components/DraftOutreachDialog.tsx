@@ -27,6 +27,14 @@ import {
   outreachTextToHtml,
   unfilledPlaceholders,
 } from "@/lib/outreachDraft";
+import {
+  createOutlookDraft,
+  outlookSignInConfigured,
+  prepareOutlookSignIn,
+  signInToOutlook,
+  type OutlookSession,
+} from "@/lib/outlookMail";
+import { useAuth } from "@/hooks/useAuth";
 
 const fmtCurrency = (n: number | null | undefined) => {
   if (n == null || Number.isNaN(Number(n))) return "—";
@@ -70,6 +78,13 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
   const [results, setResults] = useState<
     { partner: string; ok: boolean; webLink?: string; error?: string }[] | null
   >(null);
+  const { user } = useAuth();
+  // The Microsoft account the drafts went to, shown with the results.
+  const [draftedAs, setDraftedAs] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) prepareOutlookSignIn();
+  }, [open]);
 
   const eligible = useMemo(
     () => engagements.filter((e) => e.stage !== "passed" && e.stage !== "committed"),
@@ -189,50 +204,39 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
       toast.error(`Fill in or remove ${placeholders.map((p) => `[[${p}]]`).join(", ")} first`);
       return;
     }
+    // Sign in first, straight from the click: the popup is only allowed while
+    // the click is fresh.
+    let session: OutlookSession;
+    try {
+      session = await signInToOutlook(user?.email);
+    } catch (e) {
+      toast.error(`Microsoft sign-in didn't finish: ${(e as Error).message}`);
+      return;
+    }
     setSubmitting(true);
+    setDraftedAs(session.account.username);
     const out: { partner: string; ok: boolean; webLink?: string; error?: string }[] = [];
     for (const r of selectedWithEmail) {
       const ctx = buildCtx(r);
       try {
-        const { data, error } = await supabase.functions.invoke("outlook-draft", {
-          body: {
-            to: [r.email!],
-            subject: fillTokens(subject, ctx),
-            html: outreachEmailHtml(fillTokensHtml(body, ctx)),
-            partnerId: r.engagement.partner_id,
-            partnerContactId: r.contactId,
-            dealId: deal.id,
-          },
+        const subj = fillTokens(subject, ctx);
+        const draft = await createOutlookDraft(session, {
+          to: [r.email!],
+          subject: subj,
+          html: outreachEmailHtml(fillTokensHtml(body, ctx)),
         });
-        if (error) {
-          let detail = error.message;
-          let mailboxRefused = false;
-          try {
-            const b = await (
-              error as { context?: { json?: () => Promise<{ error?: string; detail?: string; code?: string }> } }
-            ).context?.json?.();
-            if (b?.error) detail = `${b.error}${b.detail ? `: ${b.detail}` : ""}`;
-            mailboxRefused = b?.code === "mailbox_not_enabled";
-          } catch {
-            /* ignore */
-          }
-          out.push({ partner: r.engagement.partner_name || "Partner", ok: false, error: detail });
-          // The sender's own mailbox refused the draft: every other one would
-          // fail the same way, so stop at the first.
-          if (mailboxRefused) break;
-        } else if ((data as any)?.error) {
-          out.push({
-            partner: r.engagement.partner_name || "Partner",
-            ok: false,
-            error: `${(data as any).error}${(data as any).detail ? `: ${(data as any).detail}` : ""}`,
-          });
-        } else {
-          out.push({
-            partner: r.engagement.partner_name || "Partner",
-            ok: true,
-            webLink: (data as any)?.webLink,
-          });
-        }
+        out.push({ partner: r.engagement.partner_name || "Partner", ok: true, webLink: draft.webLink });
+        // Warmth / last-contact feed. The draft exists either way, so a failed
+        // log line is not a failed draft.
+        const { error: logErr } = await supabase.from("partner_interactions").insert({
+          partner_id: r.engagement.partner_id,
+          contact_id: r.contactId,
+          interaction_type: "email_draft",
+          content: `Outreach draft prepared: ${subj}`.slice(0, 5000),
+          source: "outlook",
+          interaction_date: new Date().toISOString(),
+        });
+        if (logErr) console.warn("Could not log the outreach draft", logErr.message);
       } catch (e) {
         out.push({
           partner: r.engagement.partner_name || "Partner",
@@ -258,13 +262,16 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
           <DialogTitle>Draft Outreach Email</DialogTitle>
           <DialogDescription>
             Create personalized draft emails in your own Outlook for each selected pipeline partner.
-            Nothing is sent — review and send from your Drafts folder.
+            You'll sign in with Microsoft. Nothing is sent: review and send from your Drafts folder.
           </DialogDescription>
         </DialogHeader>
 
         {results ? (
           <div className="flex-1 overflow-auto space-y-2">
             <div className="text-sm font-medium">Results</div>
+            {draftedAs && (
+              <div className="text-xs text-muted-foreground">Drafts are in the Drafts folder of {draftedAs}.</div>
+            )}
             {results.map((r, i) => (
               <div
                 key={i}
@@ -472,12 +479,19 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
             <Button onClick={() => onOpenChange(false)}>Close</Button>
           ) : (
             <>
+              {!outlookSignInConfigured && (
+                <div className="mr-auto self-center text-[11px] text-amber-600 dark:text-amber-500 inline-flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3" />
+                  Outlook sign-in isn't set up yet (VITE_MS_CLIENT_ID / VITE_MS_TENANT_ID).
+                </div>
+              )}
               <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
                 Cancel
               </Button>
               <Button
                 onClick={submit}
                 disabled={
+                  !outlookSignInConfigured ||
                   submitting || drafting || selectedWithEmail.length === 0 || placeholders.length > 0 ||
                   !subject.trim() || !body.trim()
                 }
