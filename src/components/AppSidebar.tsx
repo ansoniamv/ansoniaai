@@ -38,7 +38,7 @@ const capitalNav = [
 
 const workspaceNav = [
   { title: "General Dashboard", url: "/", icon: BarChart3 },
-  { title: "Data Room", url: "/data-room", icon: Brain },
+  { title: "Brain", url: "/brain", icon: Brain },
   { title: "Buy Box", url: "/buy-box", icon: Target },
   { title: "Market Data", url: "/market-data", icon: LineChart },
   { title: "Notes & Tags", url: "/notes", icon: StickyNote },
