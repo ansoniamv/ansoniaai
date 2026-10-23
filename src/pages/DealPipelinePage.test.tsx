@@ -61,6 +61,9 @@ const renderPage = () =>
   );
 
 const section = (title: string) => screen.getByRole("heading", { name: title }).closest("[id^=section-]") as HTMLElement;
+const openSection = (title: string) => fireEvent.click(screen.getByRole("heading", { name: title }));
+// Every tier starts collapsed, so "loaded" is the Strong Fit count, not a tile.
+const loaded = () => waitFor(() => expect(within(section("Strong Fit")).getByText("2")).toBeInTheDocument());
 
 describe("Deal Inbox", () => {
   beforeEach(() => {
@@ -80,7 +83,9 @@ describe("Deal Inbox", () => {
 
   it("groups deals by tier, newest first, and leaves accepted deals out", async () => {
     renderPage();
-    await screen.findByText("Strong New");
+    await loaded();
+    openSection("Strong Fit");
+    openSection("Medium Fit");
 
     const titles = Array.from(document.querySelectorAll("[id^=section-] h2")).map((h) => h.textContent);
     expect(titles).toEqual(["Awaiting Score", "Strong Fit", "Medium Fit", "Screened Out / Other Deals", "Denied"]);
@@ -96,13 +101,17 @@ describe("Deal Inbox", () => {
 
   it("shows the email date on each tile", async () => {
     renderPage();
-    const tile = (await screen.findByText("Medium One")).closest(".surface-card") as HTMLElement;
+    await loaded();
+    openSection("Medium Fit");
+    const tile = screen.getByText("Medium One").closest(".surface-card") as HTMLElement;
     expect(within(tile).getByText(/^Received \w{3}, Oct 1, 2026 · /)).toBeInTheDocument();
   });
 
-  it("keeps Awaiting Score, Other and Denied collapsed until opened", async () => {
+  it("keeps every tier collapsed until opened", async () => {
     renderPage();
-    await screen.findByText("Strong New");
+    await loaded();
+    expect(screen.queryByText("Strong New")).toBeNull();
+    expect(screen.queryByText("Medium One")).toBeNull();
     expect(screen.queryByText("Unscored One")).toBeNull();
     expect(screen.queryByText("Maybe One")).toBeNull();
     expect(screen.queryByText("Denied One")).toBeNull();
@@ -120,8 +129,8 @@ describe("Deal Inbox", () => {
 
   const openDenied = async () => {
     renderPage();
-    await screen.findByText("Strong New");
-    fireEvent.click(screen.getByRole("heading", { name: "Denied" }));
+    await loaded();
+    openSection("Denied");
     return section("Denied");
   };
   const tileOf = (name: string) => screen.getByText(name).closest(".surface-card") as HTMLElement;
