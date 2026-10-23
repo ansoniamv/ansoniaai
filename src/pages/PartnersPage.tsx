@@ -2,10 +2,11 @@ import { CAPITAL_STATUS_OPTIONS } from "@/components/CapitalStatusCard";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { useNavigate, Link } from "react-router-dom";
-import { Plus, Search, ArrowUpDown, Settings2, Maximize2, Minimize2, GripVertical, Filter, X, Eye, LayoutGrid, Table as TableIcon, Merge } from "lucide-react";
+import { Plus, Search, ArrowUpDown, Settings2, Maximize2, Minimize2, GripVertical, Filter, X, Eye, LayoutGrid, Table as TableIcon, Merge, Activity } from "lucide-react";
 import { MergeDuplicatePartnersDialog } from "@/components/MergeDuplicatePartnersDialog";
 import { PartnerQuickView } from "@/components/PartnerQuickView";
 import { PartnerCardsView } from "@/components/PartnerCardsView";
+import { PartnerFeed } from "@/components/PartnerFeed";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -397,10 +398,10 @@ export default function PartnersPage() {
     });
     return Array.from(map.values()).filter((n) => n > 1).length;
   }, [partners]);
-  const [view, setView] = useState<"cards" | "table">(() => {
+  const [view, setView] = useState<"cards" | "table" | "feed">(() => {
     try {
       const s = localStorage.getItem("partners-view");
-      if (s === "table" || s === "cards") return s;
+      if (s === "table" || s === "cards" || s === "feed") return s;
     } catch {}
     return "cards";
   });
@@ -703,7 +704,7 @@ export default function PartnersPage() {
           <ToggleGroup
             type="single"
             value={view}
-            onValueChange={(v) => { if (v === "cards" || v === "table") setView(v); }}
+            onValueChange={(v) => { if (v === "cards" || v === "table" || v === "feed") setView(v); }}
             className="border rounded-md"
           >
             <ToggleGroupItem value="cards" aria-label="Cards view" className="h-8 px-3 text-xs data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
@@ -711,6 +712,9 @@ export default function PartnersPage() {
             </ToggleGroupItem>
             <ToggleGroupItem value="table" aria-label="Table view" className="h-8 px-3 text-xs data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
               <TableIcon className="h-3.5 w-3.5 mr-1.5" /> Table
+            </ToggleGroupItem>
+            <ToggleGroupItem value="feed" aria-label="Activity feed" className="h-8 px-3 text-xs data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+              <Activity className="h-3.5 w-3.5 mr-1.5" /> Feed
             </ToggleGroupItem>
           </ToggleGroup>
           {view === "table" && (
@@ -753,6 +757,7 @@ export default function PartnersPage() {
 
 
 
+      {view !== "feed" && (
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -817,8 +822,11 @@ export default function PartnersPage() {
           </Popover>
         )}
       </div>
+      )}
 
-      {view === "cards" ? (
+      {view === "feed" ? (
+        <PartnerFeed />
+      ) : view === "cards" ? (
         <PartnerCardsView partners={partners ?? []} search={search} />
       ) : (
       <>
