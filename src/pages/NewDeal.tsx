@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { DealForm, type DealFormValues } from "@/components/DealForm";
+import { DealForm, looksLikeStreetAddress, type DealFormValues } from "@/components/DealForm";
 import { useCreateDeal } from "@/hooks/useDeals";
 
 export default function NewDeal() {
@@ -8,20 +8,23 @@ export default function NewDeal() {
   const createDeal = useCreateDeal();
 
   const handleSubmit = (values: DealFormValues) => {
-    // Required on create. deals.address was NULL on all 82 existing deals
-    // because no intake path ever wrote it, which is why the match gate had
-    // nothing to search on and every lookup fell back to a city-level guess.
-    if (!values.address || !values.address.trim()) {
-      toast.error("A street address is required — market-data matching cannot identify a building from a city alone.");
+    // Required on create: market-data matching cannot identify a building from
+    // a city alone. Checked here rather than in the form schema so editing an
+    // older deal with a city-only address is not blocked.
+    const street = values.property_address?.trim() ?? "";
+    if (!looksLikeStreetAddress(street)) {
+      toast.error("A street address with a number is required, e.g. 1100 Hidden Ridge Drive — market-data matching cannot identify a building from a city alone.");
       return;
     }
 
     const payload = {
       property_name: values.property_name,
-      address: values.address.trim(),
+      // deals.address is the human-entered address the HelloData match gate
+      // checks against; a HelloData-filled one would make that check circular.
+      address: values.hellodata_id ? null : street,
       broker: values.broker || null,
       status: values.status as any,
-      property_address: values.property_address || null,
+      property_address: street,
       city: values.city || null,
       state: values.state || null,
       zip: values.zip || null,
