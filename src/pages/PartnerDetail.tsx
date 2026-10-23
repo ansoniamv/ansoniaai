@@ -42,7 +42,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { WarmthBadge } from "@/components/WarmthBadge";
-import { usePartner, usePartnerContacts, usePartnerInteractions, usePartnerCurrency, useCreateInteraction, useArchivePartner, useUpdatePartner, useCreatePartnerContact, useUpdatePartnerContact, useDeletePartnerContact, type Partner, type PartnerContact } from "@/hooks/usePartners";
+import { usePartner, usePartnerContacts, usePartnerInteractions, usePartnerCurrency, useCreateInteraction, useArchivePartner, useUpdatePartner, useCreatePartnerContact, useUpdatePartnerContact, useDeletePartnerContact, withManualField, type Partner, type PartnerContact } from "@/hooks/usePartners";
 import { AboutPartnerCard, ActivityTimeline, DataHighlightsCard, ProfileSummaryCard, RecordSection, initials, noteDealIds, partnerHostname } from "@/components/PartnerRecordPanels";
 import { PartnerDealsCard } from "@/components/PartnerDealsCard";
 import { useDealNames, useEngagementsByPartner } from "@/hooks/useCapitalRaiseEngagements";
@@ -613,6 +613,11 @@ function PartnerEditDialog({
         name: trimmedName,
         firm_type: firmType.trim() || null,
         relationship_strength: warmth || null,
+        // Lock only when the human changed it, so saving other fields doesn't
+        // freeze a warmth the job derived.
+        ...((warmth || null) !== (partner.relationship_strength ?? null)
+          ? { manual_fields: withManualField(partner.manual_fields, "relationship_strength") }
+          : {}),
         ansonia_poc: poc.trim() || null,
         website: website.trim() || null,
         headquarters: hq.trim() || null,

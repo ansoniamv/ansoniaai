@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { usePartners, type Partner } from "@/hooks/usePartners";
+import { usePartners, withManualField, type Partner } from "@/hooks/usePartners";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -326,7 +326,10 @@ export default function WarmthImportPage() {
       const oldW = partner?.relationship_strength || null;
       const { error } = await supabase
         .from("partners")
-        .update({ relationship_strength: r.warmthCanonical! })
+        .update({
+          relationship_strength: r.warmthCanonical!,
+          manual_fields: withManualField(partner?.manual_fields, "relationship_strength"),
+        })
         .eq("id", r.chosenPartnerId!);
       if (error) { fail++; continue; }
       await supabase.from("warmth_import_log").insert({

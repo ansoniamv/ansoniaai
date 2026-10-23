@@ -27,7 +27,7 @@ import {
 } from "@/components/CheckSizeFilter";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { WarmthBadge } from "@/components/WarmthBadge";
-import { usePartners, useUpdatePartner, useRestorePartner } from "@/hooks/usePartners";
+import { usePartners, useUpdatePartner, useRestorePartner, withManualField } from "@/hooks/usePartners";
 import { useAuth } from "@/hooks/useAuth";
 import type { Partner } from "@/hooks/usePartners";
 
@@ -418,10 +418,7 @@ export default function PartnersPage() {
       const patch: Record<string, any> = { id, [field]: value };
       if (field === "relationship_strength") {
         const current = partners?.find((p) => p.id === id);
-        const existing = Array.isArray(current?.manual_fields) ? current!.manual_fields : [];
-        if (!existing.includes("relationship_strength")) {
-          patch.manual_fields = [...existing, "relationship_strength"];
-        }
+        patch.manual_fields = withManualField(current?.manual_fields, "relationship_strength");
       }
       updatePartner.mutate(patch as any, {
         onError: (err) => toast.error("Failed to update: " + err.message),
