@@ -23,15 +23,22 @@ const ESRI_DATA_COLLECTIONS = [
 ];
 
 function arcgisErrorMessage(context: string, error: unknown) {
-  const code = typeof error === "object" && error !== null && "code" in error ? (error as { code?: number }).code : undefined;
-  // The raw ArcGIS body, the name of the secret, and its restriction posture are
-  // operator detail: they belong in the log, never in a value that reaches the
-  // client (this string is surfaced to the browser via the catch handler below).
+  const err = typeof error === "object" && error !== null ? error as { code?: unknown; message?: unknown } : {};
+  const code = typeof err.code === "number" ? err.code : undefined;
+  // Esri's own code and short message are safe to show and say what went wrong
+  // (e.g. 403 "User does not have permissions" = the key lost GeoEnrichment
+  // access). The full body (`details`), the secret's name and its restriction
+  // posture stay in the log: this string is surfaced to the browser via the
+  // catch handler below.
   console.error(`[esri-enrich] ${context} raw:`, JSON.stringify(error));
+  const message = typeof err.message === "string"
+    ? err.message.replace(/\s+/g, " ").trim().slice(0, 200)
+    : "";
+  const esri = [code !== undefined ? `code ${code}` : "", message].filter(Boolean).join(": ");
   if (code === 498 || code === 499) {
-    return `${context} error: upstream credential rejected (code ${code}). See function logs.`;
+    return `${context} error: upstream credential rejected (Esri ${esri}). See function logs.`;
   }
-  return `${context} error: upstream request failed.`;
+  return esri ? `${context} error: Esri ${esri}` : `${context} error: upstream request failed.`;
 }
 
 const DEFAULT_MONTHLY_CAP_USD = 250;
