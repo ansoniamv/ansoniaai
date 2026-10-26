@@ -34,7 +34,7 @@ export function TaskRow({ task, onToggle, onDelete }: {
         )}
         <div className="flex items-center gap-2 mt-1 flex-wrap">
           {due && (
-            <span className={`inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+            <span className={`inline-flex items-center gap-1 text-[10px] tabular-nums px-1.5 py-0.5 rounded border ${
               overdue ? "border-destructive/40 bg-destructive/10 text-destructive"
               : dueToday ? "border-amber-400/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
               : "border-hairline bg-muted text-muted-foreground"

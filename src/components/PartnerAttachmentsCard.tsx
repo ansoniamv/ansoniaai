@@ -184,9 +184,9 @@ export function PartnerAttachmentsCard({ partnerId }: { partnerId: string }) {
   const count = attachments?.length ?? 0;
 
   return (
-    <Card>
+    <Card className="border-hairline shadow-none">
       <CardHeader className="pb-3 items-center text-center">
-        <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground inline-flex items-center gap-2 justify-center">
+        <CardTitle className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-2 justify-center">
           <Paperclip className="h-4 w-4" /> Attachments ({count})
         </CardTitle>
       </CardHeader>

@@ -302,11 +302,11 @@ function InvestmentParametersCard({
 
   return (
     <div ref={highlightRef} className={cn("h-full", highlight && "rounded-lg ring-2 ring-amber-500/70 ring-offset-2 ring-offset-background animate-pulse")}>
-    <Card className="h-full flex flex-col">
+    <Card className="h-full flex flex-col border-hairline shadow-none">
 
 
       <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
-        <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">
+        <CardTitle className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           Investment Parameters
         </CardTitle>
         {editing ? (
@@ -358,7 +358,7 @@ function InvestmentParametersCard({
               />
             </div>
           ) : (
-            <span className="font-mono">{equityRange}</span>
+            <span className="tabular-nums">{equityRange}</span>
           )}
         </div>
         <Separator />
@@ -503,10 +503,10 @@ function GeographyStrategyCard({
 
   return (
     <div ref={highlightRef} className={cn("h-full", highlight && "rounded-lg ring-2 ring-amber-500/70 ring-offset-2 ring-offset-background animate-pulse")}>
-    <Card className="h-full flex flex-col">
+    <Card className="h-full flex flex-col border-hairline shadow-none">
 
       <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
-        <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">
+        <CardTitle className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           Geography & Strategy
         </CardTitle>
         {editing ? (

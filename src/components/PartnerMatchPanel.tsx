@@ -171,10 +171,10 @@ function MatchRow({
     confidence === "insufficient"
       ? "text-muted-foreground"
       : score >= TIER_THRESHOLDS.strong
-      ? "text-green-500"
+      ? "text-emerald-600"
       : score >= TIER_THRESHOLDS.moderate
-      ? "text-yellow-500"
-      : "text-red-400";
+      ? "text-foreground"
+      : "text-amber-600";
 
   const coverageLine = `Scored on ${coverage.pillarsCovered} of ${coverage.pillarsTotal} pillars (${Math.round(
     coverage.weightCoveredPct * 100,
@@ -186,19 +186,19 @@ function MatchRow({
 
   const tierColor =
     tier === "Strong"
-      ? "border-green-500/30 bg-green-500/10 text-green-600"
+      ? "border-emerald-600/30 bg-emerald-600/10 text-emerald-700 dark:text-emerald-400"
       : tier === "Moderate"
-      ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-600"
+      ? "border-border bg-muted/40 text-foreground"
       : tier === "Weak"
-      ? "border-red-400/30 bg-red-400/10 text-red-400"
+      ? "border-amber-600/30 bg-amber-500/10 text-amber-700 dark:text-amber-400"
       : "text-muted-foreground";
 
   return (
-    <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20 hover:bg-muted/40 transition-colors">
+    <div className="flex items-center gap-3 p-3 rounded-md border border-hairline hover:bg-muted/40 transition-colors">
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className={`text-lg font-bold w-12 text-center cursor-help ${scoreColor}`}>
+            <div className={`text-xl font-serif-display tabular-nums w-12 text-center cursor-help ${scoreColor}`}>
               {confidence === "insufficient" ? "—" : `${score}%`}
             </div>
           </TooltipTrigger>
@@ -257,12 +257,12 @@ function MatchRow({
 
         <div className="flex flex-wrap gap-1 mt-1">
           {reasons.map((r, i) => (
-            <Badge key={i} variant="secondary" className="text-[10px] bg-green-500/10 text-green-600 border-green-500/20">
+            <Badge key={i} variant="secondary" className="text-[10px] bg-emerald-600/10 text-emerald-700 dark:text-emerald-400 border-emerald-600/20">
               {r}
             </Badge>
           ))}
           {misses.map((m, i) => (
-            <Badge key={`m${i}`} variant="outline" className="text-[10px] text-red-400 border-red-400/20">
+            <Badge key={`m${i}`} variant="outline" className="text-[10px] text-amber-700 dark:text-amber-400 border-amber-600/25">
               {m}
             </Badge>
           ))}
@@ -491,11 +491,11 @@ export function PartnerMatchPanel({ deal }: { deal: Deal }) {
   const strategyChips = Array.from(confirmedStrategies).map((k) => STRATEGY_LABEL[k]);
 
   return (
-    <Card className="md:col-span-2">
+    <Card className="md:col-span-2 border-hairline shadow-none">
       <CardHeader className="pb-3 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <div className="w-16" />
-          <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground inline-flex items-center gap-2 justify-center">
+          <CardTitle className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-2 justify-center">
             <TrendingUp className="h-4 w-4 text-primary" />
             Partner Matching
           </CardTitle>
@@ -732,7 +732,7 @@ export function PartnerMatchPanel({ deal }: { deal: Deal }) {
                     >
                       {m.partner.name}
                     </button>
-                    <span className="text-red-400 text-right">{m.gateReason}</span>
+                    <span className="text-amber-700 dark:text-amber-400 text-right">{m.gateReason}</span>
                   </div>
                 ))}
               </div>
@@ -770,25 +770,25 @@ function LearningBanner() {
   if (!content) return null;
 
   return (
-    <div className="mb-4 rounded-md border border-[#E4E7EC] bg-[#F7F8FA]">
+    <div className="mb-4 rounded-md border border-hairline bg-muted/40">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left"
       >
-        <span className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#5B6472]">
-          <Sparkles className="h-3.5 w-3.5 text-[#002752]" />
+        <span className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          <Sparkles className="h-3.5 w-3.5 text-primary" />
           What we've learned about capital partners
         </span>
         {open ? (
-          <ChevronDown className="h-4 w-4 text-[#5B6472]" />
+          <ChevronDown className="h-4 w-4 text-muted-foreground" />
         ) : (
-          <ChevronRight className="h-4 w-4 text-[#5B6472]" />
+          <ChevronRight className="h-4 w-4 text-muted-foreground" />
         )}
       </button>
       {open && (
-        <div className="px-3 pb-3 pt-1 border-t border-[#E4E7EC]">
-          <pre className="text-[12px] leading-[1.6] text-[#1A1F2B] whitespace-pre-wrap font-sans">
+        <div className="px-3 pb-3 pt-1 border-t border-hairline">
+          <pre className="text-[12px] leading-[1.6] text-foreground whitespace-pre-wrap font-sans">
             {content}
           </pre>
         </div>

@@ -104,15 +104,15 @@ export function PartnerLearningPanel() {
   }, [feedback]);
 
   return (
-    <section className="rounded-[8px] border border-[#E4E7EC] bg-white p-6">
+    <section className="rounded-lg border border-hairline bg-card p-6">
       <div className="flex items-start justify-between gap-4 mb-4">
         <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-[#002752]" />
-          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#5B6472]">
+          <Sparkles className="h-4 w-4 text-primary" />
+          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             Capital Partner Learning
           </span>
           {row && (
-            <Badge variant="outline" className="ml-2 text-[10px] tabular-nums border-[#E4E7EC] text-[#5B6472]">
+            <Badge variant="outline" className="ml-2 text-[10px] tabular-nums border-hairline text-muted-foreground">
               {row.example_count} passes · updated {new Date(row.updated_at).toLocaleDateString()}
             </Badge>
           )}
@@ -121,7 +121,7 @@ export function PartnerLearningPanel() {
           <Button
             size="sm" variant="outline"
             onClick={refresh} disabled={refreshing}
-            className="h-8 px-3 border-[#E4E7EC] text-[#1A1F2B] shadow-none"
+            className="h-8 px-3 border-hairline text-foreground shadow-none"
           >
             <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", refreshing && "animate-spin")} />
             Refresh learning
@@ -130,7 +130,7 @@ export function PartnerLearningPanel() {
             <Button
               size="sm" variant="outline"
               onClick={() => setEditing(true)}
-              className="h-8 px-3 border-[#002752] text-[#002752] hover:bg-[#002752] hover:text-white shadow-none"
+              className="h-8 px-3 border-primary text-primary hover:bg-primary hover:text-primary-foreground shadow-none"
             >
               <Pencil className="h-3.5 w-3.5 mr-1.5" /> Edit
             </Button>
@@ -138,7 +138,7 @@ export function PartnerLearningPanel() {
         </div>
       </div>
 
-      <p className="text-[12px] text-[#5B6472] mb-3 leading-relaxed">
+      <p className="text-[12px] text-muted-foreground mb-3 leading-relaxed">
         Distilled from capital partner passes — themes about check size, geography, strategy, pricing and timing.
         Shown as guidance in the partner-matching panel; does <strong>not</strong> change scoring logic.
       </p>
@@ -149,33 +149,33 @@ export function PartnerLearningPanel() {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             rows={14}
-            className="text-[13px] leading-[1.6] bg-[#F7F8FA] font-mono"
+            className="text-[13px] leading-[1.6] bg-muted/40 font-mono"
           />
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={() => { setDraft(row?.content ?? ""); setEditing(false); }}>
               <X className="h-3.5 w-3.5 mr-1.5" /> Cancel
             </Button>
-            <Button size="sm" onClick={save} disabled={saving} className="bg-[#002752] hover:bg-[#001a3a] text-white">
+            <Button size="sm" onClick={save} disabled={saving} className="bg-primary hover:bg-primary/90 text-primary-foreground">
               <Save className="h-3.5 w-3.5 mr-1.5" /> Save
             </Button>
           </div>
         </div>
       ) : (
-        <div className="rounded-[6px] bg-[#F7F8FA] border border-[#E4E7EC] p-4 max-h-[420px] overflow-auto">
+        <div className="rounded-[6px] bg-muted/40 border border-hairline p-4 max-h-[420px] overflow-auto">
           {row?.content ? (
-            <pre className="text-[13px] leading-[1.6] text-[#1A1F2B] whitespace-pre-wrap font-sans">{row.content}</pre>
+            <pre className="text-[13px] leading-[1.6] text-foreground whitespace-pre-wrap font-sans">{row.content}</pre>
           ) : (
-            <p className="text-[12px] text-[#5B6472] italic">
+            <p className="text-[12px] text-muted-foreground italic">
               No partner learning yet. After a few partners pass with categorized reasons, click "Refresh learning" to distill them.
             </p>
           )}
         </div>
       )}
 
-      <div className="mt-6 pt-6 border-t border-[#E4E7EC]">
+      <div className="mt-6 pt-6 border-t border-hairline">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#5B6472]">Patterns</span>
-          <span className="text-[11px] text-[#5B6472] tabular-nums">{patterns.total} passes analyzed</span>
+          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Patterns</span>
+          <span className="text-[11px] text-muted-foreground tabular-nums">{patterns.total} passes analyzed</span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <PatternList title="Top reasons" rows={patterns.cats} />
@@ -189,16 +189,16 @@ export function PartnerLearningPanel() {
 
 function PatternList({ title, rows }: { title: string; rows: Array<[string, number]> }) {
   return (
-    <div className="rounded-[6px] border border-[#E4E7EC] bg-white p-3">
-      <div className="text-[10px] uppercase tracking-wider text-[#5B6472] mb-2">{title}</div>
+    <div className="rounded-[6px] border border-hairline bg-card p-3">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">{title}</div>
       {rows.length === 0 ? (
-        <div className="text-[12px] text-[#5B6472] italic">No data</div>
+        <div className="text-[12px] text-muted-foreground italic">No data</div>
       ) : (
         <ul className="space-y-1.5">
           {rows.map(([key, n]) => (
             <li key={key} className="flex items-center justify-between text-[12px]">
-              <span className="text-[#1A1F2B] truncate pr-2">{key}</span>
-              <span className="tabular-nums font-semibold text-[#002752]">{n}</span>
+              <span className="text-foreground truncate pr-2">{key}</span>
+              <span className="tabular-nums font-semibold text-primary">{n}</span>
             </li>
           ))}
         </ul>

@@ -263,9 +263,9 @@ export default function PartnerDetail() {
             />
             {/* Organized (AI-structured) Notes */}
             {partner.organized_notes && (
-              <Card>
+              <Card className="border-hairline shadow-none">
                 <CardHeader className="py-3">
-                  <CardTitle className="text-sm font-semibold inline-flex items-center gap-2">
+                  <CardTitle className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-2">
                     <Sparkles className="h-4 w-4" /> Organized notes
                   </CardTitle>
                 </CardHeader>
@@ -415,7 +415,7 @@ function PartnerRecordCard({
   const href = safeExternalUrl(partner.website);
 
   return (
-    <Card>
+    <Card className="border-hairline shadow-none">
       <div className="flex items-center justify-between border-b px-3 py-2">
         <button type="button" onClick={onBack} className="flex items-center gap-1 text-sm font-medium hover:text-primary">
           <ChevronLeft className="h-4 w-4" /> Capital Partners
@@ -452,7 +452,7 @@ function PartnerRecordCard({
             {initials(partner.name)}
           </div>
           <div className="min-w-0 flex-1">
-            <h1 className="text-lg font-bold leading-tight flex items-start gap-1.5">
+            <h1 className="font-display text-xl font-semibold tracking-tight leading-tight flex items-start gap-1.5">
               <span className="break-words">{partner.name}</span>
               <button type="button" onClick={onEdit} aria-label="Edit partner" className="mt-1 text-muted-foreground hover:text-foreground shrink-0">
                 <Pencil className="h-3.5 w-3.5" />
@@ -890,9 +890,9 @@ function EditablePartnerNotesCard({ partner }: { partner: Partner }) {
   };
 
   return (
-    <Card>
+    <Card className="border-hairline shadow-none">
       <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
-        <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+        <CardTitle className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground flex items-center gap-2">
           <StickyNote className="h-4 w-4" /> Partner Notes
         </CardTitle>
         {editing ? (

@@ -34,11 +34,11 @@ import { cn } from "@/lib/utils";
 export const STAGE_TONE: Record<RaiseStage, string> = {
   added_to_pipeline: "bg-muted text-muted-foreground border-border",
   initial_reachout: "bg-muted text-foreground border-border",
-  materials_shared: "bg-sky-50 text-sky-900 border-sky-200 dark:bg-sky-950 dark:text-sky-100 dark:border-sky-800",
-  in_discussion: "bg-blue-50 text-blue-900 border-blue-200 dark:bg-blue-950 dark:text-blue-100 dark:border-blue-800",
-  serious_interest: "bg-amber-50 text-amber-900 border-amber-200 dark:bg-amber-950 dark:text-amber-100 dark:border-amber-800",
-  committed: "bg-emerald-50 text-emerald-900 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-100 dark:border-emerald-800",
-  passed: "bg-red-50 text-red-900 border-red-200 dark:bg-red-950 dark:text-red-100 dark:border-red-800",
+  materials_shared: "bg-primary/5 text-primary border-primary/20 dark:text-foreground",
+  in_discussion: "bg-primary/10 text-primary border-primary/30 dark:text-foreground",
+  serious_interest: "bg-primary text-primary-foreground border-primary",
+  committed: "bg-emerald-600/10 text-emerald-700 border-emerald-600/30 dark:text-emerald-400",
+  passed: "bg-amber-500/10 text-amber-700 border-amber-600/30 dark:text-amber-400",
 };
 
 export function dealMeta(d: EngagementDeal | null): string {
@@ -171,7 +171,7 @@ export function PartnerDealsCard({ partner }: { partner: Partner }) {
                 </Select>
               </div>
               {e.stage === "passed" && (e.pass_feedback || e.pass_category) && (
-                <div className="rounded bg-red-50 dark:bg-red-950/40 px-2 py-1.5 text-xs text-red-900 dark:text-red-100 space-y-0.5">
+                <div className="rounded bg-amber-500/10 px-2 py-1.5 text-xs text-amber-800 dark:text-amber-300 space-y-0.5">
                   {e.pass_category && <div className="font-semibold">{e.pass_category}</div>}
                   {e.pass_feedback && <NoteContent content={e.pass_feedback} className="text-xs" />}
                 </div>

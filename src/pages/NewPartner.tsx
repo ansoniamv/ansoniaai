@@ -223,7 +223,7 @@ export default function NewPartner() {
             <ArrowLeft className="h-4 w-4 mr-1" /> Back
           </Button>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Add Capital Partner</h1>
+            <h1 className="font-display text-2xl tracking-tight">Add Capital Partner</h1>
             <p className="text-sm text-muted-foreground">
               Capture firm details and investment criteria. You can refine later on the partner page.
             </p>

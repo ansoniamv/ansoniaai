@@ -30,7 +30,7 @@ function ContactProposal({ s }: { s: PartnerSuggestion }) {
       <div className="text-xs rounded bg-muted/40 p-2 space-y-0.5">
         <div className="text-sm font-medium">{pv.name}</div>
         {fields.map((f) => pv[f] ? (
-          <div key={f}><span className="text-muted-foreground">{f}:</span> <span className="font-mono">{pv[f]}</span></div>
+          <div key={f}><span className="text-muted-foreground">{f}:</span> <span className="tabular-nums">{pv[f]}</span></div>
         ) : null)}
       </div>
     );
@@ -46,15 +46,15 @@ function ContactProposal({ s }: { s: PartnerSuggestion }) {
           <span className="text-muted-foreground">{f}:</span>{" "}
           <span className="italic text-muted-foreground">was blank</span>
           {" → "}
-          <span className="font-mono text-foreground">{v}</span>
+          <span className="tabular-nums text-foreground">{v}</span>
         </div>
       ))}
       {Object.entries(changes).map(([f, obj]) => (
         <div key={f}>
           <span className="text-muted-foreground">{f}:</span>{" "}
-          <span className="font-mono">{fmt(obj.old)}</span>
+          <span className="tabular-nums">{fmt(obj.old)}</span>
           {" → "}
-          <span className="font-mono text-foreground">{obj.new}</span>
+          <span className="tabular-nums text-foreground">{obj.new}</span>
         </div>
       ))}
     </div>
@@ -83,9 +83,9 @@ export function PartnerSuggestionsSection({ partnerId, manualFields }: { partner
   if (!pending) return null;
 
   return (
-    <Card>
+    <Card className="border-hairline shadow-none">
       <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
-        <CardTitle className="text-base">
+        <CardTitle className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           Suggested Changes {pending.length > 0 && <Badge variant="secondary" className="ml-1">{pending.length}</Badge>}
         </CardTitle>
         <div className="flex items-center gap-2">
@@ -128,9 +128,9 @@ export function PartnerSuggestionsSection({ partnerId, manualFields }: { partner
                 <ContactProposal s={s} />
               ) : (
                 <div className="text-xs text-muted-foreground">
-                  <span className="font-mono">{fmt(s.current_value)}</span>
+                  <span className="tabular-nums">{fmt(s.current_value)}</span>
                   {" → "}
-                  <span className="font-mono text-foreground">{fmt(s.proposed_value)}</span>
+                  <span className="tabular-nums text-foreground">{fmt(s.proposed_value)}</span>
                 </div>
               )}
               {s.rationale && <div className="text-xs italic text-muted-foreground">{s.rationale}</div>}

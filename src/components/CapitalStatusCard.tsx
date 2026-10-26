@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useUpdatePartner, type Partner } from "@/hooks/usePartners";
 import { useAuth } from "@/hooks/useAuth";
+import { cn } from "@/lib/utils";
 
 export const CAPITAL_STATUS_OPTIONS = [
   "Actively Deploying",
@@ -67,9 +68,9 @@ export function CapitalStatusCard({ partner }: { partner: Partner }) {
   };
 
   return (
-    <Card className={highlight ? "border-l-2 border-l-amber-500" : undefined}>
+    <Card className={cn("border-hairline shadow-none", highlight && "border-l-2 border-l-amber-500")}>
       <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
-        <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">
+        <CardTitle className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           Capital status
         </CardTitle>
         {!editing && (
@@ -108,7 +109,7 @@ export function CapitalStatusCard({ partner }: { partner: Partner }) {
           </div>
         ) : !partner.capital_status ? (
           <>
-            <div className="font-display text-xl font-semibold text-muted-foreground">Not established</div>
+            <div className="font-serif-display text-2xl leading-tight text-muted-foreground">Not established</div>
             <div className="text-xs text-muted-foreground">
               No capital availability on file — Atlas will propose one when a partner mentions it.
             </div>
@@ -116,7 +117,7 @@ export function CapitalStatusCard({ partner }: { partner: Partner }) {
         ) : (
           <>
             <div
-              className={`font-display text-xl font-semibold ${
+              className={`font-serif-display text-2xl leading-tight ${
                 highlight ? (partner.capital_status === "Out of Capital" ? "text-destructive" : "text-amber-700") : ""
               }`}
             >
