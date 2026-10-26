@@ -153,13 +153,21 @@ serve(async (req) => {
     // Map value_add_potential text → numeric
     const vapMap: Record<string, number> = { low: 1, medium: 2, high: 3 };
     const value_add_num = deal.value_add_potential ? vapMap[String(deal.value_add_potential).toLowerCase()] ?? null : null;
+    // The "Not in lease-up" and "No revenue management" signals are booleans
+    // where the GOOD answer is false. A boolean signal scores true as 100, so
+    // pointing them straight at deals.is_lease_up / deals.uses_rev_management
+    // scored every stabilised asset 0 and every rev-managed asset 100. These
+    // flip the flag; unknown stays null so the signal drops out.
+    const negate = (v: unknown): boolean | null => (typeof v === "boolean" ? !v : null);
+    const not_lease_up = negate(deal.is_lease_up);
+    const no_rev_management = negate(deal.uses_rev_management);
 
     const ctx = {
       deal: { ...deal, value_add_potential: value_add_num },
       enrichment: enrichment ?? {},
       permits,
       costar,
-      derived: { rent_gap_pct, price_per_unit },
+      derived: { rent_gap_pct, price_per_unit, not_lease_up, no_rev_management },
     };
 
     // Compute pillar scores + coverage
