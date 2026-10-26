@@ -239,9 +239,9 @@ function MatchRow({
                 capital.needsReconfirmation
                   ? "text-amber-700"
                   : capital.adjustment > 0
-                  ? "text-green-600"
+                  ? "text-emerald-700 dark:text-emerald-400"
                   : capital.adjustment <= -15
-                  ? "text-red-400"
+                  ? "text-destructive"
                   : capital.adjustment < 0
                   ? "text-amber-700"
                   : "text-muted-foreground"
