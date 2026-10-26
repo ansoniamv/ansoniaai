@@ -20,6 +20,9 @@ export interface ScoreableDeal {
   asking_price?: number | null;
   t12_noi?: number | null;
   t12_opex?: number | null;
+  // From the deal's documents (rent roll / T12) or typed in. 0-100.
+  occupancy_pct?: number | null;
+  expense_ratio?: number | null;
 
   // Free / manual market data
   area_median_income_1mi?: number | null;
@@ -36,6 +39,31 @@ export interface ScoreableDeal {
   // Match-gate outcome. 0 = evaluated and rejected, null = never evaluated.
   hellodata_status?: string | null;
   hellodata_match_confidence?: number | null;
+
+  // The deal's CoStar submarket, latest quarter, for its star slice.
+  submarket?: SubmarketMarket | null;
+}
+
+/**
+ * One CoStar submarket slice's current figures, in the deals table's units.
+ * Fills the market side of rent lag, occupancy and cap rate when HelloData and
+ * the deal row have nothing.
+ */
+export interface SubmarketMarket {
+  slice: string;
+  occupancy_pct: number | null; // 0-100
+  asking_rent: number | null; // $/unit/month
+  cap_rate_pct: number | null; // e.g. 6.1
+}
+
+/**
+ * CoStar slice a deal is compared against. The deal has no star rating, so
+ * vintage stands in: a building from 2000 on competes with the 4 & 5 Star
+ * stock, not the older 3 Star average that would make it look above market.
+ */
+export const COSTAR_NEW_SLICE_FROM_YEAR = 2000;
+export function costarSliceFor(vintage: number | null | undefined): string {
+  return isNum(vintage) && vintage >= COSTAR_NEW_SLICE_FROM_YEAR ? "4 & 5 Star" : "3 Star";
 }
 
 /**
@@ -180,23 +208,17 @@ export function incomeSubScore(ami: number | null | undefined, floor = 55000): n
 // ---------- factor scorers ----------
 
 /**
- * CAUTION — semantic mismatch, deliberately left non-computing rather than
- * papered over. This function treats in_place_avg_rent as tenant-paid in-place
- * rent. It is not: the HelloData mapper derives it by averaging asking prices on
- * AVAILABLE units in payload.building_availability. Asking rent on vacant units
- * is systematically above in-place rent on occupied ones, so a lag computed from
- * it understates the true gap.
+ * Market rent is HelloData's when it has one (it never has, 0 of 28 payloads),
+ * else the CoStar submarket asking rent for the deal's star slice.
  *
- * The market-rent side reads payload.market_rent_per_unit / avg_market_rent /
- * market_rent, none of which HelloData returns (0 of 28 payloads), so this
- * returns null for every deal today. Do NOT "fix" that by pointing market rent
- * at building_availability as well: in_place_avg_rent already comes from that
- * array, so market would equal in-place and this would report a confident ~0%
- * lag on every deal. A wrong number that looks computed is worse than a null.
- * Pending a decision on HelloData comps access.
+ * CAUTION — in_place_avg_rent is tenant-paid rent when a rent roll or OM filled
+ * it, but the HelloData mapper derives it from asking prices on AVAILABLE units,
+ * which run above in-place rent, so on those deals the lag is understated. Do
+ * NOT point market rent at building_availability: in_place_avg_rent can come
+ * from that same array, and the lag would be a confident ~0% on every deal.
  */
 function scoreRentLag(deal: ScoreableDeal): number | null {
-  const market = marketRentFrom(deal.hellodata_payload);
+  const market = marketRentFrom(deal.hellodata_payload) ?? deal.submarket?.asking_rent ?? null;
   const inPlace = deal.in_place_avg_rent;
   if (!isNum(market) || !isNum(inPlace) || market <= 0) return null;
   const lagPct = ((market - inPlace) / market) * 100;
@@ -217,8 +239,9 @@ function scoreValueAdd(deal: ScoreableDeal): number | null {
 }
 
 function scoreOccupancyConcessions(deal: ScoreableDeal): number | null {
-  const propOcc = propertyOccupancyFrom(deal.hellodata_payload);
-  const mktOcc = marketOccupancyFrom(deal.hellodata_payload);
+  // The deal's own figure (rent roll) beats HelloData's estimate of it.
+  const propOcc = isNum(deal.occupancy_pct) ? deal.occupancy_pct : propertyOccupancyFrom(deal.hellodata_payload);
+  const mktOcc = marketOccupancyFrom(deal.hellodata_payload) ?? deal.submarket?.occupancy_pct ?? null;
   if (!isNum(propOcc) || !isNum(mktOcc)) return null;
   // Healthy market = mkt occ > 92. Reward property below market (operational upside).
   if (mktOcc < 92) {
@@ -258,7 +281,10 @@ function scorePropertyFundamentals(deal: ScoreableDeal): number | null {
 function scoreOpex(deal: ScoreableDeal): number | null {
   const payloadRatio = deal.hellodata_payload?.expense_ratio;
   let ratio: number | null = null;
-  if (isNum(payloadRatio)) ratio = payloadRatio > 1 ? payloadRatio : payloadRatio * 100;
+  // The deal's ratio comes from its own T12 (or OM, ranked below it) — the
+  // actual operating statement, so it beats HelloData's estimate.
+  if (isNum(deal.expense_ratio) && deal.expense_ratio > 0) ratio = deal.expense_ratio;
+  else if (isNum(payloadRatio)) ratio = payloadRatio > 1 ? payloadRatio : payloadRatio * 100;
   else if (isNum(deal.t12_opex) && isNum(deal.hellodata_payload?.egr) && (deal.hellodata_payload!.egr as number) > 0) {
     ratio = (deal.t12_opex / (deal.hellodata_payload!.egr as number)) * 100;
   }
@@ -316,9 +342,11 @@ function scoreRegulatory(deal: ScoreableDeal): number | null {
 }
 
 function scoreCapitalMarkets(deal: ScoreableDeal): number | null {
-  if (!isNum(deal.market_cap_rate)) return null;
+  // A typed-in cap rate beats the submarket's.
+  const cap = isNum(deal.market_cap_rate) ? deal.market_cap_rate : deal.submarket?.cap_rate_pct ?? null;
+  if (!isNum(cap)) return null;
   // 4.5% → 40, 5.5% → 65, 6.5%+ → 90+
-  return clamp(lerp(Math.min(Math.max(deal.market_cap_rate, 3), 8), 3, 8, 20, 100));
+  return clamp(lerp(Math.min(Math.max(cap, 3), 8), 3, 8, 20, 100));
 }
 
 // ---------- hard filters ----------

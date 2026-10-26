@@ -9,7 +9,14 @@ import { DEAL_SCORING_COLUMNS } from "@/lib/dealColumns";
  * ai_score column. Do not conflate the two.
  */
 import { supabase } from "@/integrations/supabase/client";
-import { scoreDeal, type ScoreableDeal, type HelloDataPayload, type RegulatoryRisk } from "./dealScoring";
+import {
+  costarSliceFor,
+  scoreDeal,
+  type ScoreableDeal,
+  type HelloDataPayload,
+  type RegulatoryRisk,
+  type SubmarketMarket,
+} from "./dealScoring";
 import type { Tables } from "@/integrations/supabase/types";
 
 type DealRow = Tables<"deals">;
@@ -24,7 +31,71 @@ export interface PersistedScoreFields {
   scored_at: string;
 }
 
-function toScoreable(deal: Partial<DealRow> & { id: string }): ScoreableDeal {
+/** Submarket code -> slice -> that slice's latest figures. */
+export type SubmarketFigures = Map<string, Map<string, SubmarketMarket>>;
+
+/**
+ * The latest actual quarter (year-to-date or history, never a forecast) of
+ * each slice of each submarket, from the current CoStar import — the same
+ * import the Market panel reads.
+ */
+export async function loadSubmarketFigures(codes: string[]): Promise<SubmarketFigures> {
+  const out: SubmarketFigures = new Map();
+  if (!codes.length) return out;
+  const { data: imp, error: impErr } = await supabase
+    .from("market_data_imports")
+    .select("id")
+    .eq("status", "complete")
+    .contains("geography_types", ["Submarket"])
+    .order("as_of_date", { ascending: false })
+    .order("completed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (impErr) throw impErr;
+  if (!imp) return out;
+
+  const best = new Map<string, { rank: number; row: SubmarketMarket }>();
+  for (let i = 0; i < codes.length; i += 100) {
+    const { data, error } = await supabase
+      .from("costar_series")
+      .select("geography_code, slice, period_year, period_quarter, occupancy_rate, asking_rent_unit, market_cap_rate")
+      .eq("import_id", imp.id)
+      .in("geography_code", codes.slice(i, i + 100))
+      .in("period_kind", ["ytd", "history"]);
+    if (error) throw error;
+    for (const r of data ?? []) {
+      const key = `${r.geography_code}|${r.slice}`;
+      const rank = r.period_year * 10 + r.period_quarter;
+      if ((best.get(key)?.rank ?? -1) >= rank) continue;
+      best.set(key, {
+        rank,
+        row: {
+          slice: r.slice,
+          // CoStar stores rates as fractions; deals store percentages.
+          occupancy_pct: r.occupancy_rate == null ? null : r.occupancy_rate * 100,
+          asking_rent: r.asking_rent_unit ?? null,
+          cap_rate_pct: r.market_cap_rate == null ? null : r.market_cap_rate * 100,
+        },
+      });
+    }
+  }
+  for (const [key, { row }] of best) {
+    const code = key.slice(0, key.indexOf("|"));
+    if (!out.has(code)) out.set(code, new Map());
+    out.get(code)!.set(row.slice, row);
+  }
+  return out;
+}
+
+function submarketFor(deal: Partial<DealRow>, figures: SubmarketFigures): SubmarketMarket | null {
+  const anyDeal = deal as Record<string, unknown>;
+  const code = anyDeal.costar_submarket_code as string | null | undefined;
+  if (!code) return null;
+  const vintage = (anyDeal.year_built as number | null) ?? (deal.vintage_year as number | null) ?? null;
+  return figures.get(code)?.get(costarSliceFor(vintage)) ?? null;
+}
+
+function toScoreable(deal: Partial<DealRow> & { id: string }, submarket: SubmarketMarket | null = null): ScoreableDeal {
   const anyDeal = deal as Record<string, unknown>;
   const payload = (anyDeal.hellodata_payload ?? null) as HelloDataPayload | null;
   return {
@@ -37,6 +108,8 @@ function toScoreable(deal: Partial<DealRow> & { id: string }): ScoreableDeal {
     asking_price: (deal.asking_price as number | null) ?? null,
     t12_noi: (anyDeal.t12_noi as number | null) ?? null,
     t12_opex: (anyDeal.t12_opex as number | null) ?? null,
+    occupancy_pct: (anyDeal.occupancy_pct as number | null) ?? null,
+    expense_ratio: (anyDeal.expense_ratio as number | null) ?? null,
     area_median_income_1mi: (anyDeal.area_median_income_1mi as number | null) ?? null,
     population_growth_pct: (anyDeal.population_growth_pct as number | null) ?? null,
     job_growth_pct: (anyDeal.job_growth_pct as number | null) ?? null,
@@ -46,13 +119,20 @@ function toScoreable(deal: Partial<DealRow> & { id: string }): ScoreableDeal {
     market_cap_rate: (anyDeal.market_cap_rate as number | null) ?? null,
     regulatory_risk: (anyDeal.regulatory_risk as RegulatoryRisk | null) ?? null,
     hellodata_payload: payload,
+    submarket,
   };
 }
 
 export async function persistDealScore(
-  deal: Partial<DealRow> & { id: string }
+  deal: Partial<DealRow> & { id: string },
+  // Passed by rescoreAllDeals, which loads every submarket in one go.
+  figures?: SubmarketFigures,
 ): Promise<PersistedScoreFields> {
-  const result = scoreDeal(toScoreable(deal));
+  if (!figures) {
+    const code = (deal as Record<string, unknown>).costar_submarket_code as string | null | undefined;
+    figures = await loadSubmarketFigures(code ? [code] : []);
+  }
+  const result = scoreDeal(toScoreable(deal, submarketFor(deal, figures)));
 
   const fields: PersistedScoreFields = {
     passes_hard_filters: result.passes_hard_filters,
@@ -88,11 +168,14 @@ export async function rescoreAllDeals(): Promise<{
   const tierCounts: Record<string, number> = {};
   let scored = 0;
   const CHUNK = 8;
-  const rows = data ?? [];
+  // A concatenated select string defeats supabase-js's row typing.
+  const rows = (data ?? []) as unknown as Array<Partial<DealRow> & { id: string }>;
+  const codes = [...new Set(rows.map((d) => d.costar_submarket_code).filter((c): c is string => !!c))];
+  const figures = await loadSubmarketFigures(codes);
 
   for (let i = 0; i < rows.length; i += CHUNK) {
     const chunk = rows.slice(i, i + CHUNK);
-    const results = await Promise.allSettled(chunk.map((d) => persistDealScore(d)));
+    const results = await Promise.allSettled(chunk.map((d) => persistDealScore(d, figures)));
     results.forEach((r) => {
       if (r.status === "fulfilled") {
         scored += 1;

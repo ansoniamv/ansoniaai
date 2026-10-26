@@ -32,7 +32,8 @@ export const DEAL_LIST_COLUMNS =
  *
  * scoreDeal() reads market rent, occupancy, quality_score, expense_ratio, egr
  * and the renovation premium out of hellodata_payload, so a rescore cannot use
- * the trimmed list. This is deliberately the slow query: it runs on an explicit
+ * the trimmed list; nor without the CoStar submarket code, the market side of
+ * rent lag, occupancy and cap rate. This is deliberately the slow query: it runs on an explicit
  * action, not on page load.
  */
-export const DEAL_SCORING_COLUMNS = DEAL_LIST_COLUMNS + ",hellodata_payload";
+export const DEAL_SCORING_COLUMNS = DEAL_LIST_COLUMNS + ",hellodata_payload,costar_submarket_code";
