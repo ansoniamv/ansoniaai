@@ -6,6 +6,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logAiUsage } from "../_shared/logUsage.ts";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 import { enrichMarketMetrics } from "../_shared/marketMetrics.ts";
+import { docLabel, inferSlice, scorePipelineDeal } from "../_shared/pipelineScoreEngine.ts";
 
 /** Shape of the thesis-alignment adjustment, enforced by Opus 5. */
 const DEAL_ADJUSTMENT_SCHEMA = {
@@ -23,67 +24,10 @@ const DEAL_ADJUSTMENT_SCHEMA = {
   },
 } as const satisfies Record<string, unknown>;
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-// --- Scoring helpers --------------------------------------------------------
 function clamp(n: number, min = 0, max = 100) { return Math.max(min, Math.min(max, n)); }
 
-function scoreSignal(value: any, signal: any): number | null {
-  if (value === null || value === undefined || value === "") return null;
-  const { scoring_method, min_value, max_value, optimal_min, optimal_max } = signal;
-
-  if (scoring_method === "boolean") {
-    // For boolean signals, "presence" / true = 100, false/empty = 0
-    const truthy = value === true || (typeof value === "string" && value.length > 0) || (typeof value === "number" && value > 0);
-    return truthy ? 100 : 0;
-  }
-  const num = Number(value);
-  if (Number.isNaN(num)) return null;
-
-  if (scoring_method === "higher_better") {
-    if (min_value == null || max_value == null) return 50;
-    return clamp(((num - min_value) / (max_value - min_value)) * 100);
-  }
-  if (scoring_method === "lower_better") {
-    if (min_value == null || max_value == null) return 50;
-    return clamp(((max_value - num) / (max_value - min_value)) * 100);
-  }
-  if (scoring_method === "range_optimal") {
-    if (optimal_min == null || optimal_max == null) return 50;
-    if (num >= optimal_min && num <= optimal_max) return 100;
-    if (min_value != null && num < optimal_min) {
-      const span = optimal_min - min_value;
-      return clamp(((num - min_value) / Math.max(1, span)) * 100);
-    }
-    if (max_value != null && num > optimal_max) {
-      const span = max_value - optimal_max;
-      return clamp(((max_value - num) / Math.max(1, span)) * 100);
-    }
-    return 50;
-  }
-  return null;
-}
-
-// Resolve a field_source path against deal + enrichment + permits + costar + derived values
-function resolve(path: string, ctx: any): any {
-  const parts = path.split(".");
-  let obj: any = ctx;
-  // Map root prefix
-  const root = parts[0];
-  if (root === "deals") obj = ctx.deal;
-  else if (root === "deal_enrichment") obj = ctx.enrichment;
-  else if (root === "permits") obj = ctx.permits;
-  else if (root === "costar") obj = ctx.costar;
-  else if (root === "derived") obj = ctx.derived;
-  else return undefined;
-
-  for (let i = 1; i < parts.length; i++) {
-    if (obj == null) return undefined;
-    obj = obj[parts[i]];
-  }
-  return obj;
-}
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 serve(async (req) => {
   const corsHeaders = corsFor(req);
@@ -124,118 +68,54 @@ serve(async (req) => {
 
     if (!deal) throw new Error("Deal not found");
 
-    // Pull permits if we have a city/state — best-effort
-    let permits: any = { permits_per_1k_units: null, total_permits_t12: null };
-    // Skip permits fetch for now (CBSA mapping is TBD); leave null and signal scores will be null
-    // TODO: add city/state -> CBSA crosswalk
-
-    // CoStar submarket signals (all star slices combined) for the submarket
-    // picked on the deal page. Rates are fractions: costar.uc_pct 0.05 = 5% of
-    // existing units under construction. Null when no submarket is picked, so
-    // those signals drop out of the average rather than score as a midpoint.
+    // CoStar submarket rows for the submarket picked on the deal page: the
+    // combined row for supply signals (rates are fractions: costar.uc_pct 0.05 =
+    // 5% of existing units under construction) and the deal's class slice for
+    // the rent-gap benchmark. Null when no submarket is picked, so those
+    // signals drop out of the average rather than score as a midpoint.
     let costar: Record<string, unknown> | null = null;
+    let costarClass: Record<string, unknown> | null = null;
     if (deal.costar_submarket_code) {
-      const { data: sig, error: sigErr } = await supabase
+      const { data: rows, error: sigErr } = await supabase
         .from("costar_submarket_signals")
         .select("*")
         .eq("geography_code", deal.costar_submarket_code)
-        .eq("scope", "Combined")
-        .maybeSingle();
+        .in("scope", ["Combined", inferSlice(deal.vintage_year)]);
       if (sigErr) console.error("costar signals lookup failed:", sigErr);
-      costar = sig ?? null;
+      costar = rows?.find((r) => r.scope === "Combined") ?? null;
+      costarClass = rows?.find((r) => r.scope !== "Combined") ?? null;
     }
 
-    // Derived values
-    const inPlace = Number(deal.in_place_avg_rent) || 0;
-    const market = Number(deal.median_rent_tract) || 0;
-    const rent_gap_pct = market > 0 && inPlace > 0 ? ((market - inPlace) / market) * 100 : null;
-    const price_per_unit = deal.asking_price && deal.unit_count ? Number(deal.asking_price) / Number(deal.unit_count) : null;
-    // Map value_add_potential text → numeric
-    const vapMap: Record<string, number> = { low: 1, medium: 2, high: 3 };
-    const value_add_num = deal.value_add_potential ? vapMap[String(deal.value_add_potential).toLowerCase()] ?? null : null;
-    // The "Not in lease-up" and "No revenue management" signals are booleans
-    // where the GOOD answer is false. A boolean signal scores true as 100, so
-    // pointing them straight at deals.is_lease_up / deals.uses_rev_management
-    // scored every stabilised asset 0 and every rev-managed asset 100. These
-    // flip the flag; unknown stays null so the signal drops out.
-    const negate = (v: unknown): boolean | null => (typeof v === "boolean" ? !v : null);
-    const not_lease_up = negate(deal.is_lease_up);
-    const no_rev_management = negate(deal.uses_rev_management);
+    // Broker documents parsed on the deal page: the newest rent roll and T12
+    // summaries feed the occupancy, loss-to-lease, delinquency, expense and
+    // yield signals. Any document type can carry either section.
+    const { data: docs, error: docsErr } = await supabase
+      .from("deal_documents")
+      .select("file_name, doc_as_of, summary")
+      .eq("deal_id", deal_id)
+      .eq("parse_status", "parsed")
+      .not("summary", "is", null)
+      .order("created_at", { ascending: false });
+    if (docsErr) console.error("deal documents lookup failed:", docsErr);
+    const rrDoc = docs?.find((x) => x.summary?.rent_roll);
+    const t12Doc = docs?.find((x) => x.summary?.t12);
 
-    const ctx = {
-      deal: { ...deal, value_add_potential: value_add_num },
-      enrichment: enrichment ?? {},
-      permits,
-      costar,
-      derived: { rent_gap_pct, price_per_unit, not_lease_up, no_rev_management },
-    };
-
-    // Compute pillar scores + coverage
-    const pillarBreakdown: any[] = [];
-    let weightedSum = 0;
-    let totalWeight = 0;
-    let weightCovered = 0;
-    let weightTotalAll = 0;
-    let pillarsCovered = 0;
-    const pillarsTotal = (pillars ?? []).length;
-    let signalsCovered = 0;
-    let signalsTotal = 0;
-
-    for (const pillar of pillars ?? []) {
-      const pSignals = (signals ?? []).filter((s) => s.pillar_id === pillar.id);
-      const sigResults: any[] = [];
-      let pSum = 0;
-      let pWeight = 0;
-      for (const sig of pSignals) {
-        const raw = resolve(sig.field_source, ctx);
-        const score = scoreSignal(raw, sig);
-        signalsTotal += 1;
-        sigResults.push({
-          name: sig.name,
-          field_source: sig.field_source,
-          raw_value: raw ?? null,
-          score,
-          weight: sig.weight_within_pillar,
-        });
-        if (score != null) {
-          signalsCovered += 1;
-          pSum += score * sig.weight_within_pillar;
-          pWeight += sig.weight_within_pillar;
-        }
-      }
-      const pillarScore = pWeight > 0 ? Math.round(pSum / pWeight) : null;
-      pillarBreakdown.push({
-        key: pillar.key,
-        name: pillar.name,
-        weight: pillar.weight,
-        score: pillarScore,
-        signals: sigResults,
-      });
-      weightTotalAll += Number(pillar.weight) || 0;
-      if (pillarScore != null) {
-        pillarsCovered += 1;
-        weightCovered += Number(pillar.weight) || 0;
-        weightedSum += pillarScore * pillar.weight;
-        totalWeight += pillar.weight;
-      }
-    }
-
-    const baseScore = totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 50;
-    const weightCoveredPct = weightTotalAll > 0 ? weightCovered / weightTotalAll : 0;
-
-    let confidence: "high" | "medium" | "low" | "insufficient";
-    if (pillarsCovered === 0) confidence = "insufficient";
-    else if (weightCoveredPct >= 0.7 && pillarsCovered >= Math.ceil(pillarsTotal / 2)) confidence = "high";
-    else if (weightCoveredPct >= 0.4) confidence = "medium";
-    else confidence = "low";
-
-    const coverage = {
-      pillars_covered: pillarsCovered,
-      pillars_total: pillarsTotal,
-      signals_covered: signalsCovered,
-      signals_total: signalsTotal,
-      weight_covered_pct: Math.round(weightCoveredPct * 100) / 100,
-    };
+    const score = scorePipelineDeal(
+      {
+        deal,
+        enrichment,
+        costar,
+        costarClass,
+        rentRoll: rrDoc ? { facts: rrDoc.summary.rent_roll, label: docLabel("Rent roll", rrDoc.file_name, rrDoc.summary.rent_roll.as_of ?? rrDoc.doc_as_of) } : null,
+        t12: t12Doc ? { facts: t12Doc.summary.t12, label: docLabel("T12", t12Doc.file_name, t12Doc.summary.t12.period ?? t12Doc.doc_as_of) } : null,
+      },
+      pillars ?? [],
+      signals ?? [],
+    );
+    const { base_score: baseScore, pillars: pillarBreakdown, confidence, coverage } = score;
+    const pillarsCovered = coverage.pillars_covered;
+    const pillarsTotal = coverage.pillars_total;
+    const weightCoveredPct = coverage.weight_covered_pct;
 
     // LLM thesis adjustment (skipped when insufficient; scaled by confidence)
     const thesis = thesisRow?.content ?? "";
@@ -248,11 +128,15 @@ serve(async (req) => {
           property: deal.property_name,
           city: deal.city, state: deal.state,
           unit_count: deal.unit_count, vintage: deal.vintage_year,
-          asking_price: deal.asking_price, price_per_unit,
+          asking_price_musd: deal.asking_price,
           affordable: deal.affordable, value_add: deal.value_add_potential,
-          rent_gap_pct, in_place_rent: inPlace, market_rent: market,
           base_score: baseScore,
-          pillars: pillarBreakdown.map((p) => ({ name: p.name, score: p.score, weight: p.weight })),
+          pillars: pillarBreakdown.map((p) => ({
+            name: p.name,
+            score: p.score,
+            weight: p.weight,
+            signals: p.signals.map((s) => ({ name: s.name, value: s.raw_value, score: s.score })),
+          })),
         };
         // Claude Opus 5 primary, gateway fallback — see _shared/ai.ts.
         // Asking for a JSON object rather than a forced tool call keeps this
@@ -301,7 +185,7 @@ serve(async (req) => {
     await supabase.from("deals").update({
       ai_score: finalScore,
       ai_score_summary: summary || `Base score ${baseScore} from ${pillarsCovered} of ${pillarsTotal} pillars (${Math.round(weightCoveredPct * 100)}% weight covered).`,
-      pillar_scores: { base_score: baseScore, final_score: finalScore, adjustment, pillars: pillarBreakdown, confidence, coverage },
+      pillar_scores: { ...score, final_score: finalScore, adjustment },
       score_thesis_adjustment: adjustment,
       score_confidence: confidence,
       score_coverage: coverage,
