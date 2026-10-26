@@ -226,6 +226,9 @@ export type ProposalRejection = { figure: string; value: unknown; reason: string
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
+/** Words that mark a figure as the broker's projection rather than an actual. */
+const PROJECTION = /\bpro[\s-]*forma\b|\bproforma\b|\bprojected\b|\bprojection\b|\byear[\s-]*(1|one)\b|\bstabili[sz]ed\b/i;
+
 const UNITS_MIN = 1;
 const UNITS_MAX = 5000;
 
@@ -240,7 +243,20 @@ export function proposalsFromExtraction(
 ): { proposals: Proposal[]; rejected: ProposalRejection[] } {
   const proposals: Proposal[] = [];
   const rejected: ProposalRejection[] = [];
-  const fig = (k: ExtractedFigure): FigureReading => ex.figures?.[k] ?? { value: null, evidence: null };
+  // The prompt says never to take pro forma figures, and the model takes them
+  // anyway when an OM states nothing else: 1900 at Canterfield's OM gave its
+  // pro forma NOI and opex, which were applied over the T12's actuals. A figure
+  // whose own evidence says it is a projection is dropped here, in code.
+  const projected = new Set<ExtractedFigure>();
+  for (const k of EXTRACTED_FIGURES) {
+    const r = ex.figures?.[k];
+    if (isNum(r?.value) && PROJECTION.test(`${r!.evidence ?? ""} ${r!.quote ?? ""}`)) {
+      projected.add(k);
+      rejected.push({ figure: k, value: r!.value, reason: "a pro forma / projected figure, not an actual" });
+    }
+  }
+  const fig = (k: ExtractedFigure): FigureReading =>
+    projected.has(k) ? { value: null, evidence: null } : ex.figures?.[k] ?? { value: null, evidence: null };
   const evidence = (k: ExtractedFigure) => (fig(k).evidence ?? "").trim() || "(no quote given)";
 
   const propose = (field: DealDocumentField, value: number, ev: string, from: ExtractedFigure | null) => {

@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import { Sparkles, Check, X, Lock } from "lucide-react";
 
 const TYPE_LABEL: Record<string, string> = {
-  warmth_change: "Warmth",
   partner_field: "Partner field",
   avoided_market_add: "Avoided market",
   stage_change: "Raise stage",
@@ -134,19 +133,6 @@ export function PartnerSuggestionsSection({ partnerId, manualFields }: { partner
                 </div>
               )}
               {s.rationale && <div className="text-xs italic text-muted-foreground">{s.rationale}</div>}
-              {s.type === "warmth_change" && s.signals && (
-                <div className="text-[11px] rounded bg-muted/40 p-2 space-y-0.5">
-                  <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-                    <span>in: {s.signals.inbound_90d ?? 0}</span>
-                    <span>out: {s.signals.outbound_90d ?? 0}</span>
-                    {s.signals.avg_response_hours != null && <span>resp: {Math.round(s.signals.avg_response_hours)}h</span>}
-                    {s.signals.meetings_scheduled != null && <span>mtgs: {s.signals.meetings_scheduled}</span>}
-                  </div>
-                  {Array.isArray(s.signals.rationale) && (
-                    <div className="text-muted-foreground">{s.signals.rationale.join(" • ")}</div>
-                  )}
-                </div>
-              )}
               {s.evidence?.quote && (
                 <div className="text-xs border-l-2 border-primary/40 pl-2 text-muted-foreground">"{s.evidence.quote}"</div>
               )}

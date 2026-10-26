@@ -12,7 +12,7 @@ export function WarmthSignalsPanel({ partnerId, currentLevel }: { partnerId: str
   const onRefresh = async () => {
     try {
       const r = await compute.mutateAsync({ partner_id: partnerId });
-      toast.success(`Warmth recomputed — ${r.suggestions} suggestion(s)`);
+      toast.success(r.auto_applied ? "Warmth recomputed and updated" : "Warmth recomputed — no change");
     } catch (e: any) {
       toast.error(e?.message || "Failed to recompute");
     }
