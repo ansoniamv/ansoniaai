@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import path from "path";
-import { capRateHint, equityCheck, grmHint, latestT3Noi, pricePerSqft } from "@/lib/dealRatios";
+import { capRateHint, equityCheck, grmHint, latestT3Noi, monthlyGrm, pricePerSqft } from "@/lib/dealRatios";
 
 describe("capRateHint", () => {
   it.each([
@@ -18,13 +18,26 @@ describe("capRateHint", () => {
 
 describe("grmHint", () => {
   it.each([
-    [2_589_200, 24, "Asking price ÷ gross sched. rent"],
+    [2_589_200, 24, "Asking price ÷ annual gross sched. rent"],
     [null, 24, "Needs gross sched. rent"],
     [0, 24, "Needs gross sched. rent"],
     [2_589_200, null, "Needs asking price"],
     [null, null, "Needs gross sched. rent and asking price"],
   ])("gsr=%s price=%s -> %s", (gsr, price, out) => {
     expect(grmHint(gsr, price)).toBe(out);
+  });
+  it("describes the monthly multiple", () => {
+    expect(grmHint(2_589_200, 24, "monthly")).toBe("Asking price ÷ monthly rent (annual × 12)");
+    expect(grmHint(null, 24, "monthly")).toBe("Needs gross sched. rent");
+  });
+});
+
+describe("monthlyGrm", () => {
+  it("is the annual multiple × 12", () => {
+    expect(monthlyGrm(11.22)).toBeCloseTo(134.64);
+  });
+  it.each([null, undefined, NaN])("is null for annual=%s", (g) => {
+    expect(monthlyGrm(g)).toBeNull();
   });
 });
 
