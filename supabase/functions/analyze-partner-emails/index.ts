@@ -16,7 +16,6 @@ const RAISE_STAGES = [
   "initial_reachout","materials_shared","discussion_scheduled",
   "serious_interest","committed","passed",
 ] as const;
-const WARMTH_VALUES = ["Existing Partner","Very Warm","Warm","Tepid","Cold"] as const;
 const CAPITAL_STATUS_VALUES = ["Actively Deploying","Selective","Constrained","Out of Capital"] as const;
 const FACT_CATEGORIES = [
   "capital","personnel","strategy","organizational","relationship","other",
@@ -26,7 +25,7 @@ const FACT_CATEGORIES = [
 
 // Confidence gates
 const MIN_CONF: Record<string, number> = {
-  warmth_change: 0.6, partner_field: 0.6, stage_change: 0.6, avoided_market_add: 0.55,
+  partner_field: 0.6, stage_change: 0.6, avoided_market_add: 0.55,
   contact_add: 0.7, contact_update: 0.6,
   capital_status_change: 0.7,   // high-consequence: gates whether we even pitch them
   profile_fact_add: 0.65,
@@ -53,7 +52,7 @@ const ANSONIA_DOMAIN = "ansoniaproperties.com";
 
 // Types whose evidence must be the partner's own words.
 const PARTNER_VOICE_TYPES = new Set([
-  "warmth_change", "partner_field", "avoided_market_add",
+  "partner_field", "avoided_market_add",
   "capital_status_change", "profile_fact_add", "contact_update", "contact_add",
 ]);
 
@@ -243,11 +242,9 @@ function normalizeProposal(type: string, field: string | null, val: any): any {
     }
     return out;
   }
-  if (type === "warmth_change") {
-    const s = String(val).trim();
-    const match = (WARMTH_VALUES as readonly string[]).find(w => w.toLowerCase() === s.toLowerCase());
-    return match || null;
-  }
+  // Warmth is not proposed from email: it was rarely acted on and crowded the
+  // inbox. compute-partner-warmth keeps the field current on its own.
+  if (type === "warmth_change") return null;
   if (type === "stage_change") {
     const s = String(val).trim().toLowerCase().replace(/\s+/g, "_");
     return (RAISE_STAGES as readonly string[]).includes(s) ? s : null;
@@ -260,7 +257,7 @@ function normalizeProposal(type: string, field: string | null, val: any): any {
     return titleCaseMarket(String(val));
   }
   if (type === "partner_field") {
-    if (!field) return null;
+    if (!field || field === "relationship_strength") return null;
     if (field === "min_equity_m" || field === "max_equity_m") return normalizeEquityM(val);
     if (field.startsWith("strategy_")) {
       if (typeof val === "boolean") return val;
@@ -693,7 +690,7 @@ BE THOROUGH: extract EVERY actionable item supported by the thread — do not st
 
 WHO IS SPEAKING — read this before extracting anything.
 Every message carries \`speaker\`: "PARTNER" (someone at the partner firm) or "ANSONIA" (us).
-- Facts about the partner — their capital, criteria, markets, strategy, people, warmth —
+- Facts about the partner — their capital, criteria, markets, strategy, people —
   may ONLY come from messages where speaker = "PARTNER".
 - ANSONIA messages are CONTEXT ONLY. They tell you what was asked, what we sent, and what we
   believe. What an Ansonia colleague thinks or speculates about a partner is NOT evidence about
@@ -715,13 +712,12 @@ deal_pick — DEAL LINKING:
 - If truly ambiguous or off-topic, return null.
 
 Extraction categories (emit ANY that apply — never limit to one per thread):
-1. warmth_change — signals of relationship temperature change (fast responses, meetings booked, warm intro, ghosting, cool tone). field="relationship_strength", value one of: ${WARMTH_VALUES.join(", ")}.
-2. partner_field — updated preferences the partner states about themselves. field is an exact partners column: min_equity_m, max_equity_m (numeric $M), hold_period (array of strings like "5-7 yrs"), geography (array of markets), product_types (array: Multifamily, Industrial, Office, Retail, etc.), strategy_value_add | strategy_core_plus | strategy_workforce | strategy_affordable (boolean).
-3. avoided_market_add — partner explicitly says they will NOT invest in a market/asset class. field="geography_avoid", value a market string or array.
-4. stage_change — capital-raise stage progression on a resolved deal. field="stage", value one of: ${RAISE_STAGES.join(", ")}. Requires deal_pick.
-5. contact_add — a NEW person at the partner firm (see contact rules below). Capture full detail: name, email, role/title, phone, firm/office location, linkedin_url — pull from email signature block whenever present.
-6. contact_update — enrich or correct an EXISTING partner_contact (see contact rules below).
-7. capital_status_change — the partner states anything about their ability to deploy capital
+1. partner_field — updated preferences the partner states about themselves. field is an exact partners column: min_equity_m, max_equity_m (numeric $M), hold_period (array of strings like "5-7 yrs"), geography (array of markets), product_types (array: Multifamily, Industrial, Office, Retail, etc.), strategy_value_add | strategy_core_plus | strategy_workforce | strategy_affordable (boolean).
+2. avoided_market_add — partner explicitly says they will NOT invest in a market/asset class. field="geography_avoid", value a market string or array.
+3. stage_change — capital-raise stage progression on a resolved deal. field="stage", value one of: ${RAISE_STAGES.join(", ")}. Requires deal_pick.
+4. contact_add — a NEW person at the partner firm (see contact rules below). Capture full detail: name, email, role/title, phone, firm/office location, linkedin_url — pull from email signature block whenever present.
+5. contact_update — enrich or correct an EXISTING partner_contact (see contact rules below).
+6. capital_status_change — the partner states anything about their ability to deploy capital
    right now. This is the HIGHEST-VALUE signal in this system: it determines whether we pitch
    them at all. field="capital_status".
    proposed_value: { "status": one of ${CAPITAL_STATUS_VALUES.join(" | ")},
@@ -739,7 +735,7 @@ Extraction categories (emit ANY that apply — never limit to one per thread):
    - Only emit when the partner says this about THEMSELVES. Never infer it from silence, from
      a decline on one deal, or from something an Ansonia teammate speculates.
 
-8. profile_fact_add — a durable, decision-relevant fact about the partner that does NOT fit any
+7. profile_fact_add — a durable, decision-relevant fact about the partner that does NOT fit any
    column above. This is the catch-all that stops real signal from being dropped.
    proposed_value: { "fact": "<one self-contained sentence, written for a colleague who has
                               not read the email>",
@@ -780,6 +776,7 @@ HARD RULES — a suggestion is INVALID and MUST BE OMITTED if:
 - A capital_status_change or profile_fact_add without a verbatim \`quote\` is INVALID.
 - Never emit profile_fact_add for information already captured by a column
   (check size, geography, product type, strategy, hold period, warmth, stage, contacts).
+- Never propose a change to relationship warmth, in any category. It is not reviewed here.
 
 
 CONTACT proposals (from email signature blocks, headers, or explicit "loop in ..." lines):
@@ -807,7 +804,6 @@ Notes on noise reduction:
             id: partner.id, name: partner.name,
             capital_status: (partner as any).capital_status ?? null,
             capital_available_from: (partner as any).capital_available_from ?? null,
-            relationship_strength: partner.relationship_strength,
             min_equity_m: partner.min_equity_m, max_equity_m: partner.max_equity_m,
             hold_period: partner.hold_period, geography: partner.geography,
             geography_avoid: partner.geography_avoid, product_types: partner.product_types,
@@ -828,7 +824,6 @@ Notes on noise reduction:
             indicated_amount: e.indicated_amount, committed_amount: e.committed_amount,
           })),
           raise_stages: RAISE_STAGES,
-          warmth_values: WARMTH_VALUES,
           existing_pending: (sRes.data || []).map((s: any) => ({ type: s.type, field: s.field, proposed_value: s.proposed_value })),
           firm_domains: firmDomainsArr,
           thread: { conversation_id: convId, messages: slim },
@@ -990,7 +985,6 @@ Notes on noise reduction:
 
       // Snapshot current partner values for no-op detection
       const partnerCurrent: Record<string, any> = {
-        relationship_strength: partner.relationship_strength,
         min_equity_m: partner.min_equity_m, max_equity_m: partner.max_equity_m,
         hold_period: partner.hold_period, geography: partner.geography,
         geography_avoid: partner.geography_avoid, product_types: partner.product_types,
@@ -1049,7 +1043,6 @@ Notes on noise reduction:
 
 
         // Skip no-op suggestions that merely restate the current value
-        if (s.type === "warmth_change" && sameValue(normalized, partnerCurrent.relationship_strength)) continue;
         if (s.type === "partner_field" && s.field && sameValue(normalized, partnerCurrent[s.field])) continue;
         if (s.type === "avoided_market_add") {
           const existing: string[] = Array.isArray(partnerCurrent.geography_avoid) ? partnerCurrent.geography_avoid : [];

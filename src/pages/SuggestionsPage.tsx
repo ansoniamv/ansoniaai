@@ -8,7 +8,6 @@ import {
   useAnalyzePartnerEmails,
   useUnattributedAtlasMessages,
   useBulkApproveHighConfidence,
-  useComputePartnerWarmth,
   type PartnerSuggestion,
 } from "@/hooks/usePartnerSuggestions";
 import { usePartners } from "@/hooks/usePartners";
@@ -20,13 +19,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Check } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { AlertTriangle, ExternalLink, Lock, Sparkles, X, Pencil, Zap, Activity } from "lucide-react";
+import { AlertTriangle, ExternalLink, Lock, Sparkles, X, Pencil, Zap } from "lucide-react";
 import { AtlasAutomationCard } from "@/components/AtlasAutomationCard";
 import { SuggestionEvidencePanel } from "@/components/SuggestionEvidencePanel";
 import { AtlasUnattributedInbox } from "@/components/AtlasUnattributedInbox";
 
 const TYPE_LABEL: Record<string, string> = {
-  warmth_change: "Warmth",
   partner_field: "Partner field",
   avoided_market_add: "Avoided market",
   stage_change: "Raise stage",
@@ -305,22 +303,6 @@ function SuggestionCard({ s, partnerName, manualFields }: { s: PartnerSuggestion
         )}
 
 
-        {s.type === "warmth_change" && s.signals && (
-          <div className="text-xs rounded bg-muted/40 p-2 space-y-0.5">
-            <div className="text-[10px] uppercase text-muted-foreground">Signals</div>
-            <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-              <span>in: {s.signals.inbound_90d ?? 0}</span>
-              <span>out: {s.signals.outbound_90d ?? 0}</span>
-              {s.signals.avg_response_hours != null && <span>resp: {Math.round(s.signals.avg_response_hours)}h</span>}
-              {s.signals.meetings_scheduled != null && <span>mtgs: {s.signals.meetings_scheduled}</span>}
-              {s.signals.deals_engaged != null && <span>deals: {s.signals.deals_engaged}</span>}
-            </div>
-            {Array.isArray(s.signals.rationale) && (
-              <div className="text-muted-foreground italic">{s.signals.rationale.join(" • ")}</div>
-            )}
-          </div>
-        )}
-
         {s.evidence?.quote && (
           <div className="text-xs border-l-2 border-primary/40 pl-2 text-muted-foreground">
             "{s.evidence.quote}"
@@ -382,7 +364,6 @@ export default function SuggestionsPage() {
   const { data: unattributed } = useUnattributedAtlasMessages();
 
   const analyze = useAnalyzePartnerEmails();
-  const warmth = useComputePartnerWarmth();
   const bulk = useBulkApproveHighConfidence();
 
   const filterList = (list: PartnerSuggestion[] | undefined) =>
@@ -426,10 +407,6 @@ export default function SuggestionsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => warmth.mutate({})} disabled={warmth.isPending}>
-            <Activity className="h-4 w-4 mr-1" />
-            {warmth.isPending ? "Computing…" : "Recompute warmth"}
-          </Button>
           <Button onClick={() => analyze.mutate({})} disabled={analyze.isPending}>
             <Sparkles className="h-4 w-4 mr-1" />
             {analyze.isPending ? "Analyzing…" : "Analyze new emails"}

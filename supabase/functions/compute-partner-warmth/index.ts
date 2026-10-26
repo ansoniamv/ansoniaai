@@ -1,6 +1,6 @@
 // Compute partner warmth signals from outlook_messages + engagements.
-// Upserts partner_warmth_signals and proposes warmth_change when the computed
-// level differs from partners.relationship_strength.
+// Upserts partner_warmth_signals and writes the computed level onto
+// partners.relationship_strength unless a human set it by hand.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 
@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
     if (!partners) return new Response(JSON.stringify({ ok: true, count: 0 }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     const sinceIso = new Date(Date.now() - 90 * 86400000).toISOString();
-    let updated = 0; let suggestionsCreated = 0; let autoApplied = 0;
+    let updated = 0; let autoApplied = 0;
 
     for (const p of partners) {
       const [msgRes, engRes, rejRes, pendRes] = await Promise.all([
@@ -171,8 +171,11 @@ Deno.serve(async (req) => {
         : level === "Very Warm" ? 0.8
         : level === "Cold" && lastInbound == null ? 0.85
         : 0.7;
-      if (locked && confidence < 0.8) continue;
-      if (!locked && confidence < 0.6) continue;
+      // A warmth set by hand is an intent the data cannot overrule. It is left
+      // alone: no write, and no suggestion asking to change it either. Those
+      // suggestions were rarely acted on and only crowded the Atlas inbox.
+      if (locked) continue;
+      if (confidence < 0.6) continue;
 
       const summary = `Warmth: ${current || "unset"} → ${level}`;
       const rationaleText = rationale.join("; ");
@@ -193,48 +196,30 @@ Deno.serve(async (req) => {
       // differing, and every run re-proposed for every partner — ~153 per run,
       // every 30 minutes, each batch superseding the last.
       //
-      // So write it directly when the field is not locked, and keep an applied
-      // row as the audit trail rather than a pending one as a chore. A human who
-      // set this field by hand expressed an intent the data cannot overrule, so
-      // those partners (2 of 233 today) still get a real suggestion.
-      if (!locked) {
-        const { error: writeErr } = await supabase.from("partners")
-          .update({ relationship_strength: level }).eq("id", p.id);
-        if (writeErr) {
-          console.error(`[warmth] partner=${p.id} write failed:`, writeErr.message);
-          continue;
-        }
-        await supabase.from("partner_suggestions").insert({
-          partner_id: p.id, type: "warmth_change", field: "relationship_strength",
-          current_value: current, proposed_value: level,
-          summary, rationale: rationaleText,
-          evidence: null, signals, confidence,
-          status: "applied", applied_at: new Date().toISOString(),
-        });
-        if (existingPending) {
-          await supabase.from("partner_suggestions")
-            .update({ status: "superseded", reviewed_at: new Date().toISOString() })
-            .eq("id", existingPending.id);
-        }
-        autoApplied++;
+      // So write it directly, and keep an applied row as the audit trail rather
+      // than a pending one as a chore. The inbox does not show these rows.
+      const { error: writeErr } = await supabase.from("partners")
+        .update({ relationship_strength: level }).eq("id", p.id);
+      if (writeErr) {
+        console.error(`[warmth] partner=${p.id} write failed:`, writeErr.message);
         continue;
       }
-
-      const { data: inserted } = await supabase.from("partner_suggestions").insert({
+      await supabase.from("partner_suggestions").insert({
         partner_id: p.id, type: "warmth_change", field: "relationship_strength",
         current_value: current, proposed_value: level,
         summary, rationale: rationaleText,
-        evidence: null, signals, confidence, status: "pending",
-      }).select("id").maybeSingle();
-      if (inserted && existingPending) {
+        evidence: null, signals, confidence,
+        status: "applied", applied_at: new Date().toISOString(),
+      });
+      if (existingPending) {
         await supabase.from("partner_suggestions")
-          .update({ status: "superseded", superseded_by: inserted.id, reviewed_at: new Date().toISOString() })
+          .update({ status: "superseded", reviewed_at: new Date().toISOString() })
           .eq("id", existingPending.id);
       }
-      if (inserted) suggestionsCreated++;
+      autoApplied++;
     }
 
-    return new Response(JSON.stringify({ ok: true, partners: updated, suggestions: suggestionsCreated, auto_applied: autoApplied }),
+    return new Response(JSON.stringify({ ok: true, partners: updated, auto_applied: autoApplied }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
     console.error(e);
