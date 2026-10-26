@@ -15,8 +15,9 @@
 -- anyway: the search widens to 25 miles until it finds one, and 62 of the 65
 -- deals with school data have a high school. Niche grades would, but almost no
 -- deal has one: school data is cached, and most of it predates the Firecrawl
--- key (added 2026-10-21), so grades only appear on a forced re-enrich. Distance to the picked high school is what
--- the data holds: p10 0.3 mi, median 1.2 mi, p90 2.9 mi, scored 0.5..4.0 mi.
+-- key (added 2026-10-21), so grades only appear on a forced re-enrich.
+-- Distance to the picked high school is what the data holds: p10 0.3 mi,
+-- median 1.2 mi, p90 2.9 mi, scored 0.5..4.0 mi.
 --
 -- Neither field is resolved by the inbox scorer (score-deals), before or after.
 -- Changes config only. Stored ai_score values move when deals are rescored.
