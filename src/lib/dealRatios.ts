@@ -24,11 +24,26 @@ export function capRateHint(t12Noi: unknown, askingPriceM: unknown): string {
   return hint(missing, "T-12 NOI ÷ asking price");
 }
 
-export function grmHint(grossScheduledRent: unknown, askingPriceM: unknown): string {
+/**
+ * deals.grm is the annual multiple: price over a year's gross scheduled rent.
+ * The monthly multiple is price over one month's rent, so annual × 12.
+ */
+export function grmHint(
+  grossScheduledRent: unknown,
+  askingPriceM: unknown,
+  period: "annual" | "monthly" = "annual",
+): string {
   const missing: string[] = [];
   if (!positive(grossScheduledRent)) missing.push("gross sched. rent");
   if (!positive(askingPriceM)) missing.push("asking price");
-  return hint(missing, "Asking price ÷ gross sched. rent");
+  return hint(
+    missing,
+    period === "annual" ? "Asking price ÷ annual gross sched. rent" : "Asking price ÷ monthly rent (annual × 12)",
+  );
+}
+
+export function monthlyGrm(annualGrm: unknown): number | null {
+  return isNum(annualGrm) ? annualGrm * 12 : null;
 }
 
 /** The equity check assumed until a deal has a real capital stack: 35% of ask. */

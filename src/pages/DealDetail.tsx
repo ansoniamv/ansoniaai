@@ -48,7 +48,7 @@ import { AiScoreTab } from "@/components/AiScoreTab";
 import { NoteComposerDialog } from "@/components/NoteComposerDialog";
 import { useDeal, useDeleteDeal } from "@/hooks/useDeals";
 import { persistDealScore } from "@/lib/persistDealScore";
-import { capRateHint, equityCheck, grmHint, latestT3Noi, pricePerSqft } from "@/lib/dealRatios";
+import { capRateHint, equityCheck, grmHint, latestT3Noi, monthlyGrm, pricePerSqft } from "@/lib/dealRatios";
 import { useDealDocuments } from "@/hooks/useDealDocuments";
 import { cn } from "@/lib/utils";
 import {
@@ -431,6 +431,7 @@ export default function DealDetail() {
   // this page, the pipeline list, exports and Atlas all read one figure.
   const inPlaceCap = { value: d?.in_place_cap_rate, hint: capRateHint(d?.t12_noi, d?.asking_price) };
   const grm = { value: d?.grm, hint: grmHint(d?.gross_scheduled_rent, d?.asking_price) };
+  const grmMonthly = { value: monthlyGrm(d?.grm), hint: grmHint(d?.gross_scheduled_rent, d?.asking_price, "monthly") };
   const ppsf = pricePerSqft(d?.price_per_sqft, d?.asking_price, d?.total_sqft);
   const equity = equityCheck(d?.asking_price);
   // Same query as the Deal Documents panel, so this costs no extra request.
@@ -881,7 +882,12 @@ export default function DealDetail() {
                   <Stat label="Gross Sched. Rent" value={fmtMoney(d.gross_scheduled_rent)} />
                   <Stat label="Occupancy" value={fmtPct(d.occupancy_pct)} />
                   <Stat label="Expense Ratio" value={fmtPct(d.expense_ratio)} />
-                  <Stat label="GRM" value={isNum(grm.value) ? `${grm.value.toFixed(2)}x` : null} hint={grm.hint} />
+                  <Stat label="GRM (Annual)" value={isNum(grm.value) ? `${grm.value.toFixed(2)}x` : null} hint={grm.hint} />
+                  <Stat
+                    label="GRM (Monthly)"
+                    value={isNum(grmMonthly.value) ? `${grmMonthly.value.toFixed(1)}x` : null}
+                    hint={grmMonthly.hint}
+                  />
                 </CardContent>
               </Card>
             )}
