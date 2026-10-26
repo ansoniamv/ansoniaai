@@ -46,7 +46,7 @@ describe("apply_deal_document_proposals whitelist", () => {
   // Every migration that (re)defines the function, so the live one is covered.
   it.each([
     "20261021120000_deal_documents.sql",
-    "20261028120000_deal_field_sources.sql",
+    "20261029120000_deal_field_sources.sql",
   ])("matches DEAL_DOCUMENT_FIELDS exactly in %s", (file) => {
     const sql = readFileSync(path.resolve(__dirname, "../../supabase/migrations", file), "utf8");
     const block = sql.match(/allowed CONSTANT text\[\] := ARRAY\[([\s\S]*?)\];/i)![1];
