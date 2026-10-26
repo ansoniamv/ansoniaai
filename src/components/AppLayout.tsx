@@ -47,8 +47,22 @@ const ROUTE_LABELS: Array<{ match: RegExp; label: string }> = [
  */
 const FULL_BLEED = [/^\/pipeline-map/];
 
+/**
+ * Routes that keep the shell's column and padding but are pinned to the
+ * viewport height, so they scroll inside themselves instead of growing <main>.
+ *
+ * Ask Atlas needs this: its message list scrolls in its own pane with the
+ * composer under it. Under min-h-full the column grew to fit every message,
+ * <main> scrolled instead, and the composer sat below the whole conversation.
+ */
+const FIXED_HEIGHT = [/^\/chat/];
+
 function isFullBleed(pathname: string): boolean {
   return FULL_BLEED.some((r) => r.test(pathname));
+}
+
+function isFixedHeight(pathname: string): boolean {
+  return FIXED_HEIGHT.some((r) => r.test(pathname));
 }
 
 function getRouteLabel(pathname: string): string {
@@ -67,6 +81,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const routeLabel = getRouteLabel(location.pathname);
   const fullBleed = isFullBleed(location.pathname);
+  const fixedHeight = isFixedHeight(location.pathname);
   const today = format(new Date(), "EEEE, MMM d, yyyy");
   const [noteOpen, setNoteOpen] = useState(false);
   const [requestOpen, setRequestOpen] = useState(false);
@@ -133,21 +148,23 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </header>
           <main
             ref={mainRef}
-            className={"flex-1 min-h-0 " + (fullBleed ? "overflow-hidden" : "overflow-auto")}
+            className={
+              "flex-1 min-h-0 " + (fullBleed || fixedHeight ? "overflow-hidden" : "overflow-auto")
+            }
           >
-            {/* flex column + min-h-full so a page can opt into filling the
-                viewport with `flex-1 min-h-0` (Ask Atlas does). Block-level
-                pages are unaffected: a single stretched column lays out
-                identically, and min-h-full lets taller content still scroll.
+            {/* flex column + min-h-full for ordinary pages: a single stretched
+                column lays out identically, and taller content scrolls <main>.
 
-                A full-bleed route gets h-full instead, and any scrolling moves
-                inside the page: a map sizes its canvas from its container, and
-                min-h-full would let that container grow rather than settle. */}
+                Full-bleed and fixed-height routes get h-full instead, and any
+                scrolling moves inside the page: a map sizes its canvas from its
+                container, and Ask Atlas scrolls its message list. min-h-full
+                would let either container grow rather than settle. */}
             <div
               className={
                 fullBleed
                   ? "h-full flex flex-col"
-                  : "max-w-[1280px] mx-auto px-6 py-8 flex flex-col min-h-full"
+                  : "max-w-[1280px] mx-auto px-6 py-8 flex flex-col " +
+                    (fixedHeight ? "h-full" : "min-h-full")
               }
             >
               {children}
