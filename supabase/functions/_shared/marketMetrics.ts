@@ -9,7 +9,9 @@
 // figures silently never landed even when the Esri rings were sitting in the DB.
 // The market-metrics-enrich function wraps this for direct callers.
 
-const BLS_KEY = Deno.env.get("BLS_API_KEY"); // without it BLS allows ~25 requests/day per IP, shared across Supabase tenants
+import type { FieldSource, FieldSources } from "./fieldSources.ts";
+
+const BLS_KEY =Deno.env.get("BLS_API_KEY"); // without it BLS allows ~25 requests/day per IP, shared across Supabase tenants
 
 // Outside calls get a deadline: an unbounded BLS hang used to hold up the whole
 // write, population growth included.
@@ -44,7 +46,16 @@ async function resolveCbsa(lat: number, lon: number): Promise<{ cbsa: string; na
   }
 }
 
-async function fetchBlsJobGrowth(stateCode: string, cbsa: string): Promise<{ value: number | null; reason?: string }> {
+type JobGrowth = {
+  value: number | null;
+  reason?: string;
+  seriesId?: string;
+  /** The two months compared, as "Sep 2026". */
+  latest?: string;
+  yearAgo?: string;
+};
+
+async function fetchBlsJobGrowth(stateCode: string, cbsa: string): Promise<JobGrowth> {
   const fips = STATE_FIPS[stateCode?.toUpperCase()];
   if (!fips) return { value: null, reason: `unknown state ${stateCode}` };
   // BLS SM series: SM + seasonal (U=not adj) + state FIPS(2) + area code(5, CBSA) + supersector(2) + industry(6) + datatype(2)
@@ -74,7 +85,13 @@ async function fetchBlsJobGrowth(stateCode: string, cbsa: string): Promise<{ val
     const latest = Number(monthly[0].value);
     const yearAgo = Number(monthly[12].value);
     if (!latest || !yearAgo) return { value: null, reason: `BLS values unusable for ${seriesId}` };
-    return { value: ((latest - yearAgo) / yearAgo) * 100 };
+    const month = (d: any) => `${String(d.periodName ?? d.period).slice(0, 3)} ${d.year}`;
+    return {
+      value: ((latest - yearAgo) / yearAgo) * 100,
+      seriesId,
+      latest: month(monthly[0]),
+      yearAgo: month(monthly[12]),
+    };
   } catch (e) {
     return { value: null, reason: `BLS request failed: ${e instanceof Error ? e.message : String(e)}` };
   }
@@ -89,19 +106,34 @@ export async function enrichMarketMetrics(supabase: any, deal_id: string) {
   if (!deal) throw new Error("Deal not found");
 
   const rings = (enrichment?.rings ?? {}) as any;
-  const r5 = rings["5mi"] ?? rings["3mi"] ?? rings["1mi"] ?? null;
+  const ring = ["5mi", "3mi", "1mi"].find((k) => rings[k]) ?? null;
+  const r5 = ring ? rings[ring] : null;
+  const ringLabel = ring ? `${ring.replace("mi", "-mile")} ring around the property` : "";
 
   const update: Record<string, any> = {};
   const results: Record<string, Outcome> = {};
+  // Written with the figures; see _shared/fieldSources.ts.
+  const sources: FieldSources = {};
+  const at = new Date().toISOString();
+  const cite = (provider: string, label: string): FieldSource => ({ kind: "api", provider, label, recorded_at: at });
+  const count = (n: number) => Math.round(n).toLocaleString("en-US");
 
   // 1) Population growth — annualized 5-yr, from Esri POPGRWCYFY (already annualized %)
   if (r5 && typeof r5.POPGRWCYFY === "number") {
     update.population_growth_pct = Number(r5.POPGRWCYFY.toFixed(2));
-    results.population_growth_pct = { value: update.population_growth_pct, source: "esri.rings.5mi.POPGRWCYFY" };
+    results.population_growth_pct = { value: update.population_growth_pct, source: `esri.rings.${ring}.POPGRWCYFY` };
+    sources.population_growth_pct = cite(
+      "Esri",
+      `Esri's forecast annual population growth over the next five years (POPGRWCYFY), ${ringLabel}`,
+    );
   } else if (r5 && typeof r5.TOTPOP_CY === "number" && typeof r5.TOTPOP_FY === "number" && r5.TOTPOP_CY > 0) {
     const ann = (Math.pow(r5.TOTPOP_FY / r5.TOTPOP_CY, 1 / 5) - 1) * 100;
     update.population_growth_pct = Number(ann.toFixed(2));
-    results.population_growth_pct = { value: update.population_growth_pct, source: "esri.rings.5mi.TOTPOP" };
+    results.population_growth_pct = { value: update.population_growth_pct, source: `esri.rings.${ring}.TOTPOP` };
+    sources.population_growth_pct = cite(
+      "Esri",
+      `Annualised from Esri total population, ${count(r5.TOTPOP_CY)} now to ${count(r5.TOTPOP_FY)} forecast in five years, ${ringLabel}`,
+    );
   } else {
     results.population_growth_pct = { value: null, source: null, reason: "no esri enrichment" };
   }
@@ -110,7 +142,13 @@ export async function enrichMarketMetrics(supabase: any, deal_id: string) {
   if (r5 && typeof r5.TOTHU_CY === "number" && typeof r5.TOTHU_FY === "number" && r5.TOTHU_CY > 0) {
     const ann = (Math.pow(r5.TOTHU_FY / r5.TOTHU_CY, 1 / 5) - 1) * 100;
     update.new_supply_pct_of_stock = Number(ann.toFixed(2));
-    results.new_supply_pct_of_stock = { value: update.new_supply_pct_of_stock, source: "esri.rings.5mi.TOTHU" };
+    results.new_supply_pct_of_stock = { value: update.new_supply_pct_of_stock, source: `esri.rings.${ring}.TOTHU` };
+    // With a CoStar submarket picked the database replaces this figure, and
+    // drops this entry with it (keep_deal_field_sources).
+    sources.new_supply_pct_of_stock = cite(
+      "Esri",
+      `Annualised from Esri housing units, ${count(r5.TOTHU_CY)} now to ${count(r5.TOTHU_FY)} forecast in five years, ${ringLabel}`,
+    );
   } else {
     results.new_supply_pct_of_stock = { value: null, source: null, reason: "no esri enrichment" };
   }
@@ -123,6 +161,13 @@ export async function enrichMarketMetrics(supabase: any, deal_id: string) {
       if (jg.value != null) {
         update.job_growth_pct = Number(jg.value.toFixed(2));
         results.job_growth_pct = { value: update.job_growth_pct, source: `BLS SM ${cbsa.cbsa} (${cbsa.name})` };
+        sources.job_growth_pct = {
+          ...cite(
+            "BLS",
+            `BLS total nonfarm employment, ${jg.latest} vs ${jg.yearAgo}, not seasonally adjusted, ${cbsa.name} (series ${jg.seriesId})`,
+          ),
+          as_of: jg.latest,
+        };
       } else {
         results.job_growth_pct = { value: null, source: null, reason: jg.reason ?? `BLS returned no data for CBSA ${cbsa.cbsa}` };
       }
@@ -138,6 +183,7 @@ export async function enrichMarketMetrics(supabase: any, deal_id: string) {
   }
 
   if (Object.keys(update).length > 0) {
+    if (Object.keys(sources).length) update.field_sources = sources;
     const { error } = await supabase.from("deals").update(update).eq("id", deal_id);
     if (error) throw error;
   }

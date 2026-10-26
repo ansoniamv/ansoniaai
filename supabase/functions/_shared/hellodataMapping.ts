@@ -5,6 +5,8 @@
 // KEEP THIS IN SYNC — any new field extraction should live here so the
 // intake preview and the post-create enrichment stay consistent.
 
+import type { HelloDataRentBasis } from "./fieldSources.ts";
+
 const pick = (...vals: any[]) => {
   for (const v of vals) {
     if (v === null || v === undefined || v === "") continue;
@@ -89,6 +91,8 @@ export type MappedHelloData = {
   update: Record<string, any>;
   photoUrls: string[];
   field_coverage: Record<string, boolean>;
+  /** How in_place_avg_rent was arrived at, for its field source. */
+  rentBasis: HelloDataRentBasis;
 };
 
 /**
@@ -673,5 +677,9 @@ export function mapHelloDataProperty(p: any): MappedHelloData {
     field_coverage[k] = present;
   }
 
-  return { update, photoUrls, field_coverage };
+  const rentBasis: HelloDataRentBasis = inPlaceAvgRent === null
+    ? null
+    : rents.length > 0 ? { from: "listed_units", units: rents.length } : { from: "property_average" };
+
+  return { update, photoUrls, field_coverage, rentBasis };
 }

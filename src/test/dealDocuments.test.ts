@@ -43,12 +43,13 @@ const byField = (ps: { field: string; value: number }[]) => Object.fromEntries(p
 describe("apply_deal_document_proposals whitelist", () => {
   // The SQL function interpolates the field into an UPDATE; its list is the real
   // guard. A field added here but not there would be proposed and then refused.
-  it("matches DEAL_DOCUMENT_FIELDS exactly", () => {
-    const sql = readFileSync(
-      path.resolve(__dirname, "../../supabase/migrations/20261021120000_deal_documents.sql"),
-      "utf8",
-    );
-    const block = sql.match(/allowed CONSTANT text\[\] := ARRAY\[([\s\S]*?)\];/)![1];
+  // Every migration that (re)defines the function, so the live one is covered.
+  it.each([
+    "20261021120000_deal_documents.sql",
+    "20261028120000_deal_field_sources.sql",
+  ])("matches DEAL_DOCUMENT_FIELDS exactly in %s", (file) => {
+    const sql = readFileSync(path.resolve(__dirname, "../../supabase/migrations", file), "utf8");
+    const block = sql.match(/allowed CONSTANT text\[\] := ARRAY\[([\s\S]*?)\];/i)![1];
     const sqlFields = [...block.matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1]).sort();
     expect(sqlFields).toEqual([...DEAL_DOCUMENT_FIELDS].sort());
   });
@@ -93,8 +94,8 @@ describe("normalizeExtraction", () => {
     notes: "",
   });
   it("turns found:false into null, never a real zero", () => {
-    expect(out.figures.noi_annual).toEqual({ value: null, evidence: null });
-    expect(out.figures.unit_count).toEqual({ value: 160, evidence: "Totals: 160" });
+    expect(out.figures.noi_annual).toEqual({ value: null, evidence: null, quote: null, location: null });
+    expect(out.figures.unit_count).toEqual({ value: 160, evidence: "Totals: 160", quote: null, location: null });
   });
   it("treats a figure the model left out as not found", () => {
     expect(out.figures.asking_price_usd.value).toBeNull();

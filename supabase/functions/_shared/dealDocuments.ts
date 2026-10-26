@@ -77,7 +77,13 @@ export const EXTRACTED_FIGURES = [
 ] as const;
 export type ExtractedFigure = (typeof EXTRACTED_FIGURES)[number];
 
-export type FigureReading = { value: number | null; evidence: string | null };
+export type FigureReading = {
+  value: number | null;
+  evidence: string | null;
+  /** Copied from the document, per the model. Checked against the text before it is shown as a quote. */
+  quote?: string | null;
+  location?: string | null;
+};
 
 export type DocumentExtraction = {
   doc_type: DocType;
@@ -104,8 +110,10 @@ const figureSchema = {
     found: { type: "boolean" },
     value: { type: "number" },
     evidence: { type: "string" },
+    quote: { type: "string" },
+    location: { type: "string" },
   },
-  required: ["found", "value", "evidence"],
+  required: ["found", "value", "evidence", "quote", "location"],
 };
 
 /** Structured-output schema. No unions and no nullable enums (see 5f7f1fb). */
@@ -134,7 +142,9 @@ type RawExtraction = {
   property_name?: string;
   property_address?: string;
   as_of?: string;
-  figures?: Partial<Record<ExtractedFigure, { found?: boolean; value?: number; evidence?: string }>>;
+  figures?: Partial<
+    Record<ExtractedFigure, { found?: boolean; value?: number; evidence?: string; quote?: string; location?: string }>
+  >;
   notes?: string;
   detail?: unknown;
 };
@@ -150,7 +160,12 @@ export function normalizeExtraction(raw: RawExtraction): DocumentExtraction {
     EXTRACTED_FIGURES.map((f) => {
       const r = raw.figures?.[f];
       const found = r?.found === true && isNum(r.value);
-      return [f, { value: found ? r!.value! : null, evidence: found ? text(r!.evidence) : null }];
+      return [f, {
+        value: found ? r!.value! : null,
+        evidence: found ? text(r!.evidence) : null,
+        quote: found ? text(r!.quote) : null,
+        location: found ? text(r!.location) : null,
+      }];
     }),
   ) as Record<ExtractedFigure, FigureReading>;
   return {
@@ -174,6 +189,11 @@ Classify the document:
 
 For every figure give "evidence": where it came from and the words or numbers it was read from, e.g. "p.14, Financial Summary: 'Net Operating Income $2,431,880'" or "sheet 'Summary', row 'Total Occupied 271'". Keep it under 200 characters. Set found: true only for figures the document actually states.
 
+For every figure also give:
+- "quote": the words that state the figure, copied character for character from the document: the label and the number together where they sit side by side, e.g. "Net Operating Income $2,431,880". At most 150 characters. No ellipses, no paraphrase, no words added or reordered, numbers written exactly as the document writes them. From a spreadsheet, copy the row's cells in order. For a figure you computed, quote the total it was computed from. A reader checks the quote against the document, and a quote that is not in it is thrown away.
+- "location": where that quote is, e.g. "p.14, Financial Summary" or "sheet 'Summary', row 'Total Occupied'".
+Both are "" when found is false.
+
 Figures:
 - unit_count: total units at the property.
 - year_built: year of original construction (not renovation).
@@ -196,6 +216,9 @@ export type Proposal = {
   field: DealDocumentField;
   value: number;
   evidence: string;
+  /** From the figure the value was read from; null for a value computed across figures. */
+  quote: string | null;
+  location: string | null;
   rank: number;
 };
 
@@ -220,9 +243,16 @@ export function proposalsFromExtraction(
   const fig = (k: ExtractedFigure): FigureReading => ex.figures?.[k] ?? { value: null, evidence: null };
   const evidence = (k: ExtractedFigure) => (fig(k).evidence ?? "").trim() || "(no quote given)";
 
-  const propose = (field: DealDocumentField, value: number, ev: string) => {
+  const propose = (field: DealDocumentField, value: number, ev: string, from: ExtractedFigure | null) => {
     const rank = rankFor(field, ex.doc_type);
-    if (rank > 0) proposals.push({ field, value, evidence: ev.slice(0, 500), rank });
+    const src = from ? fig(from) : null;
+    if (rank > 0) {
+      proposals.push({
+        field, value, evidence: ev.slice(0, 500), rank,
+        quote: src?.quote?.slice(0, 300) ?? null,
+        location: src?.location?.slice(0, 200) ?? null,
+      });
+    }
   };
   const reject = (figure: string, value: unknown, reason: string) => rejected.push({ figure, value, reason });
 
@@ -232,7 +262,7 @@ export function proposalsFromExtraction(
   if (isNum(units)) {
     const n = Math.round(units);
     if (n < UNITS_MIN || n > UNITS_MAX) reject("unit_count", units, `outside ${UNITS_MIN}-${UNITS_MAX}`);
-    else { goodUnits = n; propose("unit_count", n, evidence("unit_count")); }
+    else { goodUnits = n; propose("unit_count", n, evidence("unit_count"), "unit_count"); }
   }
 
   // vintage_year
@@ -240,7 +270,7 @@ export function proposalsFromExtraction(
   if (isNum(yb)) {
     const y = Math.round(yb);
     if (y < 1850 || y > now.getFullYear() + 3) reject("year_built", yb, "not a plausible construction year");
-    else propose("vintage_year", y, evidence("year_built"));
+    else propose("vintage_year", y, evidence("year_built"), "year_built");
   }
 
   // total_sqft
@@ -251,7 +281,7 @@ export function proposalsFromExtraction(
     if (n <= 0 || n > 10_000_000) reject("net_rentable_sqft", sf, "outside 1-10,000,000");
     else if (perUnit !== null && (perUnit < 200 || perUnit > 5000)) {
       reject("net_rentable_sqft", sf, `${Math.round(perUnit)} sf per unit is not plausible`);
-    } else propose("total_sqft", n, evidence("net_rentable_sqft"));
+    } else propose("total_sqft", n, evidence("net_rentable_sqft"), "net_rentable_sqft");
   }
 
   // occupancy_pct — stated first, else occupied / total from the same document.
@@ -261,7 +291,7 @@ export function proposalsFromExtraction(
     // A stated 0.94 is a fraction; nobody publishes a rent roll at 0.94% occupied.
     const pct = occ > 0 && occ <= 1 ? occ * 100 : occ;
     if (pct < 0 || pct > 100) reject("occupancy_pct", occ, "outside 0-100");
-    else propose("occupancy_pct", round(pct, 1), evidence("occupancy_pct"));
+    else propose("occupancy_pct", round(pct, 1), evidence("occupancy_pct"), "occupancy_pct");
   } else if (isNum(occupied) && goodUnits) {
     if (occupied < 0 || occupied > goodUnits) reject("occupied_units", occupied, `more than ${goodUnits} units`);
     else {
@@ -269,6 +299,7 @@ export function proposalsFromExtraction(
         "occupancy_pct",
         round((occupied / goodUnits) * 100, 1),
         `computed: ${occupied} occupied / ${goodUnits} units. ${evidence("occupied_units")}`,
+        "occupied_units",
       );
     }
   }
@@ -277,7 +308,7 @@ export function proposalsFromExtraction(
   const rent = fig("avg_in_place_rent_monthly").value;
   if (isNum(rent)) {
     if (rent < 100 || rent > 20_000) reject("avg_in_place_rent_monthly", rent, "outside $100-$20,000 a month");
-    else propose("in_place_avg_rent", round(rent, 0), evidence("avg_in_place_rent_monthly"));
+    else propose("in_place_avg_rent", round(rent, 0), evidence("avg_in_place_rent_monthly"), "avg_in_place_rent_monthly");
   }
 
   // Annual income and expense lines.
@@ -295,9 +326,9 @@ export function proposalsFromExtraction(
     const perUnitMonth = gpr / goodUnits / 12;
     if (perUnitMonth < 100 || perUnitMonth > 20_000) {
       reject("gross_potential_rent_annual", gpr, `$${Math.round(perUnitMonth)} per unit a month is not plausible`);
-    } else propose("gross_scheduled_rent", gpr, evidence("gross_potential_rent_annual"));
+    } else propose("gross_scheduled_rent", gpr, evidence("gross_potential_rent_annual"), "gross_potential_rent_annual");
   } else if (gpr !== null) {
-    propose("gross_scheduled_rent", gpr, evidence("gross_potential_rent_annual"));
+    propose("gross_scheduled_rent", gpr, evidence("gross_potential_rent_annual"), "gross_potential_rent_annual");
   }
 
   // The three T12 totals have to agree with each other before any is offered:
@@ -308,12 +339,12 @@ export function proposalsFromExtraction(
   if (!t12Consistent) {
     reject("noi_annual", { egi, opex, noi }, "operating expenses or NOI exceed total income");
   } else {
-    if (noi !== null) propose("t12_noi", noi, evidence("noi_annual"));
-    if (opex !== null) propose("t12_opex", opex, evidence("total_operating_expenses_annual"));
+    if (noi !== null) propose("t12_noi", noi, evidence("noi_annual"), "noi_annual");
+    if (opex !== null) propose("t12_opex", opex, evidence("total_operating_expenses_annual"), "total_operating_expenses_annual");
     if (opex !== null && egi !== null && egi > 0) {
       const ratio = round((opex / egi) * 100, 1);
       if (ratio < 10 || ratio > 90) reject("expense_ratio", ratio, "outside 10-90%");
-      else propose("expense_ratio", ratio, `computed: opex ${fmt(opex)} / total income ${fmt(egi)}`);
+      else propose("expense_ratio", ratio, `computed: opex ${fmt(opex)} / total income ${fmt(egi)}`, null);
     }
   }
 
@@ -322,7 +353,7 @@ export function proposalsFromExtraction(
   if (isNum(price)) {
     const millions = price / 1_000_000;
     if (millions < 0.5 || millions > 3000) reject("asking_price_usd", price, "outside $0.5M-$3B");
-    else propose("asking_price", round(millions, 2), evidence("asking_price_usd"));
+    else propose("asking_price", round(millions, 2), evidence("asking_price_usd"), "asking_price_usd");
   }
 
   return { proposals, rejected };
