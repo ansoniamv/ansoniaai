@@ -81,7 +81,7 @@ export default function DataRoomPage() {
         <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
           What the platform knows about Ansonia: the website, investor deck, pro formas, strategy memos and team
           notes. Each source is read and summarised, and the summaries compile into the Company Brief that Ask Atlas,
-          deal scoring, the inbox screen and property research all read before they judge anything.
+          deal scoring and the inbox screen read before they judge anything.
           {!isAdmin && " Only admins can add or change sources."}
         </p>
       </header>
