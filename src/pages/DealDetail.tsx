@@ -45,7 +45,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DealNotes } from "@/components/DealNotes";
 import { DealStatusHistory } from "@/components/DealStatusHistory";
 import { ComposeEmailDialog } from "@/components/ComposeEmailDialog";
-import { PropertyResearchPanel } from "@/components/PropertyResearchPanel";
 import { DealDocumentsPanel } from "@/components/DealDocumentsPanel";
 import { SubmarketSignalsPanel } from "@/components/SubmarketSignalsPanel";
 import { AiScoreTab } from "@/components/AiScoreTab";
@@ -911,11 +910,6 @@ export default function DealDetail() {
         <div className="md:col-span-2">
           <AnalystGradeCard dealId={deal.id} value={d.analyst_grade ?? null} />
         </div>
-        <PropertyResearchPanel
-          dealId={deal.id}
-          address={deal.property_address || [deal.property_name, deal.city, deal.state].filter(Boolean).join(", ") || null}
-          propertyName={deal.property_name}
-        />
       </div>
 
       {/* ============ Deal Documents ============ */}

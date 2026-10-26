@@ -265,7 +265,7 @@ export function normalizeSummary(raw: any): SourceSummary {
 
 // ------------------------------------------------------------------ brief
 
-export const BRIEF_SYSTEM = `You compile the Company Brief for Ansonia, a multifamily real estate investment firm. Every AI feature in the firm's platform carries this brief in its prompt: the inbox screen that triages broker emails, the deal scorer, property research, and Ask Atlas, the team's assistant. It is how those features know the firm.
+export const BRIEF_SYSTEM = `You compile the Company Brief for Ansonia, a multifamily real estate investment firm. Every AI feature in the firm's platform carries this brief in its prompt: the inbox screen that triages broker emails, the deal scorer, and Ask Atlas, the team's assistant. It is how those features know the firm.
 
 You are given the Data Room's sources: each one's summary and key facts, and notes written by the team. Write the brief in markdown, at most about 1,200 words, under these headings, leaving out any heading the sources say nothing about:
 

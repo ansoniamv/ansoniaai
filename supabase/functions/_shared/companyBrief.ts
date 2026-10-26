@@ -1,7 +1,7 @@
 // The Company Brief from the Data Room, for prompts.
 //
 // Every AI feature that judges a deal or answers a question reads the firm's
-// brief through here: deal-score, score-deals, gate-deals, property-research
+// brief through here: deal-score, score-deals, gate-deals
 // and chat. It is one row (data_room_brief), compiled by build-data-room-brief.
 //
 // Loading never throws. A missing table, an empty brief or a read error gives
