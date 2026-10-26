@@ -33,34 +33,47 @@ as $$
 declare
   supplied jsonb := '{}'::jsonb;
   merged   jsonb;
-  n        jsonb := to_jsonb(new);
-  o        jsonb;
+  nv       jsonb;
+  ov       jsonb;
   k        text;
 begin
   if tg_op = 'INSERT' then
     merged := coalesce(new.field_sources, '{}'::jsonb);
   else
-    o := to_jsonb(old);
     -- An update that does not touch field_sources carries the old object
     -- through unchanged; that is not a writer supplying entries.
     if new.field_sources is distinct from old.field_sources then
       supplied := coalesce(new.field_sources, '{}'::jsonb);
     end if;
     merged := coalesce(old.field_sources, '{}'::jsonb) || supplied;
-    -- jsonb comparison is numeric for numbers, so 260 and 260.0 are the same value.
-    for k in select jsonb_object_keys(merged) loop
-      if not (supplied ? k) and (n -> k) is distinct from (o -> k) then
-        merged := merged - k;
-      end if;
-    end loop;
   end if;
 
-  -- An entry has to be an object describing a column that holds a value. A
-  -- writer clears one by sending it as null.
+  -- Each entry's column is read on its own. Never to_jsonb(new): a deal row
+  -- carries its HelloData payload and raw copy (up to ~1 MB compressed each),
+  -- and turning the whole row into JSON unpacks both on every update. The first
+  -- attempt at this migration did that; it timed out and the database restarted.
   for k in select jsonb_object_keys(merged) loop
-    if jsonb_typeof(merged -> k) is distinct from 'object'
-       or coalesce(n -> k, 'null'::jsonb) = 'null'::jsonb then
+    -- An entry has to be an object describing a real column.
+    if jsonb_typeof(merged -> k) is distinct from 'object' or not exists (
+         select 1 from pg_attribute
+         where attrelid = 'public.deals'::regclass and attname = k and attnum > 0 and not attisdropped
+       ) then
       merged := merged - k;
+      continue;
+    end if;
+    execute format('select to_jsonb(($1).%I)', k) into nv using new;
+    -- A column with no value has no source; a writer clears one by sending null.
+    if coalesce(nv, 'null'::jsonb) = 'null'::jsonb then
+      merged := merged - k;
+      continue;
+    end if;
+    -- A value that changed without a new entry no longer has the old one's
+    -- source. jsonb comparison is numeric, so 260 and 260.0 are the same value.
+    if tg_op = 'UPDATE' and not (supplied ? k) then
+      execute format('select to_jsonb(($1).%I)', k) into ov using old;
+      if nv is distinct from ov then
+        merged := merged - k;
+      end if;
     end if;
   end loop;
 
@@ -203,7 +216,13 @@ with latest as (
   join public.deal_document_proposals p on p.id = l.id
   join public.deal_documents doc on doc.id = p.document_id
   join public.deals d on d.id = p.deal_id
-  where (to_jsonb(d) -> p.field) = p.value
+  -- The document fields only, not to_jsonb(d): see the trigger above.
+  where jsonb_build_object(
+          'unit_count', d.unit_count, 'vintage_year', d.vintage_year, 'total_sqft', d.total_sqft,
+          'occupancy_pct', d.occupancy_pct, 'in_place_avg_rent', d.in_place_avg_rent,
+          'gross_scheduled_rent', d.gross_scheduled_rent, 't12_noi', d.t12_noi, 't12_opex', d.t12_opex,
+          'expense_ratio', d.expense_ratio, 'asking_price', d.asking_price
+        ) -> p.field = p.value
   group by p.deal_id
 )
 update public.deals d
@@ -268,94 +287,114 @@ language sql immutable as $$
   limit 1
 $$;
 
-with hd as (
-  select d.id, d.unit_count, d.vintage_year, d.in_place_avg_rent, d.median_rent_tract, d.median_income_tract,
-         coalesce(d.hellodata_last_synced_at, now()) as at,
-         pg_temp.hd_num(array[p -> 'number_units', p -> 'unit_count', p -> 'units']) as filed_units,
-         pg_temp.hd_num(array[p -> 'number_units_prediction']) as predicted_units,
-         pg_temp.hd_num(array[p -> 'year_built', p -> 'vintage_year', p -> 'built_year']) as filed_year,
-         pg_temp.hd_num(array[p -> 'year_built_prediction']) as predicted_year,
-         listed.avg_rent as listed_rent, listed.n as listed_units,
-         pg_temp.hd_num(array[
-           p -> 'avg_effective_price', p -> 'avg_price', p -> 'avg_rent', p -> 'average_rent', p -> 'effective_rent',
-           p -> 'asking_rent', p -> 'market_rent', p -> 'median_rent', p -> 'rent',
-           p #> '{pricing_strategy,avg_effective_price}', p #> '{pricing_strategy,avg_price}',
-           p #> '{pricing_strategy,avg_rent}', p #> '{pricing_strategy,average_rent}',
-           p #> '{pricing_strategy,effective_rent}', p #> '{pricing_strategy,asking_rent}',
-           p #> '{pricing_strategy,market_rent}'
-         ]) as property_rent,
-         pg_temp.hd_num(array[p #> '{demographics,median_rent}', p #> '{demographics,median_gross_rent}']) as tract_rent,
-         pg_temp.hd_num(array[
-           p #> '{demographics,median_income}', p #> '{demographics,median_household_income}',
-           p #> '{demographics,household_median_income}'
-         ]) as tract_income
-  from public.deals d
-  cross join lateral (select d.hellodata_payload as p) payload
-  cross join lateral (
+-- One deal at a time, its payload unpacked once into a variable: a reference
+-- to a stored jsonb column in a query unpacks it again each time, and the
+-- first attempt, which read each payload ~20 times across every deal in one
+-- statement, timed out and the database restarted.
+do $backfill$
+declare
+  d               record;
+  p               jsonb;
+  avail           jsonb;
+  filed_units     numeric;
+  predicted_units numeric;
+  filed_year      numeric;
+  predicted_year  numeric;
+  listed_rent     numeric;
+  listed_units    bigint;
+  property_rent   numeric;
+  tract_rent      numeric;
+  tract_income    numeric;
+  intake          jsonb;
+  demographics    jsonb;
+begin
+  for d in
+    select id, unit_count, vintage_year, in_place_avg_rent, median_rent_tract, median_income_tract,
+           coalesce(hellodata_last_synced_at, now()) as at
+    from public.deals
+    where hellodata_status = 'fetched' and hellodata_payload is not null
+  loop
+    select hellodata_payload into p from public.deals where id = d.id;
+    continue when jsonb_typeof(p) is distinct from 'object';
+
+    filed_units     := pg_temp.hd_num(array[p -> 'number_units', p -> 'unit_count', p -> 'units']);
+    predicted_units := pg_temp.hd_num(array[p -> 'number_units_prediction']);
+    filed_year      := pg_temp.hd_num(array[p -> 'year_built', p -> 'vintage_year', p -> 'built_year']);
+    predicted_year  := pg_temp.hd_num(array[p -> 'year_built_prediction']);
+    property_rent   := pg_temp.hd_num(array[
+      p -> 'avg_effective_price', p -> 'avg_price', p -> 'avg_rent', p -> 'average_rent', p -> 'effective_rent',
+      p -> 'asking_rent', p -> 'market_rent', p -> 'median_rent', p -> 'rent',
+      p #> '{pricing_strategy,avg_effective_price}', p #> '{pricing_strategy,avg_price}',
+      p #> '{pricing_strategy,avg_rent}', p #> '{pricing_strategy,average_rent}',
+      p #> '{pricing_strategy,effective_rent}', p #> '{pricing_strategy,asking_rent}',
+      p #> '{pricing_strategy,market_rent}'
+    ]);
+    tract_rent   := pg_temp.hd_num(array[p #> '{demographics,median_rent}', p #> '{demographics,median_gross_rent}']);
+    tract_income := pg_temp.hd_num(array[
+      p #> '{demographics,median_income}', p #> '{demographics,median_household_income}',
+      p #> '{demographics,household_median_income}'
+    ]);
+
     -- The units the mapper averages: the first of these that is an array.
-    select case
-             when jsonb_typeof(p -> 'building_availability') = 'array' then p -> 'building_availability'
-             when jsonb_typeof(p -> 'availability') = 'array' then p -> 'availability'
-             when jsonb_typeof(p -> 'units') = 'array' then p -> 'units'
-             when jsonb_typeof(p -> 'floor_plans') = 'array' then p -> 'floor_plans'
-             else '[]'::jsonb
-           end as units
-  ) avail
-  cross join lateral (
-    select round(avg(r)) as avg_rent, count(r) as n
-    from jsonb_array_elements(avail.units) u
+    avail := case
+      when jsonb_typeof(p -> 'building_availability') = 'array' then p -> 'building_availability'
+      when jsonb_typeof(p -> 'availability') = 'array' then p -> 'availability'
+      when jsonb_typeof(p -> 'units') = 'array' then p -> 'units'
+      when jsonb_typeof(p -> 'floor_plans') = 'array' then p -> 'floor_plans'
+      else '[]'::jsonb
+    end;
+    select round(avg(r)), count(r) into listed_rent, listed_units
+    from jsonb_array_elements(avail) u
     cross join lateral (select pg_temp.hd_num(array[
       u -> 'effective_price', u -> 'price', u -> 'min_effective_price', u -> 'min_price', u -> 'rent',
       u -> 'asking_rent', u -> 'market_rent', u -> 'monthly_rent', u -> 'list_price', u -> 'avg_price',
       u -> 'avg_effective_price', u -> 'avg_rent'
-    ]) as r) rent
-  ) listed
-  where d.hellodata_status = 'fetched'
-    and jsonb_typeof(d.hellodata_payload) = 'object'
-), entries as (
-  select id,
-         jsonb_strip_nulls(jsonb_build_object(
-           'unit_count', case
-             when filed_units is not null and unit_count = filed_units then jsonb_build_object(
-               'kind', 'api', 'provider', 'HelloData', 'recorded_at', at,
-               'label', 'Unit count on HelloData''s property record')
-             when filed_units is null and unit_count = predicted_units then jsonb_build_object(
-               'kind', 'api', 'provider', 'HelloData', 'recorded_at', at,
-               'label', 'HelloData''s predicted unit count. HelloData has no filed count for this property.')
-           end,
-           'vintage_year', case
-             when filed_year is not null and vintage_year = filed_year then jsonb_build_object(
-               'kind', 'api', 'provider', 'HelloData', 'recorded_at', at,
-               'label', 'Year built on HelloData''s property record')
-             when filed_year is null and vintage_year = predicted_year then jsonb_build_object(
-               'kind', 'api', 'provider', 'HelloData', 'recorded_at', at,
-               'label', 'HelloData''s predicted year built. HelloData has no filed year for this property.')
-           end,
-           'in_place_avg_rent', case
-             when listed_units > 0 and in_place_avg_rent = listed_rent then jsonb_build_object(
-               'kind', 'api', 'provider', 'HelloData', 'recorded_at', at,
-               'label', format(
-                 'Average asking rent across %s unit%s HelloData lists as available. Asking rent, not what current residents pay.',
-                 listed_units, case when listed_units = 1 then '' else 's' end))
-             when listed_units = 0 and in_place_avg_rent = round(property_rent) then jsonb_build_object(
-               'kind', 'api', 'provider', 'HelloData', 'recorded_at', at,
-               'label', 'HelloData''s property-level average rent (no units were listed as available). Asking rent, not what current residents pay.')
-           end
-         )) as intake,
-         jsonb_strip_nulls(jsonb_build_object(
-           'median_rent_tract', case when median_rent_tract = tract_rent then jsonb_build_object(
-             'kind', 'api', 'provider', 'HelloData', 'recorded_at', at,
-             'label', 'Census-tract median rent, from HelloData''s demographics') end,
-           'median_income_tract', case when median_income_tract = tract_income then jsonb_build_object(
-             'kind', 'api', 'provider', 'HelloData', 'recorded_at', at,
-             'label', 'Census-tract median household income, from HelloData''s demographics') end
-         )) as demographics
-  from hd
-)
-update public.deals d
-   set field_sources = e.intake || d.field_sources || e.demographics
-  from entries e
- where d.id = e.id
-   and (e.intake <> '{}'::jsonb or e.demographics <> '{}'::jsonb);
+    ]) as r) rent;
+
+    intake := jsonb_strip_nulls(jsonb_build_object(
+      'unit_count', case
+        when filed_units is not null and d.unit_count = filed_units then jsonb_build_object(
+          'kind', 'api', 'provider', 'HelloData', 'recorded_at', d.at,
+          'label', 'Unit count on HelloData''s property record')
+        when filed_units is null and d.unit_count = predicted_units then jsonb_build_object(
+          'kind', 'api', 'provider', 'HelloData', 'recorded_at', d.at,
+          'label', 'HelloData''s predicted unit count. HelloData has no filed count for this property.')
+      end,
+      'vintage_year', case
+        when filed_year is not null and d.vintage_year = filed_year then jsonb_build_object(
+          'kind', 'api', 'provider', 'HelloData', 'recorded_at', d.at,
+          'label', 'Year built on HelloData''s property record')
+        when filed_year is null and d.vintage_year = predicted_year then jsonb_build_object(
+          'kind', 'api', 'provider', 'HelloData', 'recorded_at', d.at,
+          'label', 'HelloData''s predicted year built. HelloData has no filed year for this property.')
+      end,
+      'in_place_avg_rent', case
+        when listed_units > 0 and d.in_place_avg_rent = listed_rent then jsonb_build_object(
+          'kind', 'api', 'provider', 'HelloData', 'recorded_at', d.at,
+          'label', format(
+            'Average asking rent across %s unit%s HelloData lists as available. Asking rent, not what current residents pay.',
+            listed_units, case when listed_units = 1 then '' else 's' end))
+        when listed_units = 0 and d.in_place_avg_rent = round(property_rent) then jsonb_build_object(
+          'kind', 'api', 'provider', 'HelloData', 'recorded_at', d.at,
+          'label', 'HelloData''s property-level average rent (no units were listed as available). Asking rent, not what current residents pay.')
+      end
+    ));
+    demographics := jsonb_strip_nulls(jsonb_build_object(
+      'median_rent_tract', case when d.median_rent_tract = tract_rent then jsonb_build_object(
+        'kind', 'api', 'provider', 'HelloData', 'recorded_at', d.at,
+        'label', 'Census-tract median rent, from HelloData''s demographics') end,
+      'median_income_tract', case when d.median_income_tract = tract_income then jsonb_build_object(
+        'kind', 'api', 'provider', 'HelloData', 'recorded_at', d.at,
+        'label', 'Census-tract median household income, from HelloData''s demographics') end
+    ));
+
+    if intake <> '{}'::jsonb or demographics <> '{}'::jsonb then
+      update public.deals
+         set field_sources = intake || field_sources || demographics
+       where id = d.id;
+    end if;
+  end loop;
+end
+$backfill$;
 
 alter table public.deals enable trigger update_deals_updated_at;
