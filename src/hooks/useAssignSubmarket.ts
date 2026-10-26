@@ -40,5 +40,24 @@ export function useAssignSubmarket(dealId: string) {
     }
   };
 
-  return { assign, saving };
+  /** Keeps an AI pick as is and marks it checked by a person. The code doesn't change, so no rescore. */
+  const confirm = async () => {
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("deals")
+        .update({ costar_submarket_source: "manual", costar_submarket_note: null })
+        .eq("id", dealId)
+        .eq("costar_submarket_source", "ai");
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ["deals"] });
+      toast.success("Submarket confirmed");
+    } catch (e) {
+      toast.error("Couldn't confirm submarket: " + (e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return { assign, confirm, saving };
 }
