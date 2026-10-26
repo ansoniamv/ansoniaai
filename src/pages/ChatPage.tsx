@@ -158,7 +158,10 @@ export default function ChatPage() {
           <Plus className="h-4 w-4" /> New chat
         </Button>
       </div>
-      <ScrollArea className="flex-1 min-h-0">
+      {/* Radix wraps the viewport's content in a display:table div that grows
+          to its widest child, so a long title overflowed the rail instead of
+          clamping. Forcing it to block lets the titles respect the rail width. */}
+      <ScrollArea className="flex-1 min-h-0 [&_[data-radix-scroll-area-viewport]>div]:!block">
         <div className="px-2 pb-2">
           {grouped.map(({ bucket, items }) => (
             <div key={bucket}>
@@ -181,11 +184,11 @@ export default function ChatPage() {
                     )}
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm" title={t.title}>
+                      <div className="line-clamp-2 break-words text-[13px] leading-snug" title={t.title}>
                         {t.title}
                       </div>
                       {t.updated_at && (
-                        <div className="text-xs text-muted-foreground">
+                        <div className="mt-0.5 text-[11px] text-muted-foreground">
                           {relativeTime(t.updated_at)}
                         </div>
                       )}
