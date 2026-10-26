@@ -18,6 +18,9 @@
  *    substrings. ("in" no longer matches "Cincinnati".)
  *  - Notes signals are deduplicated by (direction, term) so one restated
  *    sentence cannot max out the swing.
+ *  - Capital status is NOT part of the fit score either. A partner can fit the
+ *    deal perfectly and have no money this quarter; those are different facts.
+ *    It moves the partner in the ranking via `rankScore` instead.
  */
 
 
@@ -47,6 +50,10 @@ export interface MatchablePartner {
   strategy_affordable?: boolean | null;
   additional_notes?: string | null;
   organized_notes?: string | null;
+  /** Ranking only, never the fit score. See CAPITAL_RANK_POINTS. */
+  capital_status?: string | null;
+  /** Date-only ("2027-01-01"): when a constrained partner said they expect to be back. */
+  capital_available_from?: string | null;
   // Used only for the analyst-facing blurb, never for scoring.
   firm_type?: string | null;
   investor_type?: string[] | null;
@@ -108,6 +115,18 @@ export const WARMTH_RANK: Record<string, number> = {
   Warm: 3,
   Tepid: 2,
   Cold: 1,
+};
+
+/**
+ * Ranking points for the partner's stated capital position, added to the fit
+ * score to order the list. An out-of-capital partner stays visible (they may be
+ * back next quarter) but sinks below partners who can actually write the check.
+ */
+export const CAPITAL_RANK_POINTS: Record<string, number> = {
+  "Actively Deploying": 5,
+  Selective: -5,
+  Constrained: -15,
+  "Out of Capital": -30,
 };
 
 export const TIER_THRESHOLDS = { strong: 75, moderate: 55 } as const;
@@ -417,6 +436,9 @@ export interface PartnerMatch {
   misses: string[];
   missingFields: PillarKey[];
   warmthRank: number;
+  capital: CapitalResult;
+  /** score + capital.adjustment. Orders the list; the displayed % stays `score`. */
+  rankScore: number;
   /** True when a hard gate disqualified this partner. */
   gated: boolean;
   gateKey?: GateKey;
@@ -690,6 +712,30 @@ export function scoreNotes(
   return { adjustment: Math.max(-swing, Math.min(swing, pts)), reasons, misses, geoInterest };
 }
 
+export interface CapitalResult {
+  status: string | null;
+  /** Ranking points; 0 when unset or when the stated window has passed. */
+  adjustment: number;
+  /** A constrained partner whose "available from" date has passed — ask again. */
+  needsReconfirmation: boolean;
+}
+
+/** Local midnight of a date-only string, so "2027-01-01" is not read as UTC. */
+const parseDateOnly = (s: string): number => new Date(`${s.slice(0, 10)}T00:00:00`).getTime();
+
+export function scoreCapitalStatus(partner: MatchablePartner, now: Date = new Date()): CapitalResult {
+  const status = partner.capital_status?.trim() || null;
+  if (!status) return { status: null, adjustment: 0, needsReconfirmation: false };
+  const points = CAPITAL_RANK_POINTS[status] ?? 0;
+  const fromMs = partner.capital_available_from ? parseDateOnly(partner.capital_available_from) : NaN;
+  // Only a penalty expires: "back in Q1" means nothing once Q1 has arrived,
+  // so stop sinking the partner and flag that the status needs asking again.
+  if (points < 0 && Number.isFinite(fromMs) && fromMs <= now.getTime()) {
+    return { status, adjustment: 0, needsReconfirmation: true };
+  }
+  return { status, adjustment: points, needsReconfirmation: false };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Composite
 // ─────────────────────────────────────────────────────────────────────────────
@@ -736,6 +782,7 @@ export function scorePartnerMatch(
   const confidence = classifyConfidence(coverage.weightCoveredPct);
 
   const gate = check.gate ?? geography.gate;
+  const capital = scoreCapitalStatus(partner);
 
   return {
     partner,
@@ -750,6 +797,8 @@ export function scorePartnerMatch(
     misses: [...pillars.flatMap((p) => p.misses), ...notes.misses],
     missingFields: pillars.map((p) => p.missingField).filter(Boolean) as PillarKey[],
     warmthRank: WARMTH_RANK[partner.relationship_strength ?? ""] ?? 0,
+    capital,
+    rankScore: score + capital.adjustment,
     gated: Boolean(gate),
     gateKey: gate?.key,
     gateReason: gate?.reason,
@@ -771,11 +820,12 @@ export interface RankedMatches {
 }
 
 /**
- * Deterministic ordering: fit score, then relationship warmth as the
- * tiebreaker, then name. The previous scorer sorted on score alone, so ties
- * fell back to whatever order the query returned.
+ * Deterministic ordering: fit score adjusted for capital status, then raw fit,
+ * then relationship warmth as the tiebreaker, then name. The previous scorer
+ * sorted on score alone, so ties fell back to whatever order the query returned.
  */
 export function compareMatches(a: PartnerMatch, b: PartnerMatch): number {
+  if (b.rankScore !== a.rankScore) return b.rankScore - a.rankScore;
   if (b.score !== a.score) return b.score - a.score;
   if (b.warmthRank !== a.warmthRank) return b.warmthRank - a.warmthRank;
   return a.partner.name.localeCompare(b.partner.name);

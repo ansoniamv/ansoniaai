@@ -162,7 +162,7 @@ function MatchRow({
 }) {
   const {
     partner, score, baseScore, notesAdjustment, tier,
-    confidence, coverage, reasons, misses, missingFields,
+    confidence, coverage, reasons, misses, missingFields, capital,
   } = match;
 
   const blurb = buildPartnerBlurb(partner, contacts);
@@ -183,6 +183,11 @@ function MatchRow({
     notesAdjustment !== 0
       ? `${baseScore}% from structured fields, ${notesAdjustment > 0 ? "+" : ""}${notesAdjustment} from notes.`
       : `${baseScore}% from structured fields.`;
+  const capitalLine = capital.needsReconfirmation
+    ? `Capital: ${capital.status}, but the date they gave has passed — not counted until re-confirmed.`
+    : capital.adjustment !== 0
+    ? `Ranked as ${score + capital.adjustment}: ${capital.adjustment > 0 ? "+" : ""}${capital.adjustment} for ${capital.status}.`
+    : null;
 
   const tierColor =
     tier === "Strong"
@@ -210,8 +215,9 @@ function MatchRow({
             </p>
             <p className="text-xs text-muted-foreground">{coverageLine}</p>
             <p className="text-xs text-muted-foreground">{mathLine}</p>
+            {capitalLine && <p className="text-xs text-muted-foreground">{capitalLine}</p>}
             <p className="text-xs text-muted-foreground">
-              Fit only — relationship warmth breaks ties but does not raise the score.
+              Fit only — capital status moves the partner in the list and warmth breaks ties, but neither changes the score.
             </p>
           </TooltipContent>
         </Tooltip>
@@ -227,17 +233,28 @@ function MatchRow({
           </button>
           <Badge variant="outline" className={`text-[10px] ${tierColor}`}>{tier}</Badge>
           <WarmthBadge strength={partner.relationship_strength ?? null} />
-          {(() => {
-            const cs = (partner as any).capital_status as string | null;
-            if (cs !== "Out of Capital" && cs !== "Constrained") return null;
-            const from = (partner as any).capital_available_from as string | null;
-            const passed = !!from && new Date(`${from}T00:00:00`).getTime() < Date.now();
-            return (
-              <span className="text-[10px] uppercase tracking-[0.1em] text-amber-700">
-                {passed ? "needs re-confirmation" : cs}
-              </span>
-            );
-          })()}
+          {capital.status && (
+            <span
+              className={`text-[10px] uppercase tracking-[0.1em] ${
+                capital.needsReconfirmation
+                  ? "text-amber-700"
+                  : capital.adjustment > 0
+                  ? "text-green-600"
+                  : capital.adjustment <= -15
+                  ? "text-red-400"
+                  : capital.adjustment < 0
+                  ? "text-amber-700"
+                  : "text-muted-foreground"
+              }`}
+              title={
+                partner.capital_available_from && !capital.needsReconfirmation && capital.adjustment < 0
+                  ? `Expects capital from ${partner.capital_available_from}`
+                  : undefined
+              }
+            >
+              {capital.needsReconfirmation ? `${capital.status} · needs re-confirmation` : capital.status}
+            </span>
+          )}
           {missingFields.length > 0 && (
             <button
               onClick={() => onComplete(missingFields)}
