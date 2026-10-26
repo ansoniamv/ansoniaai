@@ -36,6 +36,16 @@ const methodLabel: Record<string, string> = {
   range_optimal: "Range · optimal",
   boolean: "Boolean",
 };
+const minLabel: Record<string, string> = {
+  higher_better: "Min (scores 0)",
+  lower_better: "Min (scores 100)",
+  range_optimal: "Min (scores 0)",
+};
+const maxLabel: Record<string, string> = {
+  higher_better: "Max (scores 100)",
+  lower_better: "Max (scores 0)",
+  range_optimal: "Max (scores 0)",
+};
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -108,11 +118,21 @@ function SignalRow({ s, onUpdate, onDelete }: {
                   </SelectContent>
                 </Select>
               </div>
+              {/* Only the bounds the scoring method reads: higher/lower score 0→100 across
+                  min–max; range scores 100 inside the ideal band and falls to 0 at min/max. */}
               <div className="grid grid-cols-5 gap-2 items-end">
-                <div><Label className="text-xs">Min</Label><Input type="number" value={draft.min_value ?? ""} onChange={(e) => setDraft({ ...draft, min_value: e.target.value === "" ? null : Number(e.target.value) })} /></div>
-                <div><Label className="text-xs">Max</Label><Input type="number" value={draft.max_value ?? ""} onChange={(e) => setDraft({ ...draft, max_value: e.target.value === "" ? null : Number(e.target.value) })} /></div>
-                <div><Label className="text-xs">Opt Min</Label><Input type="number" value={draft.optimal_min ?? ""} onChange={(e) => setDraft({ ...draft, optimal_min: e.target.value === "" ? null : Number(e.target.value) })} /></div>
-                <div><Label className="text-xs">Opt Max</Label><Input type="number" value={draft.optimal_max ?? ""} onChange={(e) => setDraft({ ...draft, optimal_max: e.target.value === "" ? null : Number(e.target.value) })} /></div>
+                {draft.scoring_method !== "boolean" && (
+                  <div><Label className="text-xs">{minLabel[draft.scoring_method]}</Label><Input type="number" value={draft.min_value ?? ""} onChange={(e) => setDraft({ ...draft, min_value: e.target.value === "" ? null : Number(e.target.value) })} /></div>
+                )}
+                {draft.scoring_method === "range_optimal" && (
+                  <>
+                    <div><Label className="text-xs">Ideal from</Label><Input type="number" value={draft.optimal_min ?? ""} onChange={(e) => setDraft({ ...draft, optimal_min: e.target.value === "" ? null : Number(e.target.value) })} /></div>
+                    <div><Label className="text-xs">Ideal to</Label><Input type="number" value={draft.optimal_max ?? ""} onChange={(e) => setDraft({ ...draft, optimal_max: e.target.value === "" ? null : Number(e.target.value) })} /></div>
+                  </>
+                )}
+                {draft.scoring_method !== "boolean" && (
+                  <div><Label className="text-xs">{maxLabel[draft.scoring_method]}</Label><Input type="number" value={draft.max_value ?? ""} onChange={(e) => setDraft({ ...draft, max_value: e.target.value === "" ? null : Number(e.target.value) })} /></div>
+                )}
                 <div><Label className="text-xs">Weight %</Label><Input type="number" value={draft.weight_within_pillar} onChange={(e) => setDraft({ ...draft, weight_within_pillar: Number(e.target.value) })} /></div>
               </div>
               <div className="flex gap-2">
