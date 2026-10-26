@@ -245,3 +245,29 @@ describe("clampDocumentText", () => {
     expect(out.text.endsWith("Totals: 160 units")).toBe(true);
   });
 });
+
+describe("proposalsFromExtraction: pro forma figures", () => {
+  // Evidence as the parser wrote it for 1900 at Canterfield's OM.
+  const ex = extraction("om", {
+    occupancy_pct: 96.5,
+    effective_gross_income_annual: 7_196_778,
+    total_operating_expenses_annual: 3_018_115,
+    noi_annual: 4_126_663,
+  });
+  ex.figures.occupancy_pct.evidence = "p.49 Underwriting Assumptions: 'Occupancy (10/6/26) 96.5%'";
+  ex.figures.effective_gross_income_annual.evidence = "p.53: 'Pro Forma Total Revenue (EGI) is $7,196,778'";
+  ex.figures.total_operating_expenses_annual.evidence = "p.58 Detailed Expenses table, Pro Forma column: 'TOTAL EXPENSES $3,018,115'";
+  ex.figures.noi_annual.evidence = "p.55: 'resulting Pro Forma Net Operating Income is $4,126,663'";
+  const { proposals, rejected } = proposalsFromExtraction(ex, NOW);
+  const v = byField(proposals);
+
+  it("never proposes a figure its evidence calls pro forma", () => {
+    expect(v.t12_noi).toBeUndefined();
+    expect(v.t12_opex).toBeUndefined();
+    expect(v.expense_ratio).toBeUndefined();
+    expect(rejected.map((r) => r.figure).sort()).toEqual(
+      ["effective_gross_income_annual", "noi_annual", "total_operating_expenses_annual"],
+    );
+  });
+  it("keeps the actuals beside them", () => expect(v.occupancy_pct).toBe(96.5));
+});
