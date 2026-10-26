@@ -405,29 +405,8 @@ export function scoreDeal(deal: ScoreableDeal, benchmarks: ScoreBenchmarks = DEF
   }
   const { passes, failures } = evaluateHardFilters(deal, benchmarks);
 
-  const emptyFactors: FactorScores = {
-    rent_lag: null,
-    value_add_opportunity: null,
-    occupancy_concessions: null,
-    property_fundamentals: null,
-    opex_benchmark: null,
-    submarket_quality: null,
-    regulatory_tax: null,
-    capital_markets_exit: null,
-  };
-
-  if (!passes) {
-    return {
-      passes_hard_filters: false,
-      hard_filter_failures: failures,
-      factor_scores: emptyFactors,
-      total_score: null,
-      deal_tier: "Disqualified",
-      value_add_upside: null,
-      scored_at,
-    };
-  }
-
+  // Factors are scored for disqualified deals too, so the card shows how the
+  // deal looks on everything else. Only the total and tier are withheld.
   const factor_scores: FactorScores = {
     rent_lag: scoreRentLag(deal),
     value_add_opportunity: scoreValueAdd(deal),
@@ -438,6 +417,18 @@ export function scoreDeal(deal: ScoreableDeal, benchmarks: ScoreBenchmarks = DEF
     regulatory_tax: scoreRegulatory(deal),
     capital_markets_exit: scoreCapitalMarkets(deal),
   };
+
+  if (!passes) {
+    return {
+      passes_hard_filters: false,
+      hard_filter_failures: failures,
+      factor_scores,
+      total_score: null,
+      deal_tier: "Disqualified",
+      value_add_upside: null,
+      scored_at,
+    };
+  }
 
   const total_score = weightedTotal(factor_scores);
 
