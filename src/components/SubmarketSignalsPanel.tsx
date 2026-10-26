@@ -17,6 +17,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SubmarketPicker } from "@/components/SubmarketPicker";
+import { AiSubmarketTag } from "@/components/AiSubmarketTag";
 import {
   COMBINED,
   CYCLICAL_SIGNALS,
@@ -50,7 +51,7 @@ const fmtUnits = (v: number | null | undefined) => (v == null ? "—" : Math.rou
 export function SubmarketSignalsPanel({ deal }: { deal: DealLike }) {
   const code = deal.costar_submarket_code ?? null;
   const [scope, setScope] = useState<string>(COMBINED);
-  const { assign, saving } = useAssignSubmarket(deal.id);
+  const { assign, confirm, saving } = useAssignSubmarket(deal.id);
   const { data: current, isLoading: loadingImport } = useCurrentImport();
   const { data: rows = [], isLoading: loadingSignals } = useSubmarketSignals(code);
   const { data: series = [] } = useSubmarketSeries(code, current?.id);
@@ -89,6 +90,9 @@ export function SubmarketSignalsPanel({ deal }: { deal: DealLike }) {
             msa={deal.msa}
             disabled={saving}
           />
+          {code && deal.costar_submarket_source === "ai" && (
+            <AiSubmarketTag note={deal.costar_submarket_note} onConfirm={confirm} disabled={saving} />
+          )}
           {saving && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
           {scopes.length > 1 && (
             <div className="flex rounded-md border border-hairline overflow-hidden text-xs">
@@ -113,7 +117,7 @@ export function SubmarketSignalsPanel({ deal }: { deal: DealLike }) {
           <p className="text-xs text-muted-foreground">
             {code ? "Picked automatically from the address" : "Couldn't place this automatically"}
             {deal.costar_submarket_note ? `: ${deal.costar_submarket_note}` : "."}
-            {code && " Change it above if it's wrong."}
+            {code && " Confirm it, or change it above if it's wrong."}
           </p>
         )}
 

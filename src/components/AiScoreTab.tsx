@@ -7,6 +7,7 @@ import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { SubmarketPicker } from "@/components/SubmarketPicker";
+import { AiSubmarketTag } from "@/components/AiSubmarketTag";
 import { useAssignSubmarket } from "@/hooks/useAssignSubmarket";
 import { usePipelineRentScores } from "@/hooks/usePipelineRentScores";
 import { COMBINED, useCurrentImport, useSubmarketSeries, useSubmarketSignals } from "@/lib/marketData";
@@ -19,6 +20,8 @@ type DealLike = {
   state?: string | null;
   msa?: string | null;
   costar_submarket_code?: string | null;
+  costar_submarket_source?: string | null;
+  costar_submarket_note?: string | null;
   unit_count?: number | null;
   vintage_year?: number | null;
   pillar_scores?: unknown;
@@ -262,7 +265,7 @@ export function AiScoreTab({ deal }: { deal: DealLike }) {
 /** The deal's CoStar submarket, editable here so the cyclical leg can be fixed without leaving the tab. */
 function SubmarketLine({ deal }: { deal: DealLike }) {
   const code = deal.costar_submarket_code ?? null;
-  const { assign, saving } = useAssignSubmarket(deal.id);
+  const { assign, confirm, saving } = useAssignSubmarket(deal.id);
   const { data: rows = [], isLoading } = useSubmarketSignals(code);
   const name = (rows.find((r) => r.scope === COMBINED) ?? rows[0])?.geography_name ?? null;
 
@@ -273,6 +276,9 @@ function SubmarketLine({ deal }: { deal: DealLike }) {
         <span className="font-medium">{name ?? (isLoading ? "…" : code)}</span>
       ) : (
         <span className="text-muted-foreground">None picked</span>
+      )}
+      {code && deal.costar_submarket_source === "ai" && (
+        <AiSubmarketTag note={deal.costar_submarket_note} onConfirm={confirm} disabled={saving} />
       )}
       <SubmarketPicker value={code} onChange={assign} city={deal.city} state={deal.state} msa={deal.msa} disabled={saving}>
         <Button variant="link" size="sm" className="h-auto p-0 text-xs">
