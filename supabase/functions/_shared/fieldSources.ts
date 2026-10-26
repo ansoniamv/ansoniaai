@@ -1,6 +1,6 @@
 /**
  * Where a figure on a deal came from: deals.field_sources, one entry per column
- * (migration 20261028120000_deal_field_sources.sql). The Key Stats boxes on the
+ * (migration 20261029120000_deal_field_sources.sql). The Key Stats boxes on the
  * deal page open these.
  *
  * Writers put an entry in the same update as the value it describes. The

@@ -247,4 +247,115 @@ update public.deals d
     or d.population_growth_pct is not null
     or (d.new_supply_pct_of_stock is not null and d.new_supply_source = 'esri_housing_units');
 
+-- 3) HelloData figures checked against the HelloData record stored on the deal
+--    (hellodata_payload, the payload fetch-hellodata matched to this building).
+--    Each figure is recomputed from it the way mapHelloDataProperty does, and
+--    cited only where it equals the deal's value, so the citation is exact and
+--    not marked backfilled. Units and vintage are fill-if-null and are never
+--    rewritten by a refresh, so this is the only way they get a source.
+--    A document entry for units, vintage or rent is kept over HelloData's; the
+--    exact HelloData entries replace step 2's backfilled ones for tract rent and
+--    income.
+
+-- pickNum: the first of the values that is present (not null, not ""), and
+-- only if that one is a number.
+create function pg_temp.hd_num(vals jsonb[]) returns numeric
+language sql immutable as $$
+  select case when jsonb_typeof(v) = 'number' then (v #>> '{}')::numeric end
+  from unnest(vals) with ordinality as t(v, i)
+  where v is not null and jsonb_typeof(v) <> 'null' and v <> '""'::jsonb
+  order by i
+  limit 1
+$$;
+
+with hd as (
+  select d.id, d.unit_count, d.vintage_year, d.in_place_avg_rent, d.median_rent_tract, d.median_income_tract,
+         coalesce(d.hellodata_last_synced_at, now()) as at,
+         pg_temp.hd_num(array[p -> 'number_units', p -> 'unit_count', p -> 'units']) as filed_units,
+         pg_temp.hd_num(array[p -> 'number_units_prediction']) as predicted_units,
+         pg_temp.hd_num(array[p -> 'year_built', p -> 'vintage_year', p -> 'built_year']) as filed_year,
+         pg_temp.hd_num(array[p -> 'year_built_prediction']) as predicted_year,
+         listed.avg_rent as listed_rent, listed.n as listed_units,
+         pg_temp.hd_num(array[
+           p -> 'avg_effective_price', p -> 'avg_price', p -> 'avg_rent', p -> 'average_rent', p -> 'effective_rent',
+           p -> 'asking_rent', p -> 'market_rent', p -> 'median_rent', p -> 'rent',
+           p #> '{pricing_strategy,avg_effective_price}', p #> '{pricing_strategy,avg_price}',
+           p #> '{pricing_strategy,avg_rent}', p #> '{pricing_strategy,average_rent}',
+           p #> '{pricing_strategy,effective_rent}', p #> '{pricing_strategy,asking_rent}',
+           p #> '{pricing_strategy,market_rent}'
+         ]) as property_rent,
+         pg_temp.hd_num(array[p #> '{demographics,median_rent}', p #> '{demographics,median_gross_rent}']) as tract_rent,
+         pg_temp.hd_num(array[
+           p #> '{demographics,median_income}', p #> '{demographics,median_household_income}',
+           p #> '{demographics,household_median_income}'
+         ]) as tract_income
+  from public.deals d
+  cross join lateral (select d.hellodata_payload as p) payload
+  cross join lateral (
+    -- The units the mapper averages: the first of these that is an array.
+    select case
+             when jsonb_typeof(p -> 'building_availability') = 'array' then p -> 'building_availability'
+             when jsonb_typeof(p -> 'availability') = 'array' then p -> 'availability'
+             when jsonb_typeof(p -> 'units') = 'array' then p -> 'units'
+             when jsonb_typeof(p -> 'floor_plans') = 'array' then p -> 'floor_plans'
+             else '[]'::jsonb
+           end as units
+  ) avail
+  cross join lateral (
+    select round(avg(r)) as avg_rent, count(r) as n
+    from jsonb_array_elements(avail.units) u
+    cross join lateral (select pg_temp.hd_num(array[
+      u -> 'effective_price', u -> 'price', u -> 'min_effective_price', u -> 'min_price', u -> 'rent',
+      u -> 'asking_rent', u -> 'market_rent', u -> 'monthly_rent', u -> 'list_price', u -> 'avg_price',
+      u -> 'avg_effective_price', u -> 'avg_rent'
+    ]) as r) rent
+  ) listed
+  where d.hellodata_status = 'fetched'
+    and jsonb_typeof(d.hellodata_payload) = 'object'
+), entries as (
+  select id,
+         jsonb_strip_nulls(jsonb_build_object(
+           'unit_count', case
+             when filed_units is not null and unit_count = filed_units then jsonb_build_object(
+               'kind', 'api', 'provider', 'HelloData', 'recorded_at', at,
+               'label', 'Unit count on HelloData''s property record')
+             when filed_units is null and unit_count = predicted_units then jsonb_build_object(
+               'kind', 'api', 'provider', 'HelloData', 'recorded_at', at,
+               'label', 'HelloData''s predicted unit count. HelloData has no filed count for this property.')
+           end,
+           'vintage_year', case
+             when filed_year is not null and vintage_year = filed_year then jsonb_build_object(
+               'kind', 'api', 'provider', 'HelloData', 'recorded_at', at,
+               'label', 'Year built on HelloData''s property record')
+             when filed_year is null and vintage_year = predicted_year then jsonb_build_object(
+               'kind', 'api', 'provider', 'HelloData', 'recorded_at', at,
+               'label', 'HelloData''s predicted year built. HelloData has no filed year for this property.')
+           end,
+           'in_place_avg_rent', case
+             when listed_units > 0 and in_place_avg_rent = listed_rent then jsonb_build_object(
+               'kind', 'api', 'provider', 'HelloData', 'recorded_at', at,
+               'label', format(
+                 'Average asking rent across %s unit%s HelloData lists as available. Asking rent, not what current residents pay.',
+                 listed_units, case when listed_units = 1 then '' else 's' end))
+             when listed_units = 0 and in_place_avg_rent = round(property_rent) then jsonb_build_object(
+               'kind', 'api', 'provider', 'HelloData', 'recorded_at', at,
+               'label', 'HelloData''s property-level average rent (no units were listed as available). Asking rent, not what current residents pay.')
+           end
+         )) as intake,
+         jsonb_strip_nulls(jsonb_build_object(
+           'median_rent_tract', case when median_rent_tract = tract_rent then jsonb_build_object(
+             'kind', 'api', 'provider', 'HelloData', 'recorded_at', at,
+             'label', 'Census-tract median rent, from HelloData''s demographics') end,
+           'median_income_tract', case when median_income_tract = tract_income then jsonb_build_object(
+             'kind', 'api', 'provider', 'HelloData', 'recorded_at', at,
+             'label', 'Census-tract median household income, from HelloData''s demographics') end
+         )) as demographics
+  from hd
+)
+update public.deals d
+   set field_sources = e.intake || d.field_sources || e.demographics
+  from entries e
+ where d.id = e.id
+   and (e.intake <> '{}'::jsonb or e.demographics <> '{}'::jsonb);
+
 alter table public.deals enable trigger update_deals_updated_at;

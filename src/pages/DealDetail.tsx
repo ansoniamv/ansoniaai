@@ -518,7 +518,13 @@ export default function DealDetail() {
   /* where each Key Stats figure came from (deals.field_sources) */
   const fieldSource = (column: string) => sourceOf(d.field_sources, column);
   const sourcePanel = (title: string, figures: SourcedFigure[], formula?: string) => (
-    <FieldSourceView title={title} figures={figures} formula={formula} documents={docs} />
+    <FieldSourceView
+      title={title}
+      figures={figures}
+      formula={formula}
+      documents={docs}
+      sourcesAvailable={d.field_sources !== undefined}
+    />
   );
   const costarSupply = costarRows.find((r) => r.scope === COMBINED);
   const supplySource: SourcedFigure["source"] =

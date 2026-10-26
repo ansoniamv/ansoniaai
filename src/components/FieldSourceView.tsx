@@ -29,12 +29,18 @@ export function FieldSourceView({
   figures,
   formula,
   documents,
+  sourcesAvailable,
 }: {
   title: string;
   figures: SourcedFigure[];
   /** How the stat is worked out from its figures, for a computed stat. */
   formula?: string;
   documents: DealDocument[];
+  /**
+   * False when the deal row has no field_sources at all: the column is not in
+   * the database, so a missing entry says nothing about the figure.
+   */
+  sourcesAvailable: boolean;
 }) {
   return (
     <div className="space-y-3 text-sm">
@@ -50,14 +56,30 @@ export function FieldSourceView({
               {f.value && <span className="tabular-nums">{f.value}</span>}
             </div>
           )}
-          <SourceBody source={f.source} documents={documents} />
+          <SourceBody source={f.source} documents={documents} sourcesAvailable={sourcesAvailable} />
         </div>
       ))}
     </div>
   );
 }
 
-function SourceBody({ source, documents }: { source: FieldSource | null; documents: DealDocument[] }) {
+function SourceBody({
+  source,
+  documents,
+  sourcesAvailable,
+}: {
+  source: FieldSource | null;
+  documents: DealDocument[];
+  sourcesAvailable: boolean;
+}) {
+  if (!source && !sourcesAvailable) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Sources aren't available yet: the database update that stores them hasn't been applied. This says
+        nothing about where the figure came from.
+      </p>
+    );
+  }
   if (!source) {
     return (
       <p className="text-xs text-muted-foreground">

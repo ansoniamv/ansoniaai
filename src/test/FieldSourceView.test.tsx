@@ -26,6 +26,7 @@ describe("FieldSourceView", () => {
         title="Units"
         figures={[{ source: fromOm({ quote: "260-unit Class A community", quote_verified: true }) }]}
         documents={[doc]}
+        sourcesAvailable
       />,
     );
     expect(screen.getByText("“260-unit Class A community”")).toBeTruthy();
@@ -39,6 +40,7 @@ describe("FieldSourceView", () => {
         title="Units"
         figures={[{ source: fromOm({ quote: "260-unit Class A community", quote_verified: false }) }]}
         documents={[doc]}
+        sourcesAvailable
       />,
     );
     expect(screen.queryByText(/“/)).toBeNull();
@@ -47,7 +49,7 @@ describe("FieldSourceView", () => {
   });
 
   it("says when the document has been removed from the deal", () => {
-    render(<FieldSourceView title="Units" figures={[{ source: fromOm({}) }]} documents={[]} />);
+    render(<FieldSourceView title="Units" figures={[{ source: fromOm({}) }]} documents={[]} sourcesAvailable />);
     expect(screen.getByText(/no longer on the deal/)).toBeTruthy();
   });
 
@@ -63,6 +65,7 @@ describe("FieldSourceView", () => {
           },
         }]}
         documents={[]}
+        sourcesAvailable
       />,
     );
     expect(screen.getByText(/BLS total nonfarm employment/)).toBeTruthy();
@@ -79,11 +82,27 @@ describe("FieldSourceView", () => {
           { name: "Market rent", value: "$1,450", source: { kind: "api", provider: "HelloData", label: "Census-tract median rent, from HelloData's demographics", recorded_at: "2026-10-01T00:00:00Z" } },
         ]}
         documents={[]}
+        sourcesAvailable
       />,
     );
     expect(screen.getByText("(in-place rent − market rent) ÷ market rent")).toBeTruthy();
     expect(screen.getByText("$2,625")).toBeTruthy();
     expect(screen.getByText(/No source recorded/)).toBeTruthy();
     expect(screen.getByText(/Census-tract median rent/)).toBeTruthy();
+  });
+
+  it("says sources aren't available, not 'no source', when the deal has no field_sources at all", () => {
+    render(
+      <FieldSourceView
+        title="Units"
+        figures={[{ source: null }, { source: { kind: "api", provider: "CoStar", label: "CoStar figure built on the page", recorded_at: "" } }]}
+        documents={[]}
+        sourcesAvailable={false}
+      />,
+    );
+    expect(screen.getByText(/Sources aren't available yet/)).toBeTruthy();
+    expect(screen.queryByText(/No source recorded/)).toBeNull();
+    // A source the page builds itself (CoStar) still shows.
+    expect(screen.getByText("CoStar figure built on the page")).toBeTruthy();
   });
 });
