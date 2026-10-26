@@ -37,6 +37,7 @@ import {
   summarizeDetail,
 } from "../_shared/dealDocumentDetail.ts";
 import { errorResponse } from "../_shared/errors.ts";
+import { quoteChecker } from "../_shared/fieldSources.ts";
 import { trimToData } from "../_shared/sheetRange.ts";
 import {
   clampDocumentText,
@@ -255,6 +256,10 @@ async function parseDocument(admin: any, doc: any, uploaded: string[]): Promise<
     .eq("document_id", doc.id)
     .eq("status", "pending");
   if (changes.length) {
+    // The quote has to be in the text the model was given, or it is the
+    // model's wording and is not shown as the document's. A PDF the model read
+    // as pages has no text here to check against, so its quotes stay unchecked.
+    const inDocument = quoteChecker(body);
     const { error: insErr } = await admin.from("deal_document_proposals").insert(
       changes.map((p) => ({
         deal_id: doc.deal_id,
@@ -263,6 +268,9 @@ async function parseDocument(admin: any, doc: any, uploaded: string[]): Promise<
         value: p.value,
         previous_value: (deal as any)[p.field] ?? null,
         evidence: p.evidence,
+        quote: p.quote,
+        quote_verified: inDocument(p.quote),
+        location: p.location,
         rank: p.rank,
       })),
     );

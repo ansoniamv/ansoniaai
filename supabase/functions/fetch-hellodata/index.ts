@@ -5,6 +5,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { logApiRequest } from "../_shared/logUsage.ts";
 import { mapHelloDataProperty, selectWritableFields } from "../_shared/hellodataMapping.ts";
+import { hellodataFieldSources } from "../_shared/fieldSources.ts";
 import { INVALIDATED_DERIVED_FIELDS } from "../_shared/quarantine.ts";
 import {
   hdSearch,
@@ -166,19 +167,22 @@ Deno.serve(async (req) => {
     // which were derived only from it — were written as null on every run, and
     // the null-strip below made that silent. The shared mapper reads
     // building_availability, which is present on 27/27.
-    const { update: allFields } = mapHelloDataProperty(payload);
+    const { update: allFields, rentBasis } = mapHelloDataProperty(payload);
 
     // Null-strip, fill-if-null protection, and column existence all live in the
     // shared helper so every write path gets the same rules.
     const mapped = selectWritableFields(allFields, deal as Record<string, unknown>);
+    const syncedAt = new Date().toISOString();
+    const sources = hellodataFieldSources(mapped, { at: syncedAt, rentBasis });
 
     // --- Cache + mark fetched -----------------------------------------------
     const { error: updErr } = await supabase.from("deals").update({
+      ...(Object.keys(sources).length ? { field_sources: sources } : {}),
       hellodata_id: String(hdId),
       hellodata_payload: payload,
       hellodata_raw: payload,
       hellodata_status: "fetched",
-      hellodata_last_synced_at: new Date().toISOString(),
+      hellodata_last_synced_at: syncedAt,
       hellodata_error: null,
       ...(matchConfidence !== null ? { hellodata_match_confidence: matchConfidence } : {}),
       ...(matchEvidence ? { hellodata_match_evidence: matchEvidence } : {}),

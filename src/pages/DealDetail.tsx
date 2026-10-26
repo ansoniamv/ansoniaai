@@ -27,6 +27,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { FieldSourceView, type SourcedFigure } from "@/components/FieldSourceView";
+import { sourceOf } from "../../supabase/functions/_shared/fieldSources";
+import { useSubmarketSignals, COMBINED } from "@/lib/marketData";
 import { useConnectorEnabled } from "@/hooks/useConnectorEnabled";
 
 import { DealStatusBadge } from "@/components/DealStatusBadge";
@@ -97,15 +101,18 @@ function Stat({
   value,
   meets,
   hint,
+  source,
 }: {
   label: string;
   value: React.ReactNode;
   meets?: boolean | null;
   hint?: string;
+  /** Where the figure came from, opened by clicking the box. */
+  source?: React.ReactNode;
 }) {
   const empty = value === null || value === undefined || value === "";
-  return (
-    <div className="surface-card border-hairline rounded-md p-3 flex flex-col gap-1 min-w-0">
+  const body = (
+    <>
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground truncate">
           {label}
@@ -117,7 +124,28 @@ function Stat({
         {empty ? <span className="text-muted-foreground/70 text-base">—</span> : value}
       </div>
       {hint && <div className="text-[10px] text-muted-foreground tabular-nums">{hint}</div>}
-    </div>
+    </>
+  );
+  const box = "surface-card border-hairline rounded-md p-3 flex flex-col gap-1 min-w-0";
+  if (!source || empty) return <div className={box}>{body}</div>;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={`${label}: show source`}
+          className={cn(
+            box,
+            "text-left cursor-pointer transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          )}
+        >
+          {body}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80">
+        {source}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -437,6 +465,8 @@ export default function DealDetail() {
   // Same query as the Deal Documents panel, so this costs no extra request.
   const { data: docs = [] } = useDealDocuments(id);
   const t3 = latestT3Noi(docs);
+  // Same query as the Submarket Supply Cycle panel: cites a CoStar supply figure.
+  const { data: costarRows = [] } = useSubmarketSignals(d?.costar_submarket_code);
 
   const rentDeltaPct = useMemo(() => {
     if (!isNum(d?.in_place_avg_rent) || !isNum(d?.median_rent_tract) || d.median_rent_tract === 0)
@@ -485,6 +515,28 @@ export default function DealDetail() {
     ? d.median_income_tract
     : null;
   const meetsIncome = isNum(incomeForCheck) ? incomeForCheck >= 55_000 : null;
+
+  /* where each Key Stats figure came from (deals.field_sources) */
+  const fieldSource = (column: string) => sourceOf(d.field_sources, column);
+  const sourcePanel = (title: string, figures: SourcedFigure[], formula?: string) => (
+    <FieldSourceView title={title} figures={figures} formula={formula} documents={docs} />
+  );
+  const costarSupply = costarRows.find((r) => r.scope === COMBINED);
+  const supplySource: SourcedFigure["source"] =
+    d.new_supply_source === "costar_uc"
+      ? costarSupply
+        ? {
+            kind: "api",
+            provider: "CoStar",
+            label:
+              `${fmtInt(costarSupply.uc_units) ?? "—"} units under construction ÷ ${fmtInt(costarSupply.inventory) ?? "—"} units of inventory, ` +
+              `${costarSupply.submarket_name ?? costarSupply.geography_name ?? "the deal's"} submarket, all star ratings` +
+              (costarSupply.as_of ? `. CoStar export as of ${costarSupply.as_of}.` : "."),
+            recorded_at: "",
+          }
+        : null
+      : fieldSource("new_supply_pct_of_stock");
+  const incomeColumn = isNum(d.area_median_income_1mi) ? "area_median_income_1mi" : "median_income_tract";
 
   const hasPricing =
     isNum(deal.asking_price) ||
@@ -715,10 +767,28 @@ export default function DealDetail() {
       <section>
         <SectionHeader title="Key Stats" />
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
-          <Stat label="Units" value={fmtInt(deal.unit_count)} meets={meetsUnits} />
-          <Stat label="Vintage" value={deal.vintage_year} meets={meetsVintage} />
+          <Stat
+            label="Units"
+            value={fmtInt(deal.unit_count)}
+            meets={meetsUnits}
+            source={sourcePanel("Units", [{ source: fieldSource("unit_count") }])}
+          />
+          <Stat
+            label="Vintage"
+            value={deal.vintage_year}
+            meets={meetsVintage}
+            source={sourcePanel("Vintage", [{ source: fieldSource("vintage_year") }])}
+          />
           <Stat
             label="Rent vs Market"
+            source={sourcePanel(
+              "Rent vs Market",
+              [
+                { name: "In-place rent", value: fmtMoney(d.in_place_avg_rent), source: fieldSource("in_place_avg_rent") },
+                { name: "Market rent", value: fmtMoney(d.median_rent_tract), source: fieldSource("median_rent_tract") },
+              ],
+              "(in-place rent − market rent) ÷ market rent",
+            )}
             value={
               isNum(rentDeltaPct) ? (
                 <span className={cn(rentDeltaPct <= -10 && "text-emerald-600")}>
@@ -741,14 +811,31 @@ export default function DealDetail() {
                 ? "Esri housing growth / yr"
                 : undefined
             }
+            source={sourcePanel("New Supply", [{ source: supplySource }])}
           />
           <Stat
             label="Pop Growth"
             value={fmtPctPts(d.population_growth_pct)}
             meets={meetsPopGrowth}
+            source={sourcePanel("Pop Growth", [{ source: fieldSource("population_growth_pct") }])}
           />
-          <Stat label="Job Growth" value={fmtPctPts(d.job_growth_pct)} meets={meetsJobGrowth} />
-          <Stat label="Median Income" value={fmtMoney(incomeForCheck)} meets={meetsIncome} />
+          <Stat
+            label="Job Growth"
+            value={fmtPctPts(d.job_growth_pct)}
+            meets={meetsJobGrowth}
+            source={sourcePanel("Job Growth", [{ source: fieldSource("job_growth_pct") }])}
+          />
+          <Stat
+            label="Median Income"
+            value={fmtMoney(incomeForCheck)}
+            meets={meetsIncome}
+            source={sourcePanel("Median Income", [
+              {
+                name: incomeColumn === "area_median_income_1mi" ? "1-mile median income" : "Census-tract median income",
+                source: fieldSource(incomeColumn),
+              },
+            ])}
+          />
         </div>
       </section>
 

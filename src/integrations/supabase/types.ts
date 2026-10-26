@@ -901,6 +901,7 @@ export type Database = {
           exit_cap: number | null
           expense_ratio: number | null
           factor_scores: Json | null
+          field_sources: Json
           floor_plans: Json | null
           grm: number | null
           gross_scheduled_rent: number | null
@@ -1060,6 +1061,7 @@ export type Database = {
           exit_cap?: number | null
           expense_ratio?: number | null
           factor_scores?: Json | null
+          field_sources?: Json
           floor_plans?: Json | null
           grm?: number | null
           gross_scheduled_rent?: number | null
@@ -1219,6 +1221,7 @@ export type Database = {
           exit_cap?: number | null
           expense_ratio?: number | null
           factor_scores?: Json | null
+          field_sources?: Json
           floor_plans?: Json | null
           grm?: number | null
           gross_scheduled_rent?: number | null

@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { mapHelloDataProperty, INTAKE_ONLY_KEYS, PROVENANCE_OF } from "../_shared/hellodataMapping.ts";
+import { hellodataFieldSources } from "../_shared/fieldSources.ts";
 import { logApiRequest } from "../_shared/logUsage.ts";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 import { errorResponse } from "../_shared/errors.ts";
@@ -70,12 +71,14 @@ Deno.serve(async (req) => {
     // value it did not supply. See PROVENANCE_OF in the shared mapper.
     const skip = (k: string) =>
       INTAKE_ONLY_KEYS.has(k) || INTAKE_ONLY_KEYS.has(PROVENANCE_OF[k] ?? "");
-    const { update: mapped, photoUrls, field_coverage: mappedCoverage } = mapHelloDataProperty(p);
+    const { update: mapped, photoUrls, field_coverage: mappedCoverage, rentBasis } = mapHelloDataProperty(p);
     const update: Record<string, any> = { hellodata_last_synced_at: new Date().toISOString() };
     for (const [k, v] of Object.entries(mapped)) {
       if (skip(k)) continue;
       update[k] = v;
     }
+    const sources = hellodataFieldSources(update, { at: update.hellodata_last_synced_at, rentBasis });
+    if (Object.keys(sources).length) update.field_sources = sources;
 
     // Field coverage audit (intake-only fields excluded from the count)
     const field_coverage: Record<string, boolean> = {};
