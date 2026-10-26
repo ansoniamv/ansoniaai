@@ -1,4 +1,4 @@
-import { Inbox, Mail, List, Plus, Target, BarChart3, LayoutDashboard, Users, Columns3, StickyNote, MessageSquare, ShieldCheck, LogOut, Map, Activity, Plug, Thermometer, Sparkles, FileText, Building2, LineChart, Brain, Newspaper } from "lucide-react";
+import { Inbox, Mail, List, Plus, Target, BarChart3, LayoutDashboard, Users, Columns3, StickyNote, MessageSquare, ShieldCheck, LogOut, Map, Activity, Plug, Sparkles, FileText, Building2, LineChart, Brain, Newspaper } from "lucide-react";
 import logoAsset from "@/assets/ansonia-logo.png.asset.json";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/useAuth";
@@ -158,7 +158,6 @@ export function AppSidebar() {
               <SidebarMenu className="gap-0.5">
                 {navItem({ title: "Users", url: "/admin/users", icon: ShieldCheck }, collapsed)}
                 {navItem({ title: "Connectors", url: "/admin/connectors", icon: Plug }, collapsed)}
-                {navItem({ title: "Warmth Import", url: "/admin/warmth-import", icon: Thermometer }, collapsed)}
                 {navItem({ title: "Roadmap", url: "/roadmap", icon: Map }, collapsed)}
                 {navItem({ title: "API Status", url: "/api-status", icon: Activity }, collapsed)}
               </SidebarMenu>

@@ -2,7 +2,7 @@ import { CAPITAL_STATUS_OPTIONS } from "@/components/CapitalStatusCard";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { useNavigate, Link } from "react-router-dom";
-import { Plus, Search, ArrowUpDown, Settings2, Maximize2, Minimize2, GripVertical, Filter, X, Eye, LayoutGrid, Table as TableIcon, Merge, Activity } from "lucide-react";
+import { Plus, Search, ArrowUpDown, Settings2, Maximize2, Minimize2, GripVertical, Filter, X, Eye, LayoutGrid, Table as TableIcon, Merge, Activity, Sparkles } from "lucide-react";
 import { MergeDuplicatePartnersDialog } from "@/components/MergeDuplicatePartnersDialog";
 import { PartnerQuickView } from "@/components/PartnerQuickView";
 import { PartnerCardsView } from "@/components/PartnerCardsView";
@@ -28,7 +28,6 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { WarmthBadge } from "@/components/WarmthBadge";
 import { usePartners, useUpdatePartner, useRestorePartner, withManualField } from "@/hooks/usePartners";
-import { useAuth } from "@/hooks/useAuth";
 import type { Partner } from "@/hooks/usePartners";
 
 const warmthLevels = ["Existing Partner", "Very Warm", "Warm", "Tepid", "Cold"];
@@ -365,7 +364,6 @@ export default function PartnersPage() {
   const updatePartner = useUpdatePartner();
   const restorePartner = useRestorePartner();
   const navigate = useNavigate();
-  const { isAdmin } = useAuth();
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<string>("last_edited_at");
   const [sortAsc, setSortAsc] = useState(false);
@@ -720,11 +718,9 @@ export default function PartnersPage() {
               {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
             </Button>
           )}
-          {isAdmin && (
-            <Button variant="outline" onClick={() => navigate("/admin/warmth-import")} className="gap-1.5">
-              Import warmth
-            </Button>
-          )}
+          <Button variant="outline" onClick={() => navigate("/partners/import")} className="gap-1.5">
+            <Sparkles className="h-4 w-4" /> Import from notes
+          </Button>
           <Button
             variant="outline"
             onClick={() => { setMergeSeed({}); setMergeOpen(true); }}
