@@ -232,7 +232,9 @@ export function usePartnerSuggestions(filters?: { partnerId?: string; status?: s
   return useQuery({
     queryKey: ["partner_suggestions", filters],
     queryFn: async () => {
-      let q = (supabase as any).from(TABLE).select("*").order("created_at", { ascending: false });
+      // Warmth is no longer reviewed; old warmth rows stay in the table as history only.
+      let q = (supabase as any).from(TABLE).select("*").order("created_at", { ascending: false })
+        .neq("type", "warmth_change");
       if (filters?.partnerId) q = q.eq("partner_id", filters.partnerId);
       if (filters?.status) q = q.eq("status", filters.status);
       q = q.limit(filters?.limit ?? 500);
@@ -250,7 +252,8 @@ export function usePendingSuggestionCount() {
       const { count, error } = await (supabase as any)
         .from(TABLE)
         .select("id", { count: "exact", head: true })
-        .eq("status", "pending");
+        .eq("status", "pending")
+        .neq("type", "warmth_change");
       if (error) throw error;
       return count || 0;
     },
@@ -277,7 +280,7 @@ export function useComputePartnerWarmth() {
     mutationFn: async (opts?: { partner_id?: string }) => {
       const { data, error } = await supabase.functions.invoke("compute-partner-warmth", { body: opts || {} });
       if (error) throw error;
-      return data as { ok: boolean; partners: number; suggestions: number };
+      return data as { ok: boolean; partners: number; auto_applied: number };
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["partner_suggestions"] });
