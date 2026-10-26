@@ -76,7 +76,7 @@ export function PartnerFeed() {
     });
 
   return (
-    <Card>
+    <Card className="border-hairline shadow-none">
       <CardContent className="pt-4 space-y-4">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative flex-1 min-w-[200px] max-w-sm">

@@ -62,7 +62,7 @@ export function PartnerQuickView({ partner: p, trigger }: Props) {
 
         <div className="mt-6 space-y-6">
           <section>
-            <h3 className="text-xs uppercase tracking-wider text-muted-foreground text-center mb-3">
+            <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground text-center mb-3">
               Overview
             </h3>
             <div className="rounded-lg border bg-card/50 divide-y divide-border">
@@ -81,7 +81,7 @@ export function PartnerQuickView({ partner: p, trigger }: Props) {
 
           {p.additional_notes && (
             <section>
-              <h3 className="text-xs uppercase tracking-wider text-muted-foreground text-center mb-2">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground text-center mb-2">
                 Additional notes
               </h3>
               <p className="text-sm whitespace-pre-wrap leading-relaxed">{p.additional_notes}</p>
@@ -92,7 +92,7 @@ export function PartnerQuickView({ partner: p, trigger }: Props) {
 
           <section>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs uppercase tracking-wider text-muted-foreground">Notes</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Notes</h3>
               <NoteComposerDialog
                 presetEntity={{ entity_type: "partner", entity_id: p.id, label: p.name }}
               />
@@ -108,7 +108,7 @@ export function PartnerQuickView({ partner: p, trigger }: Props) {
 function KVRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-4 px-3 py-2 text-sm">
-      <span className="text-xs uppercase tracking-wider text-muted-foreground shrink-0">{label}</span>
+      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground shrink-0">{label}</span>
       <span className="text-right min-w-0 truncate">{value}</span>
     </div>
   );

@@ -19,9 +19,9 @@ export function WarmthSignalsPanel({ partnerId, currentLevel }: { partnerId: str
   };
 
   return (
-    <Card>
+    <Card className="border-hairline shadow-none">
       <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
-        <CardTitle className="text-base flex items-center gap-2">
+        <CardTitle className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground flex items-center gap-2">
           <Activity className="h-4 w-4" /> Warmth Signals
         </CardTitle>
         <Button size="sm" variant="outline" onClick={onRefresh} disabled={compute.isPending}>

@@ -163,12 +163,12 @@ function PartnerCard({
           {/* Firm type + equity */}
           <div className="flex items-center gap-2 flex-wrap">
             {partner.firm_type && (
-              <Badge variant="outline" className="text-[10px] font-mono">
+              <Badge variant="outline" className="text-[10px] tabular-nums">
                 {partner.firm_type}
               </Badge>
             )}
             {equity && (
-              <span className="text-[11px] font-mono text-muted-foreground tabular-nums">
+              <span className="text-[11px] text-muted-foreground tabular-nums">
                 {equity}
               </span>
             )}
@@ -180,7 +180,7 @@ function PartnerCard({
               {strategies.map((s) => (
                 <span
                   key={s}
-                  className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20 text-primary"
+                  className="text-[10px] tabular-nums px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20 text-primary"
                 >
                   {s}
                 </span>

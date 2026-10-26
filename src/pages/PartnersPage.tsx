@@ -97,7 +97,7 @@ const COLUMNS: ColumnDef[] = [
   {
     key: "firm_type", label: "Type", defaultVisible: true, sortKey: "firm_type",
     render: (p) => (
-      <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-muted border text-muted-foreground">
+      <span className="text-xs tabular-nums px-1.5 py-0.5 rounded bg-muted border text-muted-foreground">
         {p.firm_type || "—"}
       </span>
     ),
@@ -126,14 +126,14 @@ const COLUMNS: ColumnDef[] = [
   },
   {
     key: "min_equity_m", label: "Min Equity ($M)", defaultVisible: true, sortKey: "min_equity_m",
-    render: (p) => <span className="font-mono text-xs text-muted-foreground">{p.min_equity_m != null ? `$${p.min_equity_m}M` : "—"}</span>,
+    render: (p) => <span className="tabular-nums text-xs text-muted-foreground">{p.min_equity_m != null ? `$${p.min_equity_m}M` : "—"}</span>,
     editable: true, editType: "number", fieldKey: "min_equity_m",
     filterType: "select",
     getValue: (p) => p.min_equity_m != null ? String(p.min_equity_m) : "",
   },
   {
     key: "max_equity_m", label: "Max Equity ($M)", defaultVisible: true, sortKey: "max_equity_m",
-    render: (p) => <span className="font-mono text-xs text-muted-foreground">{p.max_equity_m != null ? `$${p.max_equity_m}M` : "—"}</span>,
+    render: (p) => <span className="tabular-nums text-xs text-muted-foreground">{p.max_equity_m != null ? `$${p.max_equity_m}M` : "—"}</span>,
     editable: true, editType: "number", fieldKey: "max_equity_m",
     filterType: "select",
     getValue: (p) => p.max_equity_m != null ? String(p.max_equity_m) : "",
@@ -143,7 +143,7 @@ const COLUMNS: ColumnDef[] = [
     render: (p) => (
       <div className="flex gap-1 justify-center flex-wrap max-w-[220px] mx-auto">
         {p.geography?.length ? p.geography.map((g) => (
-          <span key={g} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-muted border text-muted-foreground whitespace-normal break-words">{g}</span>
+          <span key={g} className="text-[10px] px-1.5 py-0.5 rounded bg-muted border text-muted-foreground whitespace-normal break-words">{g}</span>
         )) : <span className="text-muted-foreground text-xs">—</span>}
       </div>
     ),
@@ -157,7 +157,7 @@ const COLUMNS: ColumnDef[] = [
       return (
         <div className="flex gap-1 justify-center flex-wrap max-w-[180px] mx-auto">
           {strats.length ? strats.map((s) => (
-            <span key={s} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20 text-primary whitespace-normal break-words">{s}</span>
+            <span key={s} className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20 text-primary whitespace-normal break-words">{s}</span>
           )) : <span className="text-muted-foreground text-xs">—</span>}
         </div>
       );
@@ -171,7 +171,7 @@ const COLUMNS: ColumnDef[] = [
     render: (p) => (
       <div className="flex gap-1 justify-center flex-wrap max-w-[200px] mx-auto">
         {p.investor_type?.length ? p.investor_type.map((t) => (
-          <span key={t} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-muted border text-muted-foreground whitespace-normal break-words">{t}</span>
+          <span key={t} className="text-[10px] px-1.5 py-0.5 rounded bg-muted border text-muted-foreground whitespace-normal break-words">{t}</span>
         )) : <span className="text-muted-foreground text-xs">—</span>}
       </div>
     ),
@@ -692,7 +692,7 @@ export default function PartnersPage() {
     <div className={containerClass}>
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Capital Partners</h1>
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">Capital Partners</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {partners?.length ?? 0} firms{filtered.length !== (partners?.length ?? 0) ? ` · ${filtered.length} shown` : ""}
           </p>

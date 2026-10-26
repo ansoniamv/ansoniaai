@@ -56,12 +56,12 @@ export function RecordSection({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <Card className={className}>
+    <Card className={cn("border-hairline shadow-none", className)}>
       <CardHeader className="flex-row items-center justify-between space-y-0 py-3">
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="flex items-center gap-1.5 text-sm font-semibold text-left min-w-0"
+          className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground text-left min-w-0"
         >
           {open ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
           <span className="truncate">{title}</span>
@@ -210,9 +210,9 @@ export function DataHighlightsCard({
     contactDays == null ? "" : contactDays > 120 ? "text-destructive" : contactDays > 60 ? "text-amber-700" : "";
 
   return (
-    <Card>
+    <Card className="border-hairline shadow-none">
       <CardHeader className="py-3">
-        <CardTitle className="text-sm font-semibold">Data highlights</CardTitle>
+        <CardTitle className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Data highlights</CardTitle>
       </CardHeader>
       <CardContent className="pt-0 space-y-3">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -256,13 +256,13 @@ export function DataHighlightsCard({
           <div className="flex flex-wrap justify-center gap-2 text-xs font-medium">
             <span className="rounded-full border bg-muted px-2.5 py-0.5">{deals.tagged} deal{deals.tagged === 1 ? "" : "s"} tagged</span>
             {deals.interested > 0 && (
-              <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">{deals.interested} serious interest</span>
+              <span className="rounded-full border border-primary bg-primary px-2.5 py-0.5 text-primary-foreground">{deals.interested} serious interest</span>
             )}
             {deals.committed > 0 && (
-              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100">{deals.committed} committed</span>
+              <span className="rounded-full border border-emerald-600/30 bg-emerald-600/10 px-2.5 py-0.5 text-emerald-700 dark:text-emerald-400">{deals.committed} committed</span>
             )}
             {deals.passed > 0 && (
-              <span className="rounded-full border border-red-200 bg-red-50 px-2.5 py-0.5 text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100">{deals.passed} passed</span>
+              <span className="rounded-full border border-amber-600/30 bg-amber-500/10 px-2.5 py-0.5 text-amber-700 dark:text-amber-400">{deals.passed} passed</span>
             )}
           </div>
         )}
@@ -406,9 +406,9 @@ export function ActivityTimeline({
     });
 
   return (
-    <Card>
+    <Card className="border-hairline shadow-none">
       <CardHeader className="flex-row items-center justify-between space-y-0 py-3">
-        <CardTitle className="text-sm font-semibold inline-flex items-center gap-2">
+        <CardTitle className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-2">
           <Inbox className="h-4 w-4" /> {limit ? "Recent activities" : `Activities (${all.length})`}
         </CardTitle>
         <div className="flex items-center gap-2">

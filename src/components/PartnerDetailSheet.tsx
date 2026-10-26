@@ -98,7 +98,7 @@ function TimelineRow({ item }: { item: TimelineItem }) {
       <div className="flex-1 pb-4 min-w-0">
         <div className="flex items-baseline justify-between gap-2">
           <span className="text-sm font-medium truncate">{item.title}</span>
-          <span className="text-[10px] font-mono text-muted-foreground shrink-0" title={format(date, "PPpp")}>
+          <span className="text-[10px] tabular-nums text-muted-foreground shrink-0" title={format(date, "PPpp")}>
             {rel}
           </span>
         </div>
@@ -165,7 +165,7 @@ export function PartnerDetailSheet({
         subtitle: `From ${m.from_name || m.from_email || "unknown"}`,
         body: (m as any).preview || undefined,
         icon: Mail,
-        accent: "bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400",
+        accent: "bg-primary/5 border-primary/20 text-primary dark:text-foreground",
       });
     }
     for (const n of notes ?? []) {
@@ -267,7 +267,7 @@ export function PartnerDetailSheet({
               <SheetTitle className="text-lg leading-tight truncate">{partner.name}</SheetTitle>
               <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                 {partner.firm_type && (
-                  <Badge variant="outline" className="text-[10px] font-mono">{partner.firm_type}</Badge>
+                  <Badge variant="outline" className="text-[10px] tabular-nums">{partner.firm_type}</Badge>
                 )}
                 <WarmthBadge strength={partner.relationship_strength} />
                 {partner.ansonia_poc && (
@@ -375,7 +375,7 @@ export function PartnerDetailSheet({
               </div>
 
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                   Open ({openTasks.length})
                 </div>
                 <div className="space-y-1.5">
@@ -395,7 +395,7 @@ export function PartnerDetailSheet({
 
               {doneTasks.length > 0 && (
                 <div>
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                     Completed ({doneTasks.length})
                   </div>
                   <div className="space-y-1.5 opacity-70">
@@ -431,7 +431,7 @@ export function PartnerDetailSheet({
               <AboutRow label="Product Types" value={partner.product_types?.join(", ") || "—"} />
               <Separator />
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Notes</div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Notes</div>
                 <p className="text-sm whitespace-pre-wrap leading-relaxed text-muted-foreground">
                   {partner.additional_notes || "No notes on file."}
                 </p>
@@ -451,9 +451,9 @@ function Stat({ label, value, tone = "default", small = false }: {
   small?: boolean;
 }) {
   return (
-    <div className="rounded border bg-muted/30 px-2 py-1.5">
-      <div className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className={`font-mono tabular-nums ${small ? "text-xs" : "text-sm font-semibold"} ${tone === "danger" ? "text-destructive" : ""}`}>
+    <div className="rounded-md border border-hairline px-2 py-1.5">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={`tabular-nums ${small ? "text-xs" : "font-serif-display text-lg leading-tight"} ${tone === "danger" ? "text-destructive" : ""}`}>
         {value}
       </div>
     </div>
@@ -463,8 +463,8 @@ function Stat({ label, value, tone = "default", small = false }: {
 function AboutRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3 text-sm border-b border-hairline pb-2 last:border-b-0">
-      <span className="text-xs uppercase tracking-wider text-muted-foreground">{label}</span>
-      <span className="font-mono text-xs text-right truncate">{value}</span>
+      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</span>
+      <span className="tabular-nums text-xs text-right truncate">{value}</span>
     </div>
   );
 }
