@@ -73,7 +73,7 @@ export function exportPartnerMatches({
 
   const headers = [
     "Rank", "Firm", "Match Score %", "Tier", "Confidence", "Pillars Covered",
-    "Base Score %", "Notes Adj (pts)", "Warmth", "Firm Type", "Investor Type",
+    "Base Score %", "Notes Adj (pts)", "Capital Status", "Capital Rank Adj (pts)", "Warmth", "Firm Type", "Investor Type",
     "Min Equity ($M)", "Max Equity ($M)", "Hold Period", "Strategy", "Product Types",
     "Geography", "HQ", "Ansonia POC", "In Pipeline", "Why It Fits", "Gaps", "Profile", "Website",
   ];
@@ -89,6 +89,8 @@ export function exportPartnerMatches({
       `${m.coverage.pillarsCovered}/${m.coverage.pillarsTotal}`,
       m.baseScore,
       m.notesAdjustment,
+      m.capital.needsReconfirmation ? `${m.capital.status} (needs re-confirmation)` : m.capital.status ?? "",
+      m.capital.adjustment,
       p.relationship_strength ?? "",
       p.firm_type ?? "",
       joinList(p.investor_type),
@@ -110,7 +112,7 @@ export function exportPartnerMatches({
 
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
   styleSheet(ws, headers, [
-    6, 30, 14, 10, 12, 10, 12, 14, 16, 18, 26, 14, 14, 22, 26, 28, 30, 22, 18, 12, 48, 48, 60, 32,
+    6, 30, 14, 10, 12, 10, 12, 14, 18, 14, 16, 18, 26, 14, 14, 22, 26, 28, 30, 22, 18, 12, 48, 48, 60, 32,
   ]);
 
   const wb = XLSX.utils.book_new();
