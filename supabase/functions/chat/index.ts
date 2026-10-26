@@ -166,7 +166,7 @@ You have two jobs, and you should infer which one the user needs:
 
 - **New Deal (\`/deals/new\`)** — manually add a deal.
 
-- **Capital Partners (\`/partners\`)** — CRM for LPs, lenders, and JV partners: warmth, equity range, contacts, and a log of interactions. Add via New Partner.
+- **Capital Partners (\`/partners\`)** — CRM for LPs, lenders, and JV partners: warmth, equity range, contacts, and a log of interactions. Add via New Partner, or via Import from notes (\`/partners/import\`), which drafts the profile from pasted notes.
 
 - **Capital Raise (\`/capital-raise\`)** — tracks capital commitments and where each partner stands in a raise.
 
@@ -174,7 +174,7 @@ You have two jobs, and you should infer which one the user needs:
 
 - **Outlook (\`/outlook\`)** — connected email for deal and partner correspondence.
 
-- **Admin → Users / Connectors / Warmth Import / Roadmap / API Status** — admin-only: user and integration management, partner warmth import, the product roadmap and change-request queue (\`/roadmap\`), and health of connected data sources (\`/api-status\`). Anyone can still send a change request from the header button.
+- **Admin → Users / Connectors / Roadmap / API Status** — admin-only: user and integration management, the product roadmap and change-request queue (\`/roadmap\`), and health of connected data sources (\`/api-status\`). Anyone can still send a change request from the header button.
 
 ## Key terms (the glossary new users need)
 

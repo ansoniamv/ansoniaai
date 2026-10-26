@@ -36,7 +36,7 @@ const AuthPage = lazy(() => import("./pages/AuthPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
 const ConnectorsPage = lazy(() => import("./pages/ConnectorsPage"));
-const WarmthImportPage = lazy(() => import("./pages/WarmthImportPage"));
+const PartnerImportPage = lazy(() => import("./pages/PartnerImportPage"));
 const SuggestionsPage = lazy(() => import("./pages/SuggestionsPage"));
 const PartnerTearsheetPage = lazy(() => import("./pages/PartnerTearsheetPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -79,6 +79,7 @@ const App = () => (
               <Route path="/deals/:id/edit" element={<Protected><EditDeal /></Protected>} />
               <Route path="/partners" element={<Protected><PartnersPage /></Protected>} />
               <Route path="/partners/new" element={<Protected><NewPartner /></Protected>} />
+              <Route path="/partners/import" element={<Protected><PartnerImportPage /></Protected>} />
               <Route path="/partners/:id" element={<Protected><PartnerDetail /></Protected>} />
               <Route path="/capital-raise" element={<Protected><CapitalRaisePage /></Protected>} />
               <Route path="/capital-feed" element={<Protected><CapitalFeedPage /></Protected>} />
@@ -96,7 +97,7 @@ const App = () => (
               <Route path="/admin/users" element={<Protected admin><AdminUsersPage /></Protected>} />
               <Route path="/api-status" element={<Protected admin><ApiStatusPage /></Protected>} />
               <Route path="/admin/connectors" element={<Protected admin><ConnectorsPage /></Protected>} />
-              <Route path="/admin/warmth-import" element={<Protected admin><WarmthImportPage /></Protected>} />
+              <Route path="/admin/warmth-import" element={<Navigate to="/partners/import" replace />} />
               <Route
                 path="/pipeline-tearsheet/:partnerId"
                 element={<AuthGuard><PartnerTearsheetPage /></AuthGuard>}
