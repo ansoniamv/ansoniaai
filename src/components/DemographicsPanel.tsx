@@ -638,7 +638,7 @@ export function DemographicsPanel({ dealId, address }: { dealId: string; address
           <AlertDialogHeader>
             <AlertDialogTitle>Refresh demographic data?</AlertDialogTitle>
             <AlertDialogDescription>
-              This pulls fresh demographic data from Esri and costs roughly $5 in ArcGIS
+              This pulls fresh demographic data from Esri and costs roughly $0.50 in ArcGIS
               credits. Continue?
             </AlertDialogDescription>
           </AlertDialogHeader>

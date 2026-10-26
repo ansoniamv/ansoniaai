@@ -8,19 +8,56 @@ const RING_LABELS = ["1mi", "3mi", "5mi"];
 const GEOCODE_CONFIDENCE_THRESHOLD = 85;
 
 /**
- * Esri GeoEnrichment data collections requested per ring.
- * NOTE: "AtRisk" and "Policy" were removed as unused (not read by the UI or
- * scoring) — re-add either here if a future feature consumes them.
+ * Esri bills GeoEnrichment per variable returned, so request only the variables
+ * something reads (DemographicsPanel, rentGrowthScore, marketMetrics,
+ * useDealCrime, deal_enrichment_summary) rather than whole data collections.
+ *
+ * Requesting whole collections returned 1,331 variables per ring, 1,043 of them
+ * from raceandhispanicorigin alone, of which 6 were read: ~40 credits (~$4) a
+ * pull. Every ID below was copied from the `fullName` of a field in a stored
+ * enrich response, so each one is known to exist. Add a variable here before
+ * reading it anywhere; a key that isn't requested is simply absent from rings.
  */
-const ESRI_DATA_COLLECTIONS = [
-  "KeyUSFacts",
-  "HouseholdsByIncome",
-  "educationalattainment",
-  "raceandhispanicorigin",
-  "Tapestry",
-  "housingunittotals",
-  "crime",
+const ESRI_ANALYSIS_VARIABLES = [
+  "KeyUSFacts.TOTPOP_CY",
+  "KeyUSFacts.TOTPOP_FY",
+  "KeyUSFacts.POPGRWCYFY",
+  "KeyUSFacts.GQPOP_CY",
+  "KeyUSFacts.DPOP_CY",
+  "KeyUSFacts.MEDHINC_CY",
+  "KeyUSFacts.MEDHINC_FY",
+  "KeyUSFacts.AVGHINC_CY",
+  "KeyUSFacts.PCI_CY",
+  "KeyUSFacts.TOTHU_CY",
+  "KeyUSFacts.TOTHU_FY",
+  "KeyUSFacts.OWNER_CY",
+  "KeyUSFacts.RENTER_CY",
+  "KeyUSFacts.VACANT_CY",
+  "KeyUSFacts.MEDVAL_CY",
+  "KeyUSFacts.MEDVAL_FY",
+  "raceandhispanicorigin.WHITE_CY",
+  "raceandhispanicorigin.BLACK_CY",
+  "raceandhispanicorigin.ASIAN_CY",
+  "raceandhispanicorigin.OTHRACE_CY",
+  "raceandhispanicorigin.RACE2UP_CY",
+  "raceandhispanicorigin.RACEBASECY",
+  "educationalattainment.NOHS_CY",
+  "educationalattainment.SMCOLL_CY",
+  "educationalattainment.ASSCDEG_CY",
+  "educationalattainment.BACHDEG_CY",
+  "educationalattainment.GRADDEG_CY",
+  "educationalattainment.EDUCBASECY",
+  "crime.CRMCYTOTC",
+  "crime.CRMCYPERC",
+  "crime.CRMCYPROC",
 ];
+
+/**
+ * Tapestry's TOP1NAME/TOP1CODE/... come from a script ("scripts" component in
+ * the response), not stored variables, so it stays a whole collection (~116
+ * variables per ring) rather than risk an ID the enrich endpoint won't accept.
+ */
+const ESRI_DATA_COLLECTIONS = ["Tapestry"];
 
 function arcgisErrorMessage(context: string, error: unknown) {
   const err = typeof error === "object" && error !== null ? error as { code?: unknown; message?: unknown } : {};
@@ -174,12 +211,11 @@ async function enrich(lat: number, lon: number, token: string) {
     bufferUnits: "Miles",
     bufferRadii: [1, 3, 5],
   }];
-  const dataCollections = ESRI_DATA_COLLECTIONS;
-
   const url = "https://geoenrich.arcgis.com/arcgis/rest/services/World/geoenrichmentserver/GeoEnrichment/enrich";
   const body = new URLSearchParams();
   body.set("studyAreas", JSON.stringify(studyAreas));
-  body.set("dataCollections", JSON.stringify(dataCollections));
+  body.set("dataCollections", JSON.stringify(ESRI_DATA_COLLECTIONS));
+  body.set("analysisVariables", JSON.stringify(ESRI_ANALYSIS_VARIABLES));
   body.set("useData", JSON.stringify({ sourceCountry: "US" }));
   body.set("returnGeometry", "false");
   body.set("f", "json");
@@ -402,12 +438,15 @@ Deno.serve(async (req) => {
     // Esri bills GeoEnrichment at ~10 ArcGIS credits per 1,000 data attributes
     // returned. Count attributes across all rings and convert to credits; the
     // per-credit USD price lives in the pricing table (service `esri_credit`).
+    // Not rounded up to the next 1,000: at ~500 attributes a pull, rounding
+    // would log double the real cost. The count includes ~11 non-billed
+    // metadata fields per ring (ID, OBJECTID, ...), so it errs slightly high.
     const totalAttributes = Object.values(rings).reduce(
       (sum: number, ringAttrs: any) =>
         sum + (ringAttrs && typeof ringAttrs === "object" ? Object.keys(ringAttrs).length : 0),
       0,
     );
-    const credits = Math.ceil(totalAttributes / 1000) * 10;
+    const credits = (totalAttributes / 1000) * 10;
     await logApiRequest(supabase, {
       function_name: "esri-enrich",
       service: "esri_credit",
