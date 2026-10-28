@@ -54,6 +54,7 @@ import { usePartners } from "@/hooks/usePartners";
 import { useLatestPartnerEmails, type LatestPartnerEmail } from "@/hooks/useOutlook";
 import { Mail, MailWarning } from "lucide-react";
 import { WarmthBadge } from "@/components/WarmthBadge";
+import { BlacklistBadge } from "@/components/PartnerBlacklist";
 import { PartnerMatchPanel } from "@/components/PartnerMatchPanel";
 import type { Deal } from "@/hooks/useDeals";
 import { useArchiveRaise, useRestoreRaise } from "@/hooks/useCapitalRaise";
@@ -1120,6 +1121,7 @@ function AddPartnerDialog({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium truncate">{p.name}</span>
+                      <BlacklistBadge partner={p} />
                       <WarmthBadge strength={p.relationship_strength} />
                       {p.firm_type && (
                         <Badge variant="outline" className="text-[10px]">{p.firm_type}</Badge>

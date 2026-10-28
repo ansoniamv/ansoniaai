@@ -306,8 +306,10 @@ export function PartnerMatchPanel({ deal }: { deal: Deal }) {
   const { data: allPartners } = usePartners();
   // An internal (Ansonia) record is never a match candidate for a deal, so it is
   // dropped before ranking and before the geography filter options are built.
+  // Blacklisted firms are dropped the same way: the team has decided not to
+  // work with them, so they are never suggested for a deal.
   const partners = useMemo(
-    () => allPartners,
+    () => allPartners?.filter((p) => !p.blacklisted_at),
     [allPartners],
   );
   const { data: engagements } = useEngagementsByDeal(deal.id);

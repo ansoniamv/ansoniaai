@@ -52,6 +52,8 @@ export const FIELD_LABEL: Record<string, string> = {
   headquarters: "Headquarters",
   status: "Status",
   archived_at: "Archived",
+  blacklisted_at: "Blacklisted",
+  blacklist_reason: "Blacklist reason",
   capital_status: "Capital status",
   capital_status_detail: "Capital status detail",
   capital_available_from: "Capital available from",
@@ -77,6 +79,7 @@ const SUMMARY_ONLY = new Set(["additional_notes", "capital_status_detail"]);
 export function formatFieldValue(field: string, v: unknown): string {
   if (v === null || v === undefined || v === "") return "—";
   if (field === "archived_at") return "Archived";
+  if (field === "blacklisted_at") return "Blacklisted";
   if (Array.isArray(v)) return v.length ? v.join(", ") : "—";
   if (typeof v === "boolean") return v ? "Yes" : "No";
   if (typeof v === "object") return JSON.stringify(v);
@@ -87,6 +90,9 @@ export function describeChange(row: Pick<ChangeRow, "field" | "old_value" | "new
   const label = FIELD_LABEL[row.field] ?? row.field.replace(/_/g, " ");
   if (row.field === "archived_at") {
     return { field: row.field, label: "Archived", from: row.old_value ? "Archived" : "Active", to: row.new_value ? "Archived" : "Active" };
+  }
+  if (row.field === "blacklisted_at") {
+    return { field: row.field, label: "Blacklisted", from: row.old_value ? "Yes" : "No", to: row.new_value ? "Yes" : "No" };
   }
   if (SUMMARY_ONLY.has(row.field)) return { field: row.field, label, from: "", to: "edited" };
   return { field: row.field, label, from: formatFieldValue(row.field, row.old_value), to: formatFieldValue(row.field, row.new_value) };

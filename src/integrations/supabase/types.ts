@@ -2305,6 +2305,10 @@ export type Database = {
           additional_notes: string | null
           ansonia_poc: string | null
           archived_at: string | null
+          blacklist_reason: string | null
+          blacklisted_at: string | null
+          blacklisted_by: string | null
+          blacklisted_by_label: string | null
           capital_available_from: string | null
           capital_status: string | null
           capital_status_as_of: string | null
@@ -2346,6 +2350,10 @@ export type Database = {
           additional_notes?: string | null
           ansonia_poc?: string | null
           archived_at?: string | null
+          blacklist_reason?: string | null
+          blacklisted_at?: string | null
+          blacklisted_by?: string | null
+          blacklisted_by_label?: string | null
           capital_available_from?: string | null
           capital_status?: string | null
           capital_status_as_of?: string | null
@@ -2387,6 +2395,10 @@ export type Database = {
           additional_notes?: string | null
           ansonia_poc?: string | null
           archived_at?: string | null
+          blacklist_reason?: string | null
+          blacklisted_at?: string | null
+          blacklisted_by?: string | null
+          blacklisted_by_label?: string | null
           capital_available_from?: string | null
           capital_status?: string | null
           capital_status_as_of?: string | null
