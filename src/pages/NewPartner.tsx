@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Loader2, Save, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -15,7 +15,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 
-import { useCreatePartner } from "@/hooks/usePartners";
+import { useCreatePartner, usePartners } from "@/hooks/usePartners";
+import { normalizeFirmName } from "@/components/PartnerBlacklist";
 import { useCreateNote } from "@/hooks/useNotes";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentTeamMember } from "@/hooks/useTeamMembers";
@@ -95,6 +96,18 @@ export default function NewPartner() {
 
   const [form, setForm] = useState<FormState>(initial);
   const [geoInput, setGeoInput] = useState("");
+
+  // Warn when the firm being added is one the team already blacklisted.
+  const { data: existingPartners } = usePartners({ includeArchived: true });
+  const blacklistedMatches = useMemo(() => {
+    const q = normalizeFirmName(form.name);
+    if (q.length < 3) return [];
+    return (existingPartners ?? []).filter((p) => {
+      if (!p.blacklisted_at) return false;
+      const n = normalizeFirmName(p.name);
+      return n.length >= 3 && (n.includes(q) || q.includes(n));
+    });
+  }, [existingPartners, form.name]);
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -245,6 +258,14 @@ export default function NewPartner() {
           <div className="space-y-1.5 md:col-span-2">
             <Label>Firm Name <span className="text-red-500">*</span></Label>
             <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Pearlmark Real Estate" />
+            {blacklistedMatches.map((p) => (
+              <div key={p.id} role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
+                <span className="font-semibold text-destructive">
+                  <Link to={`/partners/${p.id}`} className="underline">{p.name}</Link> is blacklisted.
+                </span>
+                {p.blacklist_reason && <span className="text-foreground"> {p.blacklist_reason}</span>}
+              </div>
+            ))}
           </div>
           <div className="space-y-1.5">
             <Label>Firm Type</Label>

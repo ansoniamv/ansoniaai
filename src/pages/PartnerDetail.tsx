@@ -2,7 +2,7 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { safeExternalUrl } from "@/lib/safeUrl";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChevronDown, ChevronLeft, Copy, ExternalLink, Mail, Linkedin, MapPin, Plus, Search, StickyNote, Sparkles, Archive, Pencil, Check, X, Trash2, Loader2, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronLeft, Copy, ExternalLink, Mail, Linkedin, MapPin, Plus, Search, StickyNote, Sparkles, Archive, Ban, Pencil, Check, X, Trash2, Loader2, RefreshCw } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { WarmthBadge } from "@/components/WarmthBadge";
+import { BlacklistBanner, BlacklistPartnerDialog } from "@/components/PartnerBlacklist";
 import { usePartner, usePartnerContacts, usePartnerInteractions, usePartnerCurrency, useCreateInteraction, useArchivePartner, useUpdatePartner, useCreatePartnerContact, useUpdatePartnerContact, useDeletePartnerContact, withManualField, type Partner, type PartnerContact } from "@/hooks/usePartners";
 import { AboutPartnerCard, ActivityTimeline, DataHighlightsCard, ProfileSummaryCard, RecordSection, initials, noteDealIds, partnerHostname } from "@/components/PartnerRecordPanels";
 import { PartnerDealsCard } from "@/components/PartnerDealsCard";
@@ -411,6 +412,7 @@ function PartnerRecordCard({
   onArchived: () => void;
 }) {
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [blacklistOpen, setBlacklistOpen] = useState(false);
   const host = partnerHostname(partner.website);
   const href = safeExternalUrl(partner.website);
 
@@ -435,6 +437,12 @@ function PartnerRecordCard({
               <RefreshCw className="h-4 w-4 mr-2" /> {regenerating ? "Regenerating…" : "Regenerate summary"}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => setBlacklistOpen(true)}
+              className={partner.blacklisted_at ? undefined : "text-destructive focus:text-destructive"}
+            >
+              <Ban className="h-4 w-4 mr-2" /> {partner.blacklisted_at ? "Remove from blacklist" : "Blacklist…"}
+            </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => setArchiveOpen(true)}
               disabled={!!partner.archived_at}
@@ -465,6 +473,8 @@ function PartnerRecordCard({
             )}
           </div>
         </div>
+
+        <BlacklistBanner partner={partner} />
 
         <div className="space-y-1 text-sm">
           {host && href && (
@@ -504,6 +514,7 @@ function PartnerRecordCard({
       </CardContent>
 
       <ArchivePartnerDialog partner={partner} open={archiveOpen} onOpenChange={setArchiveOpen} onArchived={onArchived} />
+      <BlacklistPartnerDialog partner={partner} open={blacklistOpen} onOpenChange={setBlacklistOpen} />
     </Card>
   );
 }

@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { WarmthBadge } from "@/components/WarmthBadge";
+import { BlacklistBadge } from "@/components/PartnerBlacklist";
 import { useRestorePartner, type Partner } from "@/hooks/usePartners";
 import type { Note } from "@/hooks/useNotes";
 import { useAllPartnerNotes } from "@/hooks/useAllPartnerNotes";
@@ -113,7 +114,7 @@ function PartnerCard({
     <button
       type="button"
       onClick={() => onOpen(partner)}
-      className={`group text-left block w-full h-full rounded-lg border border-hairline bg-card shadow-sm hover:border-primary/40 hover:shadow-md transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${isArchived ? "opacity-60" : ""}`}
+      className={`group text-left block w-full h-full rounded-lg border border-hairline bg-card shadow-sm hover:border-primary/40 hover:shadow-md transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${isArchived ? "opacity-60" : ""} ${partner.blacklisted_at ? "border-destructive/40" : ""}`}
     >
       <Card className="border-0 shadow-none bg-transparent h-full">
         <CardContent className="p-4 space-y-3">
@@ -124,6 +125,7 @@ function PartnerCard({
               {partner.name}
             </h3>
             <div className="flex items-center gap-1 shrink-0">
+              <BlacklistBadge partner={partner} className="text-[9px]" />
               {isArchived && (
                 <Badge variant="outline" className="text-[9px] uppercase tracking-wide border-muted-foreground/40 text-muted-foreground">
                   Archived

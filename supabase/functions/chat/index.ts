@@ -90,7 +90,7 @@ const tools = [
 const TABLE_DESCRIPTIONS: Record<string, string> = {
   deals: "Real estate deal pipeline. Each row is a property/deal with status, score, market, units, price, dates.",
   deal_enrichment: "Enrichment data (demographics, schools, etc.) per deal.",
-  partners: "Capital partners (LPs, lenders, JV partners).",
+  partners: "Capital partners (LPs, lenders, JV partners). A row with blacklisted_at set is a firm the team decided not to do business with: never suggest it for a deal or outreach, and when it comes up say it is blacklisted and give blacklist_reason.",
   partner_contacts: "Individual contacts at each partner.",
   partner_interactions: "Log of touchpoints / meetings with partners.",
   capital_raise_entries: "Tracked capital commitments per raise.",

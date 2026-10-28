@@ -63,6 +63,7 @@ describe("describeChange", () => {
     expect(describeChange({ field: "geography", old_value: [], new_value: ["TX", "FL"] })).toMatchObject({ from: "—", to: "TX, FL" });
     expect(describeChange({ field: "suburban", old_value: false, new_value: true })).toMatchObject({ from: "No", to: "Yes" });
     expect(describeChange({ field: "archived_at", old_value: null, new_value: "2026-10-22" })).toMatchObject({ from: "Active", to: "Archived" });
+    expect(describeChange({ field: "blacklisted_at", old_value: null, new_value: "2026-10-28T12:00:00Z" })).toMatchObject({ label: "Blacklisted", from: "No", to: "Yes" });
     expect(describeChange({ field: "additional_notes", old_value: "a", new_value: "b" })).toMatchObject({ from: "", to: "edited" });
   });
 });

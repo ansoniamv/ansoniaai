@@ -36,6 +36,10 @@ export type Partner = {
   capital_status_as_of: string | null;
   capital_status_detail: string | null;
   archived_at: string | null;
+  /** Set when the team decided not to do business with this firm. */
+  blacklisted_at: string | null;
+  blacklist_reason: string | null;
+  blacklisted_by_label: string | null;
   created_at: string;
   updated_at: string;
   last_edited_at: string;
@@ -287,6 +291,34 @@ export function useRestorePartner() {
       const { data, error } = await supabase
         .from("partners")
         .update({ archived_at: null })
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["partners"] });
+      queryClient.invalidateQueries({ queryKey: ["partners", data.id] });
+    },
+  });
+}
+
+/**
+ * Blacklist a firm (reason required) or lift it (reason null). Who set it is
+ * stamped by a database trigger.
+ */
+export function useSetPartnerBlacklist() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason: string | null }) => {
+      const { data, error } = await supabase
+        .from("partners")
+        .update(
+          reason
+            ? { blacklisted_at: new Date().toISOString(), blacklist_reason: reason }
+            : { blacklisted_at: null, blacklist_reason: null },
+        )
         .eq("id", id)
         .select()
         .single();

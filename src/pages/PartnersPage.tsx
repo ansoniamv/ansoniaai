@@ -27,6 +27,7 @@ import {
 } from "@/components/CheckSizeFilter";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { WarmthBadge } from "@/components/WarmthBadge";
+import { BlacklistBadge } from "@/components/PartnerBlacklist";
 import { usePartners, useUpdatePartner, useRestorePartner, withManualField } from "@/hooks/usePartners";
 import type { Partner } from "@/hooks/usePartners";
 
@@ -89,6 +90,7 @@ const COLUMNS: ColumnDef[] = [
         >
           {p.name}
         </Link>
+        <BlacklistBadge partner={p} />
       </div>
     ),
     filterType: "text",
@@ -361,6 +363,19 @@ export default function PartnersPage() {
     () => allPartners,
     [allPartners],
   );
+  // Blacklisted firms are listed by default (the point is that people see the
+  // tag). Hiding them only trims the rows shown; the merge dialog and duplicate
+  // counter still see every firm.
+  const [hideBlacklisted, setHideBlacklisted] = useState<boolean>(() => {
+    try { return localStorage.getItem("partners-hide-blacklisted") === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("partners-hide-blacklisted", hideBlacklisted ? "1" : "0"); } catch {}
+  }, [hideBlacklisted]);
+  const listedPartners = useMemo(
+    () => (hideBlacklisted ? partners?.filter((p) => !p.blacklisted_at) : partners),
+    [partners, hideBlacklisted],
+  );
   const updatePartner = useUpdatePartner();
   const restorePartner = useRestorePartner();
   const navigate = useNavigate();
@@ -473,8 +488,8 @@ export default function PartnersPage() {
   }, [partners]);
 
   const filtered = useMemo(() => {
-    if (!partners) return [];
-    let result = partners;
+    if (!listedPartners) return [];
+    let result = listedPartners;
     if (search) {
       const q = search.toLowerCase();
       result = result.filter((p) =>
@@ -567,7 +582,7 @@ export default function PartnersPage() {
       });
     }
     return result;
-  }, [partners, search, columnFilters, checkSize, sortKey, sortAsc]);
+  }, [listedPartners, search, columnFilters, checkSize, sortKey, sortAsc]);
 
   const activeColumns = useMemo(() => {
     const visible = COLUMNS.filter((c) => visibleColumns.includes(c.key));
@@ -763,6 +778,11 @@ export default function PartnersPage() {
           Show archived
         </label>
 
+        <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+          <Switch checked={hideBlacklisted} onCheckedChange={setHideBlacklisted} />
+          Hide blacklisted
+        </label>
+
         {view === "table" && (
           <CheckSizeFilter value={checkSize} onChange={setCheckSize} />
         )}
@@ -820,7 +840,7 @@ export default function PartnersPage() {
       {view === "feed" ? (
         <PartnerFeed />
       ) : view === "cards" ? (
-        <PartnerCardsView partners={partners ?? []} search={search} />
+        <PartnerCardsView partners={listedPartners ?? []} search={search} />
       ) : (
       <>
 
