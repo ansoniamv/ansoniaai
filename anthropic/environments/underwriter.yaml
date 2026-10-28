@@ -1,0 +1,11 @@
+# The container a model run works in.
+#
+# Unrestricted networking because the skill researches each rent comp on its own
+# website, which can't be listed ahead of time; under `limited`, web search and
+# fetch return nothing outside allowed_hosts. It also lets the run apt-get
+# LibreOffice. The container holds only the deal's files and the template, and no
+# credentials.
+name: ansonia-underwriter
+config:
+  type: cloud
+  networking: {type: unrestricted}

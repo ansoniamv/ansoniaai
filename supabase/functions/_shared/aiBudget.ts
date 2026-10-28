@@ -35,6 +35,8 @@ export type CallPriority = "background" | "interactive";
  */
 const DAILY_EXEMPT = [
   "parse-deal-document",
+  // A model run costs several dollars at once, more than the whole day cap.
+  "generate-model",
   ...(Deno.env.get("AI_DAILY_EXEMPT_FUNCTIONS") ?? "")
     .split(",").map((s) => s.trim()).filter(Boolean),
 ];

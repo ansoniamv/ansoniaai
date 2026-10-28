@@ -47,6 +47,7 @@ import { DealStatusHistory } from "@/components/DealStatusHistory";
 import { ComposeEmailDialog } from "@/components/ComposeEmailDialog";
 import { DealDocumentsPanel } from "@/components/DealDocumentsPanel";
 import { DealCaAgentPanel } from "@/components/DealCaAgentPanel";
+import { DealModelPanel } from "@/components/DealModelPanel";
 import { SubmarketSignalsPanel } from "@/components/SubmarketSignalsPanel";
 import { AiScoreTab } from "@/components/AiScoreTab";
 import { NoteComposerDialog } from "@/components/NoteComposerDialog";
@@ -1118,6 +1119,7 @@ export default function DealDetail() {
         <div className="space-y-4">
           <DealCaAgentPanel dealId={deal.id} />
           <DealDocumentsPanel deal={deal} />
+          <DealModelPanel dealId={deal.id} />
         </div>
       </section>
 
