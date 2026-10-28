@@ -1969,11 +1969,13 @@ export type Database = {
       }
       partner_contacts: {
         Row: {
+          always_cc: boolean
           ansonia_poc: string | null
           created_at: string
           email: string | null
           firm_location: string | null
           id: string
+          is_primary: boolean
           linkedin_url: string | null
           name: string
           partner_id: string
@@ -1982,11 +1984,13 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          always_cc?: boolean
           ansonia_poc?: string | null
           created_at?: string
           email?: string | null
           firm_location?: string | null
           id?: string
+          is_primary?: boolean
           linkedin_url?: string | null
           name: string
           partner_id: string
@@ -1995,11 +1999,13 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          always_cc?: boolean
           ansonia_poc?: string | null
           created_at?: string
           email?: string | null
           firm_location?: string | null
           id?: string
+          is_primary?: boolean
           linkedin_url?: string | null
           name?: string
           partner_id?: string

@@ -55,6 +55,10 @@ export type PartnerContact = {
   ansonia_poc: string | null;
   phone: string | null;
   role: string | null;
+  /** The partner's default point of contact for outreach drafts (one per partner). */
+  is_primary: boolean;
+  /** Copied on every outreach draft to this partner. */
+  always_cc: boolean;
   created_at: string;
   updated_at: string;
 };

@@ -2,7 +2,7 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { safeExternalUrl } from "@/lib/safeUrl";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChevronDown, ChevronLeft, Copy, ExternalLink, Mail, Linkedin, MapPin, Plus, Search, StickyNote, Sparkles, Archive, Ban, Pencil, Check, X, Trash2, Loader2, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronLeft, Copy, ExternalLink, Mail, Linkedin, MapPin, Plus, Search, StickyNote, Sparkles, Archive, Ban, Pencil, Check, X, Trash2, Loader2, RefreshCw, Star } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -62,6 +62,7 @@ import { EmailReaderDialog } from "@/components/EmailReaderDialog";
 import { useNotes } from "@/hooks/useNotes";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { Checkbox } from "@/components/ui/checkbox";
 import { INVESTOR_TYPES, GEOGRAPHY_QUICK_ADDS } from "@/lib/partnerOptions";
 
 const WARMTH_OPTIONS = ["Existing Partner", "Very Warm", "Warm", "Tepid", "Cold"];
@@ -213,7 +214,8 @@ export default function PartnerDetail() {
   // An internal (Ansonia) record is not an outside capital source. It gets the
   // internal desk instead of the capital-partner profile below.
 
-  const primaryEmail = contacts?.find((c) => c.email)?.email ?? "";
+  const primaryEmail =
+    contacts?.find((c) => c.is_primary && c.email)?.email ?? contacts?.find((c) => c.email)?.email ?? "";
 
   return (
     <div className="grid gap-4 items-start lg:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)_320px]">
@@ -773,9 +775,10 @@ function PartnerEditDialog({
 function ContactsSidebarCard({ partner, contacts }: { partner: Partner; contacts: PartnerContact[] | undefined }) {
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
-  const list = (contacts ?? []).filter(
-    (c) => !q || [c.name, c.email, c.role, c.firm_location].some((v) => v?.toLowerCase().includes(q)),
-  );
+  // The outreach default leads the list; the rest keep their alphabetical order.
+  const list = (contacts ?? [])
+    .filter((c) => !q || [c.name, c.email, c.role, c.firm_location].some((v) => v?.toLowerCase().includes(q)))
+    .sort((a, b) => Number(b.is_primary) - Number(a.is_primary));
 
   return (
     <RecordSection
@@ -810,6 +813,7 @@ function ContactsSidebarCard({ partner, contacts }: { partner: Partner; contacts
                   {c.role && <div className="text-xs text-muted-foreground truncate">{c.role}</div>}
                 </div>
                 <div className="flex items-center shrink-0 -mr-1">
+                  <PrimaryContactButton contact={c} />
                   <ContactEditorDialog
                     partnerId={partner.id}
                     contact={c}
@@ -848,6 +852,7 @@ function ContactsSidebarCard({ partner, contacts }: { partner: Partner; contacts
                   </div>
                 )}
               </div>
+              <OutreachRoleLine contact={c} />
               {(c.ansonia_poc || c.linkedin_url) && (
                 <div className="flex items-center gap-2 pt-0.5">
                   {c.ansonia_poc && (
@@ -1043,6 +1048,62 @@ function ContactEditorDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// Outreach drafts go To the partner's default contact and CC anyone marked
+// "always CC". Marking a contact default clears the previous one (DB trigger).
+function PrimaryContactButton({ contact }: { contact: PartnerContact }) {
+  const update = useUpdatePartnerContact();
+  const toggle = async () => {
+    try {
+      // The mutation refetches the partner's contacts, which picks up the old default being cleared.
+      await update.mutateAsync({ id: contact.id, is_primary: !contact.is_primary });
+      toast.success(contact.is_primary ? "Default contact cleared" : `${contact.name} is now the default contact`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-6 w-6"
+      onClick={toggle}
+      disabled={update.isPending}
+      aria-label={contact.is_primary ? "Clear default contact" : "Make default contact for outreach"}
+      title={contact.is_primary ? "Default contact for outreach — click to clear" : "Make default contact for outreach"}
+    >
+      <Star className={`h-3 w-3 ${contact.is_primary ? "fill-amber-400 text-amber-500" : ""}`} />
+    </Button>
+  );
+}
+
+function OutreachRoleLine({ contact }: { contact: PartnerContact }) {
+  const update = useUpdatePartnerContact();
+  if (contact.is_primary) {
+    return (
+      <span className="inline-flex text-[10px] font-medium bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900 px-1.5 py-0.5 rounded">
+        Default contact for outreach
+      </span>
+    );
+  }
+  if (!contact.email) return null;
+  return (
+    <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer w-fit">
+      <Checkbox
+        className="h-3.5 w-3.5"
+        checked={contact.always_cc}
+        disabled={update.isPending}
+        onCheckedChange={(v) =>
+          update.mutate(
+            { id: contact.id, always_cc: v === true },
+            { onError: (e) => toast.error((e as Error).message) },
+          )
+        }
+      />
+      Always CC on outreach
+    </label>
   );
 }
 

@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import type { Engagement } from "@/hooks/useCapitalRaiseEngagements";
@@ -27,6 +28,7 @@ import {
   outreachTextToHtml,
   unfilledPlaceholders,
 } from "@/lib/outreachDraft";
+import { outreachAddressees, type OutreachContact } from "@/lib/outreachRecipients";
 
 const fmtCurrency = (n: number | null | undefined) => {
   if (n == null || Number.isNaN(Number(n))) return "—";
@@ -43,9 +45,23 @@ function fillTokens(tpl: string, ctx: Record<string, string>) {
 
 type Recipient = {
   engagement: Engagement;
+  contacts: OutreachContact[];
   contactId: string | null;
   contactName: string | null;
   email: string | null;
+  cc: OutreachContact[];
+};
+
+const addressed = (engagement: Engagement, contacts: OutreachContact[], pickedId?: string | null): Recipient => {
+  const { to, cc } = outreachAddressees(contacts, pickedId);
+  return {
+    engagement,
+    contacts,
+    contactId: to?.id ?? null,
+    contactName: to?.name ?? contacts[0]?.name ?? null,
+    email: to?.email ?? null,
+    cc,
+  };
 };
 
 interface Props {
@@ -88,34 +104,49 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
     (async () => {
       const { data, error } = await supabase
         .from("partner_contacts")
-        .select("id, partner_id, name, email")
-        .in("partner_id", partnerIds);
+        .select("id, partner_id, name, email, is_primary, always_cc")
+        .in("partner_id", partnerIds)
+        .order("name");
       if (error) {
         toast.error(error.message);
         setLoading(false);
         return;
       }
-      const byPartner = new Map<string, { id: string; name: string | null; email: string | null }[]>();
-      for (const c of (data as any[]) || []) {
+      const byPartner = new Map<string, OutreachContact[]>();
+      for (const c of data || []) {
         const arr = byPartner.get(c.partner_id) || [];
-        arr.push({ id: c.id, name: c.name, email: c.email });
+        arr.push({ id: c.id, name: c.name, email: c.email, is_primary: c.is_primary, always_cc: c.always_cc });
         byPartner.set(c.partner_id, arr);
       }
-      const recs: Recipient[] = eligible.map((e) => {
-        const list = byPartner.get(e.partner_id) || [];
-        const withEmail = list.find((c) => c.email && c.email.trim());
-        return {
-          engagement: e,
-          contactId: withEmail?.id ?? null,
-          contactName: withEmail?.name ?? list[0]?.name ?? null,
-          email: withEmail?.email ?? null,
-        };
-      });
+      const recs: Recipient[] = eligible.map((e) => addressed(e, byPartner.get(e.partner_id) || []));
       setRecipients(recs);
       setSelected(new Set(recs.filter((r) => r.email).map((r) => r.engagement.id)));
       setLoading(false);
     })();
   }, [open, eligible]);
+
+  const pickContact = (engagementId: string, contactId: string) =>
+    setRecipients((prev) =>
+      prev.map((r) => (r.engagement.id === engagementId ? addressed(r.engagement, r.contacts, contactId) : r)),
+    );
+
+  // Saves the picked contact as the partner's default, so the next draft starts there.
+  const makeDefault = async (r: Recipient) => {
+    if (!r.contactId) return;
+    const { error } = await supabase.from("partner_contacts").update({ is_primary: true }).eq("id", r.contactId);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    // Mirror the DB trigger: one default per partner, and the default is never also CC'd.
+    const contacts = r.contacts.map((c) =>
+      c.id === r.contactId ? { ...c, is_primary: true, always_cc: false } : { ...c, is_primary: false },
+    );
+    setRecipients((prev) =>
+      prev.map((x) => (x.engagement.id === r.engagement.id ? addressed(r.engagement, contacts, r.contactId) : x)),
+    );
+    toast.success(`${r.contactName} is now the default contact for ${r.engagement.partner_name || "this partner"}`);
+  };
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -197,6 +228,7 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
         const { data, error } = await supabase.functions.invoke("outlook-draft", {
           body: {
             to: [r.email!],
+            cc: r.cc.map((c) => c.email!),
             subject: fillTokens(subject, ctx),
             html: outreachEmailHtml(fillTokensHtml(body, ctx)),
             partnerId: r.engagement.partner_id,
@@ -315,24 +347,56 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
                   )}
                   {recipients.map((r) => {
                     const hasEmail = !!r.email;
+                    const mailable = r.contacts.filter((c) => c.email?.trim());
+                    const isDefault = r.contacts.some((c) => c.id === r.contactId && c.is_primary);
                     return (
-                      <label
+                      <div
                         key={r.engagement.id}
                         className={`flex items-center gap-2 rounded-sm px-2 py-1.5 text-xs ${
-                          hasEmail ? "hover:bg-muted/50 cursor-pointer" : "opacity-60"
+                          hasEmail ? "hover:bg-muted/50" : "opacity-60"
                         }`}
                       >
                         <Checkbox
+                          id={`rcpt-${r.engagement.id}`}
                           checked={selected.has(r.engagement.id)}
                           onCheckedChange={() => hasEmail && toggle(r.engagement.id)}
                           disabled={!hasEmail}
                         />
                         <div className="flex-1 min-w-0">
-                          <div className="font-medium truncate">
+                          <label
+                            htmlFor={`rcpt-${r.engagement.id}`}
+                            className={`block font-medium truncate ${hasEmail ? "cursor-pointer" : ""}`}
+                          >
                             {r.engagement.partner_name || "Unknown partner"}
-                          </div>
+                          </label>
                           <div className="text-[11px] text-muted-foreground truncate">
-                            {hasEmail ? (
+                            {hasEmail && mailable.length > 1 ? (
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Select value={r.contactId ?? undefined} onValueChange={(v) => pickContact(r.engagement.id, v)}>
+                                  <SelectTrigger className="h-6 w-auto max-w-[22rem] gap-1 border-dashed px-1.5 text-[11px]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {mailable.map((c) => (
+                                      <SelectItem key={c.id} value={c.id} className="text-xs">
+                                        {c.name ? `${c.name} · ` : ""}
+                                        {c.email}
+                                        {c.is_primary ? " ★" : ""}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                {!isDefault && (
+                                  <button
+                                    type="button"
+                                    className="text-primary hover:underline shrink-0"
+                                    onClick={() => makeDefault(r)}
+                                  >
+                                    Make default
+                                  </button>
+                                )}
+                              </div>
+                            ) : hasEmail ? (
                               <>
                                 {r.contactName ? `${r.contactName} · ` : ""}
                                 {r.email}
@@ -344,11 +408,16 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
                               </span>
                             )}
                           </div>
+                          {r.cc.length > 0 && (
+                            <div className="text-[11px] text-muted-foreground truncate">
+                              cc {r.cc.map((c) => c.name || c.email).join(", ")}
+                            </div>
+                          )}
                         </div>
                         <Badge variant="outline" className="text-[10px] shrink-0">
                           {r.engagement.stage}
                         </Badge>
-                      </label>
+                      </div>
                     );
                   })}
                 </div>

@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import {
   ArrowUpRight,
   Building2,
+  Star,
   CheckCircle2,
 
   Inbox,
@@ -578,6 +579,9 @@ function ContactsEditor({ partnerId, contacts }: { partnerId: string; contacts: 
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium truncate">
                 {c.name}
+                {c.is_primary && (
+                  <span className="ml-2 text-[10px] font-medium text-amber-700 dark:text-amber-400">Default contact</span>
+                )}
                 {c.role && <span className="ml-2 text-[11px] font-normal text-muted-foreground">· {c.role}</span>}
               </div>
               <div className="flex gap-3 text-[11px] text-muted-foreground flex-wrap">
@@ -586,6 +590,21 @@ function ContactsEditor({ partnerId, contacts }: { partnerId: string; contacts: 
                 {c.firm_location && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{c.firm_location}</span>}
               </div>
             </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`h-7 w-7 p-0 ${c.is_primary ? "" : "opacity-0 group-hover:opacity-100 transition-opacity"}`}
+              onClick={() =>
+                update.mutate(
+                  { id: c.id, is_primary: !c.is_primary },
+                  { onError: (e) => toast.error((e as Error).message) },
+                )
+              }
+              aria-label={c.is_primary ? "Clear default contact" : "Make default contact for outreach"}
+              title={c.is_primary ? "Default contact for outreach — click to clear" : "Make default contact for outreach"}
+            >
+              <Star className={`h-3.5 w-3.5 ${c.is_primary ? "fill-amber-400 text-amber-500" : ""}`} />
+            </Button>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => startEdit(c)} aria-label="Edit contact">
                 <Pencil className="h-3.5 w-3.5" />
