@@ -6,10 +6,10 @@
 // scripts/, so a run spends no tokens retyping 1,100 lines of Python. SKILL.md
 // (the platform entry point, written by hand) is never touched here.
 //
-//   deno run --allow-read --allow-write scripts/sync-underwrite-skill.ts <path to desktop SKILL.md>
+//   deno run --allow-read --allow-write --allow-net=jsr.io scripts/sync-underwrite-skill.ts <path to desktop SKILL.md>
 //
-// Run it whenever Chase changes the desktop skill, then `ant apply` the skill
-// (see anthropic/README.md).
+// Run it whenever Chase changes the desktop skill, then redeploy generate-model
+// and press "Set up" on a deal's model card (see anthropic/README.md).
 
 const src = Deno.args[0];
 if (!src) {
@@ -45,3 +45,6 @@ for (const [, name, code] of scripts) {
   await Deno.writeTextFile(new URL(`scripts/${name}`, OUT), code + "\n");
 }
 console.log(`UNDERWRITE.md (${rules.split("\n").length} lines), exceptions.txt, ${scripts.map((m) => m[1]).join(", ")}`);
+
+// Repack the function's copy so the next deploy carries the new skill.
+await import("./bundle-underwriter.ts");

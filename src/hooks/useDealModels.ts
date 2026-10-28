@@ -114,6 +114,65 @@ export function useCancelDealModel(dealId: string) {
   });
 }
 
+// ---------- setup (admin) ----------
+
+export type ModelSetupStatus = {
+  ready: boolean;
+  up_to_date: boolean;
+  run_budget_usd: number;
+  probe_started_at: string | null;
+};
+
+export type ProbeReport = {
+  status: string;
+  over: boolean;
+  stop_reason: string | null;
+  cost_usd: number | null;
+  errors: string[];
+  messages: string[];
+  outputs: string[];
+};
+
+const setupKey = ["model_setup_status"];
+
+export function useModelSetupStatus() {
+  return useQuery({
+    queryKey: setupKey,
+    queryFn: () => invoke({ action: "status" }) as Promise<ModelSetupStatus>,
+    staleTime: 60_000,
+  });
+}
+
+export function useSetUpModelAgent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => invoke({ action: "setup" }) as Promise<ModelSetupStatus & { created: string[] }>,
+    onSettled: () => qc.invalidateQueries({ queryKey: setupKey }),
+  });
+}
+
+export function useStartProbe() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => invoke({ action: "probe" }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: setupKey });
+      qc.invalidateQueries({ queryKey: ["model_probe"] });
+    },
+  });
+}
+
+/** The container check's report, re-read every 15 s until it ends. */
+export function useProbeReport(enabled: boolean) {
+  return useQuery({
+    queryKey: ["model_probe"],
+    enabled,
+    queryFn: () => invoke({ action: "probe_check" }) as Promise<ProbeReport>,
+    refetchInterval: (q) => ((q.state.data as ProbeReport | undefined)?.over ? false : 15_000),
+    refetchIntervalInBackground: true,
+  });
+}
+
 export async function getDealModelUrl(storagePath: string, fileName: string, expiresInSeconds = 300) {
   const { data, error } = await supabase.storage
     .from(DEAL_MODELS_BUCKET)

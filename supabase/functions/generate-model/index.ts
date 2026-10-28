@@ -17,6 +17,15 @@
 //     nobody has the page open is collected the next time someone does.
 //   {action: "cancel", model_id}
 //     Interrupts the session and marks the run failed.
+//   {action: "status"}
+//     Whether the agent exists on Anthropic and matches the bundled definition.
+//   {action: "setup"} (admin)
+//     Creates or updates the environment, the skill and the agent from
+//     underwriterBundle.ts, with the platform's own key, and records their ids
+//     in model_agent_config. Only parts whose definition changed are touched.
+//   {action: "probe"} / {action: "probe_check"} (admin)
+//     A short, $2-capped session that checks the container can install
+//     LibreOffice and recalculate the template from Brain, and its report.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
@@ -41,6 +50,8 @@ import {
   type SessionEvent,
 } from "../_shared/dealModel.ts";
 import {
+  createAgent,
+  createEnvironment,
   createSession,
   downloadFile,
   getSession,
@@ -48,14 +59,14 @@ import {
   listSessionFiles,
   sendEvents,
   type SessionResource,
+  uploadSkill,
 } from "../_shared/managedAgents.ts";
+import { UNDERWRITER } from "./underwriterBundle.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const AGENT_ID = Deno.env.get("MODEL_AGENT_ID");
-const ENVIRONMENT_ID = Deno.env.get("MODEL_ENVIRONMENT_ID");
 /**
  * Hard cap on one run's spend, enforced by Anthropic on the session. A run that
  * reaches it stops; the skill saves the model after every tab, so it still
@@ -102,6 +113,14 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
+    if (body.action === "status") return json(await status(admin));
+    if (["setup", "probe", "probe_check"].includes(body.action)) {
+      const { data: isAdmin } = await admin.rpc("has_role", { _user_id: authz.user.id, _role: "admin" });
+      if (!isAdmin) return json({ error: "Only an admin can set up model generation." }, 403);
+      if (body.action === "setup") return json(await setup(admin, authz.user.id));
+      if (body.action === "probe") return json(await probe(admin));
+      return json(await probeCheck(admin));
+    }
     if (body.action === "start") return json(await start(admin, body, authz.user.id), 202);
     if (typeof body.model_id !== "string" || !UUID_RE.test(body.model_id)) {
       return json({ error: "model_id must be a UUID" }, 400);
@@ -121,8 +140,9 @@ Deno.serve(async (req) => {
 type Picked = { role: ModelInputRole | "template" | "affordability"; id: string; file_name: string; storage_path: string; bucket: string };
 
 async function start(admin: any, body: any, userId: string) {
-  if (!AGENT_ID || !ENVIRONMENT_ID) {
-    throw new UserFacingError("Model generation isn't set up yet: MODEL_AGENT_ID and MODEL_ENVIRONMENT_ID are not configured.", 503);
+  const cfg = await loadConfig(admin);
+  if (!cfg?.agent_id || !cfg?.environment_id) {
+    throw new UserFacingError("Model generation isn't set up yet. An admin can set it up from this card.", 503);
   }
   const dealId = body.deal_id;
   if (typeof dealId !== "string" || !UUID_RE.test(dealId)) throw new UserFacingError("deal_id must be a UUID");
@@ -203,7 +223,7 @@ async function start(admin: any, body: any, userId: string) {
     throw insErr;
   }
 
-  const work = launch(admin, row.id, deal, picked, options).catch(async (e) => {
+  const work = launch(admin, row.id, deal, picked, options, cfg).catch(async (e) => {
     console.error(JSON.stringify({ fn: FN, model_id: row.id, stage: "start", detail: String(e?.stack ?? e) }));
     await admin.from("deal_models").update({
       status: "failed",
@@ -218,7 +238,14 @@ async function start(admin: any, body: any, userId: string) {
 }
 
 /** Upload everything to Anthropic and create the session. */
-async function launch(admin: any, modelId: string, deal: any, picked: Picked[], options: Record<string, string>) {
+async function launch(
+  admin: any,
+  modelId: string,
+  deal: any,
+  picked: Picked[],
+  options: Record<string, string>,
+  cfg: AgentConfig,
+) {
   const fileIds: string[] = [];
   const resources: SessionResource[] = [];
   const files: Record<string, { mounted_as: string; original_name: string }> = {};
@@ -251,8 +278,8 @@ async function launch(admin: any, modelId: string, deal: any, picked: Picked[], 
   resources.push({ type: "file", file_id: briefId, mount_path: "/run.json" });
 
   const session = await createSession({
-    agentId: AGENT_ID!,
-    environmentId: ENVIRONMENT_ID!,
+    agentId: cfg.agent_id!,
+    environmentId: cfg.environment_id!,
     title: `Pro forma: ${deal.property_name}`,
     resources,
     budgetCents: budgetAmount(RUN_BUDGET_USD),
@@ -440,6 +467,158 @@ async function cancel(admin: any, modelId: string) {
   }
   await finish(admin, row, { status: "failed", error: "Cancelled.", cost_usd: row.cost_usd });
   return await reload(admin, modelId);
+}
+
+// ---------------------------------------------------------------- agent setup
+
+type AgentConfig = {
+  environment_id: string | null;
+  environment_hash: string | null;
+  skill_id: string | null;
+  skill_version: string | null;
+  skill_hash: string | null;
+  agent_id: string | null;
+  agent_hash: string | null;
+  probe_session_id: string | null;
+  probe_started_at: string | null;
+};
+
+async function loadConfig(admin: any): Promise<AgentConfig | null> {
+  const { data, error } = await admin.from("model_agent_config").select("*").eq("id", 1).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+async function saveConfig(admin: any, fields: Partial<AgentConfig> & { updated_by?: string }) {
+  const { error } = await admin
+    .from("model_agent_config")
+    .upsert({ id: 1, ...fields, updated_at: new Date().toISOString() });
+  if (error) throw error;
+}
+
+/** The agent's own hash also covers the skill it points at, so a new skill means a new agent. */
+const agentHash = (skillId: string) => `${UNDERWRITER.agent.hash}:${skillId}`;
+
+async function status(admin: any) {
+  const cfg = await loadConfig(admin);
+  const ready = !!(cfg?.agent_id && cfg?.environment_id && cfg?.skill_id);
+  return {
+    ready,
+    up_to_date: ready &&
+      cfg!.environment_hash === UNDERWRITER.environment.hash &&
+      cfg!.skill_hash === UNDERWRITER.skill.hash &&
+      cfg!.agent_hash === agentHash(cfg!.skill_id!),
+    run_budget_usd: RUN_BUDGET_USD,
+    probe_started_at: cfg?.probe_started_at ?? null,
+  };
+}
+
+/** Create whatever is missing or out of date, saving each id as soon as it exists. */
+async function setup(admin: any, userId: string) {
+  const cfg: Partial<AgentConfig> = (await loadConfig(admin)) ?? {};
+  const done: string[] = [];
+
+  if (!cfg.environment_id || cfg.environment_hash !== UNDERWRITER.environment.hash) {
+    const env = await createEnvironment({
+      ...UNDERWRITER.environment.config,
+      // Names stay unique when a changed definition makes a new one.
+      name: `${UNDERWRITER.environment.config.name}-${UNDERWRITER.environment.hash.slice(0, 6)}`,
+    });
+    cfg.environment_id = env.id;
+    cfg.environment_hash = UNDERWRITER.environment.hash;
+    await saveConfig(admin, { environment_id: env.id, environment_hash: cfg.environment_hash, updated_by: userId });
+    done.push("environment");
+  }
+
+  if (!cfg.skill_id || cfg.skill_hash !== UNDERWRITER.skill.hash) {
+    const skill = await uploadSkill(UNDERWRITER.skill.files, cfg.skill_id ?? undefined);
+    cfg.skill_id = skill.id;
+    cfg.skill_hash = UNDERWRITER.skill.hash;
+    await saveConfig(admin, { skill_id: skill.id, skill_version: skill.version, skill_hash: cfg.skill_hash, updated_by: userId });
+    done.push(cfg.skill_version ? "skill (new version)" : "skill");
+  }
+
+  if (!cfg.agent_id || cfg.agent_hash !== agentHash(cfg.skill_id!)) {
+    const agent = await createAgent({
+      ...UNDERWRITER.agent.config,
+      // "latest": a new skill version reaches the next run without a new agent.
+      skills: [{ type: "custom", skill_id: cfg.skill_id, version: "latest" }],
+    });
+    await saveConfig(admin, { agent_id: agent.id, agent_hash: agentHash(cfg.skill_id!), updated_by: userId });
+    done.push("agent");
+  }
+
+  return { ...(await status(admin)), created: done };
+}
+
+const PROBE_MESSAGE = [
+  "This is an environment check, not a deal. Do not build a model and do not use the web.",
+  "From the full-underwrite skill, do only the Setup section, then test the recalc chain on /mnt/session/uploads/template.xlsx:",
+  "1. Report python3 --version, whether lxml and openpyxl import, soffice --version, and whether `import uno` works.",
+  "2. If LibreOffice or uno is missing, try the install the skill describes, and report the exact command and its result.",
+  "3. If LibreOffice works: copy the skill's scripts/ to /workspace/uw/, open the template with xlsx_xml.Workbook, save it unchanged as out.xlsx,",
+  "   run lo_compat.py and recalc.py on it, then inject_cache.py for the Pro Forma and Dashboard sheets, and report the time each step took",
+  "   and a few recalculated values (Pro Forma G54, Dashboard's first numbers). Write final.xlsx to /mnt/session/outputs/.",
+  "4. End with one line: RECALC: works | RECALC: no LibreOffice | RECALC: fails (<why>).",
+].join("\n");
+
+/** Start the container check: the template from Brain, a $2 cap, no deal. */
+async function probe(admin: any) {
+  const cfg = await loadConfig(admin);
+  if (!cfg?.agent_id || !cfg?.environment_id) throw new UserFacingError("Set up model generation first.");
+  const { data: src, error } = await admin
+    .from("data_room_sources")
+    .select("file_name,storage_path")
+    .eq("category", "model_template")
+    .eq("kind", "file")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!src) throw new UserFacingError("No pro forma template in Brain yet.");
+  const { data: blob, error: dlErr } = await admin.storage.from(BRAIN_BUCKET).download(src.storage_path);
+  if (dlErr || !blob) throw new Error(`template download failed: ${dlErr?.message}`);
+  const fileId = await uploadClaudeFile(blob, "template.xlsx");
+  const session = await createSession({
+    agentId: cfg.agent_id,
+    environmentId: cfg.environment_id,
+    title: "Model environment probe",
+    resources: [{ type: "file", file_id: fileId, mount_path: "/template.xlsx" }],
+    budgetCents: "200",
+    message: PROBE_MESSAGE,
+    metadata: { purpose: "env-probe", file_id: fileId },
+  });
+  await saveConfig(admin, { probe_session_id: session.id, probe_started_at: new Date().toISOString() });
+  return { session_id: session.id };
+}
+
+/** What the probe has reported so far. */
+async function probeCheck(admin: any) {
+  const cfg = await loadConfig(admin);
+  if (!cfg?.probe_session_id) throw new UserFacingError("No probe has been run.");
+  const session = await getSession(cfg.probe_session_id);
+  let page: string | null = null;
+  const messages: string[] = [];
+  let digest = digestEvents([]);
+  for (let i = 0; i < MAX_EVENT_PAGES; i++) {
+    const res = await listEvents(cfg.probe_session_id, page);
+    for (const e of res.data ?? []) {
+      digest = digestEvents([e], digest);
+      if (e.type === "agent.message" && digest.lastMessage) messages.push(digest.lastMessage);
+    }
+    if (!res.next_page) break;
+    page = res.next_page;
+  }
+  const over = runIsOver(session.status, digest);
+  return {
+    status: session.status,
+    over,
+    stop_reason: digest.stopReason,
+    cost_usd: listCostUsd(session.usage?.list_cost),
+    errors: digest.errors,
+    messages: messages.slice(-12),
+    outputs: over ? (await listSessionFiles(cfg.probe_session_id)).map((f) => f.filename) : [],
+  };
 }
 
 // ---------------------------------------------------------------- rows

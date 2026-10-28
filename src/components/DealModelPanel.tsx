@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { AtlasMarkdown } from "@/components/atlas/AtlasMarkdown";
+import { useAuth } from "@/hooks/useAuth";
 import { useDealDocuments, type DealDocument } from "@/hooks/useDealDocuments";
 import {
   getDealModelUrl,
@@ -32,7 +33,11 @@ import {
   useCancelDealModel,
   useCheckOpenModels,
   useDealModels,
+  useModelSetupStatus,
+  useProbeReport,
+  useSetUpModelAgent,
   useStartDealModel,
+  useStartProbe,
   type DealModel,
 } from "@/hooks/useDealModels";
 import {
@@ -74,7 +79,10 @@ export function DealModelPanel({ dealId }: { dealId: string }) {
   const { data: docs = [] } = useDealDocuments(dealId);
   useCheckOpenModels(dealId, models);
   const cancel = useCancelDealModel(dealId);
+  const { isAdmin } = useAuth();
+  const { data: setup } = useModelSetupStatus();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const notSetUp = setup !== undefined && !setup.ready;
 
   const open = models.find(isOpen);
   const finished = models.filter((m) => !isOpen(m));
@@ -89,12 +97,16 @@ export function DealModelPanel({ dealId }: { dealId: string }) {
         <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground font-display">
           Pro forma model
         </CardTitle>
-        <Button size="sm" variant="outline" onClick={() => setDialogOpen(true)} disabled={!!open || !ready}>
+        <Button size="sm" variant="outline" onClick={() => setDialogOpen(true)} disabled={!!open || !ready || notSetUp}>
           <Sparkles className="h-3.5 w-3.5 mr-1.5" />
           Generate model
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
+        {isAdmin && setup && <SetupBox ready={setup.ready} upToDate={setup.up_to_date} probeStarted={!!setup.probe_started_at} />}
+        {!isAdmin && notSetUp && (
+          <p className="text-xs text-muted-foreground">Model generation isn't set up yet. An admin can set it up here.</p>
+        )}
         {open && (
           <div className="rounded-md border border-hairline p-3 flex items-start gap-3">
             <Loader2 className="h-4 w-4 mt-0.5 animate-spin text-muted-foreground shrink-0" />
@@ -134,6 +146,91 @@ export function DealModelPanel({ dealId }: { dealId: string }) {
 
       {dialogOpen && <GenerateDialog dealId={dealId} docs={docs} defaults={defaults} onClose={() => setDialogOpen(false)} />}
     </Card>
+  );
+}
+
+/**
+ * Admin only: create or update the agent on Anthropic (with the platform's own
+ * key, server-side) and run the $2 container check, with its report.
+ */
+function SetupBox({ ready, upToDate, probeStarted }: { ready: boolean; upToDate: boolean; probeStarted: boolean }) {
+  const setUp = useSetUpModelAgent();
+  const startProbe = useStartProbe();
+  const { data: report, isFetching } = useProbeReport(probeStarted);
+  const [showReport, setShowReport] = useState(false);
+  const probing = probeStarted && report !== undefined && !report.over;
+  const verdict = report?.messages.join("\n").match(/RECALC:\s*([^\n]+)/i)?.[1];
+
+  return (
+    <div className="rounded-md border border-dashed border-hairline p-3 space-y-2 text-xs">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="font-medium">Admin:</span>
+        <span className="text-muted-foreground">
+          {!ready ? "Model generation isn't set up." : upToDate ? "Agent set up." : "The skill or agent changed since setup."}
+        </span>
+        {(!ready || !upToDate) && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            disabled={setUp.isPending}
+            onClick={() =>
+              setUp.mutate(undefined, {
+                onSuccess: (r) => toast.success(r.created.length ? `Created: ${r.created.join(", ")}` : "Already up to date"),
+                onError: (e) => toast.error(`Setup failed: ${errMsg(e)}`),
+              })}
+          >
+            {setUp.isPending && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+            {ready ? "Update" : "Set up"}
+          </Button>
+        )}
+        {ready && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            disabled={startProbe.isPending || probing}
+            onClick={() =>
+              startProbe.mutate(undefined, {
+                onSuccess: () => {
+                  toast.success("Container check started (capped at $2).");
+                  setShowReport(true);
+                },
+                onError: (e) => toast.error(`Could not start the check: ${errMsg(e)}`),
+              })}
+          >
+            {(startProbe.isPending || probing) && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+            Check container
+          </Button>
+        )}
+      </div>
+      {report && (
+        <div className="space-y-1">
+          <button
+            type="button"
+            onClick={() => setShowReport((v) => !v)}
+            className="text-muted-foreground hover:text-foreground flex items-center gap-1"
+          >
+            {showReport ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            Container check: {report.over ? verdict ?? `ended (${report.stop_reason ?? report.status})` : "running"}
+            {report.cost_usd != null && ` · $${report.cost_usd.toFixed(2)}`}
+            {isFetching && !report.over && <Loader2 className="h-3 w-3 animate-spin" />}
+          </button>
+          {showReport && (
+            <div className="rounded border border-hairline p-2 max-h-80 overflow-y-auto space-y-2">
+              {report.errors.map((e) => (
+                <p key={e} className="text-destructive">{e}</p>
+              ))}
+              {report.messages.length === 0 ? (
+                <p className="text-muted-foreground">No messages yet.</p>
+              ) : (
+                report.messages.map((m, i) => <pre key={i} className="whitespace-pre-wrap font-sans">{m}</pre>)
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

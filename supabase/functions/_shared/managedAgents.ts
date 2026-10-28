@@ -2,9 +2,9 @@
 // in the style of _shared/anthropic.ts.
 //
 // A session is one model run: Anthropic runs the agent loop and hosts the
-// container the full-underwrite skill works in. The agent and its environment
-// are created once, from anthropic/ in this repo with `ant apply`, and their ids
-// reach the function as MODEL_AGENT_ID and MODEL_ENVIRONMENT_ID.
+// container the full-underwrite skill works in. The agent, its environment and
+// the skill are created by generate-model's admin "setup" action from the
+// bundled copy of anthropic/, and their ids are kept in model_agent_config.
 
 import { AnthropicHttpError, AnthropicNotConfiguredError } from "./anthropic.ts";
 import type { SessionEvent } from "./dealModel.ts";
@@ -31,6 +31,38 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     throw new AnthropicHttpError(resp.status, txt.slice(0, 2000), `anthropic ${method} ${path} ${resp.status}: ${txt.slice(0, 400)}`);
   }
   return (txt ? JSON.parse(txt) : null) as T;
+}
+
+export const createEnvironment = (body: Record<string, unknown>) => call<{ id: string }>("POST", "/environments", body);
+
+export const createAgent = (body: Record<string, unknown>) => call<{ id: string; version: number }>("POST", "/agents", body);
+
+/**
+ * Create a custom skill, or a new version of one (a full snapshot: every file,
+ * each named <skill folder>/<path>). Skills take no beta header.
+ */
+export async function uploadSkill(
+  files: readonly { path: string; content: string }[],
+  skillId?: string,
+): Promise<{ id: string; version: string | null }> {
+  if (!ANTHROPIC_API_KEY) throw new AnthropicNotConfiguredError();
+  const form = new FormData();
+  for (const f of files) form.append("files[]", new Blob([f.content], { type: "text/plain" }), f.path);
+  const path = skillId ? `/skills/${encodeURIComponent(skillId)}/versions` : "/skills";
+  const resp = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: { "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+    body: form,
+  });
+  const txt = await resp.text();
+  if (!resp.ok) {
+    throw new AnthropicHttpError(resp.status, txt.slice(0, 2000), `anthropic POST ${path} ${resp.status}: ${txt.slice(0, 400)}`);
+  }
+  const data = JSON.parse(txt);
+  // A new skill carries its version as latest_version_id; a new version is the version itself.
+  return skillId
+    ? { id: skillId, version: data?.version ?? data?.id ?? null }
+    : { id: data.id, version: data?.latest_version_id ?? data?.latest_version ?? null };
 }
 
 export type Session = {
