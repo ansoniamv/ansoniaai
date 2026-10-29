@@ -503,7 +503,7 @@ export default function DealDetail() {
 
   if (isLoading) {
     return (
-      <div className="max-w-7xl mx-auto space-y-6">
+      <div className="w-full space-y-6">
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-48 w-full" />
       </div>
@@ -512,7 +512,7 @@ export default function DealDetail() {
 
   if (!deal) {
     return (
-      <div className="max-w-7xl mx-auto text-center py-12">
+      <div className="w-full text-center py-12">
         <p className="text-muted-foreground">Deal not found.</p>
         <Button variant="link" onClick={() => navigate("/deals")}>
           Back to pipeline
@@ -633,7 +633,7 @@ export default function DealDetail() {
   const documents: any[] = Array.isArray(d.documents) ? d.documents : [];
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 pb-12">
+    <div className="w-full space-y-8 pb-12">
       {/* ============ Header ============ */}
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3">
