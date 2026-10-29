@@ -51,7 +51,7 @@ import { AiScoreTab } from "@/components/AiScoreTab";
 import { NoteComposerDialog } from "@/components/NoteComposerDialog";
 import { useDeal, useDeleteDeal } from "@/hooks/useDeals";
 import { persistDealScore } from "@/lib/persistDealScore";
-import { capRateHint, equityCheck, grmHint, latestT3Noi, monthlyGrm, pricePerSqft } from "@/lib/dealRatios";
+import { capRateHint, equityCheck, grmHint, latestT3Noi, pricePerSqft } from "@/lib/dealRatios";
 import { useDealDocuments } from "@/hooks/useDealDocuments";
 import { cn } from "@/lib/utils";
 import {
@@ -101,6 +101,7 @@ function Stat({
   meets,
   hint,
   source,
+  className,
 }: {
   label: string;
   value: React.ReactNode;
@@ -108,6 +109,7 @@ function Stat({
   hint?: string;
   /** Where the figure came from, opened by clicking the box. */
   source?: React.ReactNode;
+  className?: string;
 }) {
   const empty = value === null || value === undefined || value === "";
   const body = (
@@ -125,7 +127,7 @@ function Stat({
       {hint && <div className="text-[10px] text-muted-foreground tabular-nums">{hint}</div>}
     </>
   );
-  const box = "surface-card border-hairline rounded-md p-3 flex flex-col gap-1 min-w-0";
+  const box = cn("surface-card border-hairline rounded-md p-3 flex flex-col gap-1 min-w-0", className);
   if (!source || empty) return <div className={box}>{body}</div>;
   return (
     <Popover>
@@ -458,12 +460,38 @@ export default function DealDetail() {
   // this page, the pipeline list, exports and Atlas all read one figure.
   const inPlaceCap = { value: d?.in_place_cap_rate, hint: capRateHint(d?.t12_noi, d?.asking_price) };
   const grm = { value: d?.grm, hint: grmHint(d?.gross_scheduled_rent, d?.asking_price) };
-  const grmMonthly = { value: monthlyGrm(d?.grm), hint: grmHint(d?.gross_scheduled_rent, d?.asking_price, "monthly") };
   const ppsf = pricePerSqft(d?.price_per_sqft, d?.asking_price, d?.total_sqft);
   const equity = equityCheck(d?.asking_price);
   // Same query as the Deal Documents panel, so this costs no extra request.
   const { data: docs = [] } = useDealDocuments(id);
   const t3 = latestT3Noi(docs);
+  // Delinquency, RE taxes and the rent roll's in-place rent, each off the latest
+  // parsed document of its type. Bad debt is net of recoveries, shown positive;
+  // EGI is the T12's total income. The rent roll's rent, not the deal field,
+  // because HelloData overwrites that one.
+  const docOps = useMemo(() => {
+    const latest = (type: string) =>
+      docs
+        .filter((doc) => doc.doc_type === type && doc.parse_status === "parsed")
+        .sort(
+          (a, b) =>
+            (b.doc_as_of ?? "").localeCompare(a.doc_as_of ?? "") || b.created_at.localeCompare(a.created_at),
+        )[0]?.summary;
+    const t12 = latest("t12")?.t12;
+    const annual = (c: string) => t12?.categories.find((r) => r.category === c)?.annual ?? null;
+    const badDebt = annual("bad_debt");
+    return {
+      badDebt: isNum(badDebt) ? -badDebt : null,
+      taxes: annual("taxes"),
+      egi: t12?.total_income ?? null,
+      rentRollRent: latest("rent_roll")?.rent_roll?.avg_lease_rent ?? null,
+    };
+  }, [docs]);
+  // "The Eastham Special": $ / unit over monthly in-place rent.
+  const eastham =
+    isNum(pricePerUnit) && isNum(docOps.rentRollRent) && docOps.rentRollRent > 0
+      ? pricePerUnit / docOps.rentRollRent
+      : null;
   // Same query as the Submarket Supply Cycle panel: cites a CoStar supply figure.
   const { data: costarRows = [] } = useSubmarketSignals(d?.costar_submarket_code);
 
@@ -969,11 +997,45 @@ export default function DealDetail() {
                   <Stat label="Gross Sched. Rent" value={fmtMoney(d.gross_scheduled_rent)} />
                   <Stat label="Occupancy" value={fmtPct(d.occupancy_pct)} />
                   <Stat label="Expense Ratio" value={fmtPct(d.expense_ratio)} />
-                  <Stat label="GRM (Annual)" value={isNum(grm.value) ? `${grm.value.toFixed(2)}x` : null} hint={grm.hint} />
                   <Stat
-                    label="GRM (Monthly)"
-                    value={isNum(grmMonthly.value) ? `${grmMonthly.value.toFixed(1)}x` : null}
-                    hint={grmMonthly.hint}
+                    label="T12 Delinquency"
+                    value={fmtMoney(docOps.badDebt)}
+                    hint={
+                      isNum(docOps.badDebt) && isNum(d.gross_scheduled_rent) && d.gross_scheduled_rent > 0
+                        ? `${((docOps.badDebt / d.gross_scheduled_rent) * 100).toFixed(2)}% of GPR · net bad debt`
+                        : "Net bad debt, T12"
+                    }
+                  />
+                  <Stat
+                    label="RE Taxes"
+                    value={
+                      isNum(docOps.taxes) && isNum(deal.unit_count) && deal.unit_count > 0
+                        ? `${fmtMoney(docOps.taxes / deal.unit_count)} / unit`
+                        : null
+                    }
+                    hint={
+                      isNum(docOps.taxes)
+                        ? `${fmtMoney(docOps.taxes)}${
+                            isNum(docOps.egi) && docOps.egi > 0
+                              ? ` · ${((docOps.taxes / docOps.egi) * 100).toFixed(1)}% of EGI`
+                              : ""
+                          }`
+                        : undefined
+                    }
+                  />
+                  <Stat
+                    label={"“The Eastham Special”"}
+                    value={isNum(eastham) ? `${eastham.toFixed(1)}x` : null}
+                    hint="$ / unit ÷ rent roll avg in-place rent"
+                    className={
+                      !isNum(eastham)
+                        ? undefined
+                        : eastham < 100
+                          ? "!bg-emerald-500/15 !border-emerald-500/50"
+                          : eastham <= 110
+                            ? "!bg-amber-400/20 !border-amber-500/50"
+                            : "!bg-red-500/15 !border-red-500/50"
+                    }
                   />
                 </CardContent>
               </Card>
