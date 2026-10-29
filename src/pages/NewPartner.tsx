@@ -21,12 +21,10 @@ import { useCreateNote } from "@/hooks/useNotes";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentTeamMember } from "@/hooks/useTeamMembers";
 import { supabase } from "@/integrations/supabase/client";
-import { INVESTOR_TYPES, GEOGRAPHY_QUICK_ADDS } from "@/lib/partnerOptions";
+import { INVESTOR_TYPES, HOLD_PERIODS, PRODUCT_TYPES, GEOGRAPHY_QUICK_ADDS } from "@/lib/partnerOptions";
 
 const FIRM_TYPES = ["GP", "LP", "Family Office", "REIT", "Insurance", "Pension", "Endowment", "Fund of Funds", "Other"];
 const WARMTH_LEVELS = ["Existing Partner", "Very Warm", "Warm", "Tepid", "Cold"];
-const HOLD_PERIODS = ["Short (<3 yr)", "Medium (3–7 yr)", "Long (7–10 yr)", "Perpetual"];
-const PRODUCT_TYPES = ["Multifamily", "Office", "Industrial", "Retail", "Mixed-Use", "Hospitality", "Student Housing", "Senior Living", "Self-Storage"];
 
 type FormState = {
   name: string;

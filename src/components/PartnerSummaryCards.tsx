@@ -15,6 +15,7 @@ import { EnrichedBadge, ProvenanceChip, type EnrichedFieldsMap } from "@/compone
 import { useUpdatePartner, type Partner } from "@/hooks/usePartners";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
+import { INVESTOR_TYPES, HOLD_PERIODS, PRODUCT_TYPES } from "@/lib/partnerOptions";
 
 /**
  * Map of highlight tokens (from `?highlight=` on the URL) → which card owns them.
@@ -370,11 +371,7 @@ function InvestmentParametersCard({
             {renderBadge("investor_type")}
           </span>
           {editing ? (
-            <TagInput
-              value={investorType}
-              onChange={setInvestorType}
-              placeholder="e.g. Family Office, HNW"
-            />
+            <CheckboxOptions options={INVESTOR_TYPES} value={investorType} onChange={setInvestorType} />
           ) : (
             <div className="flex gap-1 flex-wrap justify-end">
               {partner.investor_type?.length ? (
@@ -398,11 +395,7 @@ function InvestmentParametersCard({
             {renderBadge("hold_period")}
           </span>
           {editing ? (
-            <TagInput
-              value={holdPeriod}
-              onChange={setHoldPeriod}
-              placeholder="e.g. 5-7 yr"
-            />
+            <CheckboxOptions options={HOLD_PERIODS} value={holdPeriod} onChange={setHoldPeriod} />
           ) : (
             <div className="flex gap-1 flex-wrap justify-end">
               {partner.hold_period?.length ? (
@@ -638,11 +631,7 @@ function GeographyStrategyCard({
           </span>
           {editing ? (
             <div className="mt-1">
-              <TagInput
-                value={productTypes}
-                onChange={setProductTypes}
-                placeholder="e.g. multifamily, BTR"
-              />
+              <CheckboxOptions options={PRODUCT_TYPES} value={productTypes} onChange={setProductTypes} />
             </div>
           ) : (
             <div className="flex gap-1 flex-wrap mt-1">
@@ -685,6 +674,40 @@ function GeographyStrategyCard({
         </div>
       </CardContent>
     </Card>
+    </div>
+  );
+}
+
+/**
+ * Checkbox grid for a fixed option list. Values already on the partner that
+ * aren't in the list (older free-text entries like "JV") show as extra checked
+ * boxes, so they can be kept or unticked instead of being silently dropped.
+ */
+function CheckboxOptions({
+  options,
+  value,
+  onChange,
+}: {
+  options: string[];
+  value: string[];
+  onChange: (v: string[]) => void;
+}) {
+  // Captured once per edit session so an unticked extra stays visible to re-tick.
+  const [extras] = useState(() => value.filter((v) => !options.includes(v)));
+  const toggle = (opt: string) =>
+    onChange(value.includes(opt) ? value.filter((v) => v !== opt) : [...value, opt]);
+
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-1">
+      {[...options, ...extras].map((opt) => (
+        <label
+          key={opt}
+          className="inline-flex items-center gap-1.5 text-xs border rounded-md px-2 py-1 cursor-pointer hover:bg-muted/50"
+        >
+          <Checkbox checked={value.includes(opt)} onCheckedChange={() => toggle(opt)} />
+          <span className="whitespace-nowrap">{opt}</span>
+        </label>
+      ))}
     </div>
   );
 }
