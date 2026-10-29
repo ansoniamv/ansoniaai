@@ -1,5 +1,6 @@
-// Shared option lists for capital-partner forms.
-// Keep in sync between NewPartner and PartnerDetail editors.
+// Shared option lists for the capital-partner form (Add and Edit use the same one).
+
+export const WARMTH_LEVELS = ["Existing Partner", "Very Warm", "Warm", "Tepid", "Cold"];
 
 // Who the partner is.
 export const INVESTOR_TYPES = [

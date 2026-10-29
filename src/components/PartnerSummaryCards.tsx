@@ -1,21 +1,13 @@
-import { useState, useEffect, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Pencil, Check, X, MapPinOff } from "lucide-react";
-import { toast } from "sonner";
+import { useEffect, useRef } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { MapPinOff, Pencil } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Switch } from "@/components/ui/switch";
-import { Separator } from "@/components/ui/separator";
-import { TagInput } from "@/components/TagInput";
 import { ManualBadge } from "@/components/ManualBadge";
 import { EnrichedBadge, ProvenanceChip, type EnrichedFieldsMap } from "@/components/EnrichedBadge";
-import { useUpdatePartner, type Partner } from "@/hooks/usePartners";
-import { useAuth } from "@/hooks/useAuth";
+import type { Partner } from "@/hooks/usePartners";
 import { cn } from "@/lib/utils";
-import { INVESTOR_TYPES, INVESTMENT_TYPES, HOLD_PERIODS, PRODUCT_TYPES, withCurrent } from "@/lib/partnerOptions";
 
 /**
  * Map of highlight tokens (from `?highlight=` on the URL) → which card owns them.
@@ -31,42 +23,6 @@ const HIGHLIGHT_TO_CARD: Record<string, "investment" | "geography"> = {
 
 type NoteLite = { id: string; content: string; content_format: string; created_at: string };
 
-/**
- * Which keys are "owned" by each summary card. Saving the card unions the
- * fields that actually changed into `manual_fields` and strips the same
- * keys from `enriched_fields` — the enricher then permanently skips them
- * (see enrich-partner-from-notes/index.ts).
- *
- * `geography_avoid` is intentionally NOT in this list for badge/enrichment
- * purposes — it's manual-only and never AI-derived.
- */
-const CARD_FIELDS = {
-  investment: ["min_equity_m", "max_equity_m", "investor_type", "investment_type", "hold_period"] as const,
-  geography: [
-    "geography",
-    "strategy_value_add",
-    "strategy_core_plus",
-    "strategy_workforce",
-    "strategy_affordable",
-    "product_types",
-    "urban_infill",
-    "suburban",
-  ] as const,
-};
-
-function arraysEqual(a: any[], b: any[]) {
-  if (a.length !== b.length) return false;
-  const s = new Set(a);
-  return b.every((x) => s.has(x));
-}
-
-function valueChanged(before: any, after: any) {
-  if (Array.isArray(before) || Array.isArray(after)) {
-    return !arraysEqual(before ?? [], after ?? []);
-  }
-  return (before ?? null) !== (after ?? null);
-}
-
 export function PartnerSummaryCards({
   partner,
   notes,
@@ -74,8 +30,6 @@ export function PartnerSummaryCards({
   partner: Partner;
   notes: NoteLite[] | undefined;
 }) {
-  const update = useUpdatePartner();
-  const { profile } = useAuth();
   const manualSet = new Set<string>(partner.manual_fields ?? []);
   const enriched = ((partner.enriched_fields ?? {}) as EnrichedFieldsMap);
 
@@ -134,60 +88,6 @@ export function PartnerSummaryCards({
     (enriched.suburban && "suburban") ||
     null;
 
-  const saveCard = async (
-    cardFields: readonly string[],
-    draft: Partial<Partner>,
-    extraChangedKeys: string[] = [],
-  ) => {
-    // Which of THIS card's fields actually changed vs. stored partner?
-    const changed: string[] = [];
-    for (const key of cardFields) {
-      if (valueChanged((partner as any)[key], (draft as any)[key])) changed.push(key);
-    }
-    for (const k of extraChangedKeys) if (!changed.includes(k)) changed.push(k);
-
-    // Build manual_fields (union of existing + card's editable keys except
-    // geography_avoid, which is manual-only by nature and doesn't need a
-    // lock entry — the enricher never touches it either way).
-    const lockable = cardFields.filter((k) => k !== "geography_avoid");
-    const nextManual = Array.from(new Set([...(partner.manual_fields ?? []), ...lockable]));
-
-    // Stamp manual provenance on keys this save changed; drop stale claims on the rest.
-    const now = new Date().toISOString();
-    const nextEnriched: Record<string, any> = { ...(partner.enriched_fields ?? {}) };
-    for (const k of lockable) {
-      if (changed.includes(k)) {
-        nextEnriched[k] = { source: "manual", as_of: now, written_at: now, set_by: profile?.email ?? null };
-      } else {
-        delete nextEnriched[k]; // locked but untouched by this save — no claim to make
-      }
-    }
-
-    const payload: any = {
-      id: partner.id,
-      ...draft,
-      manual_fields: nextManual,
-      enriched_fields: nextEnriched,
-    };
-
-    return new Promise<void>((resolve, reject) => {
-      update.mutate(payload, {
-        onSuccess: () => {
-          toast.success(
-            changed.length
-              ? `Saved ${changed.length} field${changed.length === 1 ? "" : "s"} — locked from AI enrichment`
-              : "Saved",
-          );
-          resolve();
-        },
-        onError: (err: any) => {
-          toast.error("Save failed: " + (err?.message ?? err));
-          reject(err);
-        },
-      });
-    });
-  };
-
   // Read `?highlight=field1,field2` — set by the Partner Matching panel when
   // the user clicks "Incomplete profile" so we can pulse the relevant card(s).
   const [searchParams] = useSearchParams();
@@ -199,17 +99,15 @@ export function PartnerSummaryCards({
     highlightTokens.map((t) => HIGHLIGHT_TO_CARD[t]).filter(Boolean) as Array<"investment" | "geography">,
   );
 
-  // Placed after every hook so the hook order is unchanged.
-
+  // Stacked, full width: each card lays its fields out in columns instead of
+  // squeezing two narrow cards side by side. Editing happens in the partner
+  // form (Edit partner); these cards only display.
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
-
+    <div className="space-y-4">
       <InvestmentParametersCard
         partner={partner}
         renderBadge={renderBadge}
         equityKey={equityKey}
-        onSave={(draft) => saveCard(CARD_FIELDS.investment, draft)}
-        saving={update.isPending}
         highlight={highlightCards.has("investment")}
       />
       <GeographyStrategyCard
@@ -217,8 +115,6 @@ export function PartnerSummaryCards({
         renderBadge={renderBadge}
         strategyKey={strategyKey}
         locationKey={locationKey}
-        onSave={(draft, extra) => saveCard(CARD_FIELDS.geography, draft, extra)}
-        saving={update.isPending}
         highlight={highlightCards.has("geography")}
       />
     </div>
@@ -240,6 +136,74 @@ function useHighlightEffect(highlight: boolean) {
   return ref;
 }
 
+type RenderBadge = (k: string | null) => React.ReactNode;
+
+/** Card frame. A highlighted card (fields flagged missing) gets a ring and a link into the form. */
+function SummaryCard({
+  title,
+  partnerId,
+  section,
+  highlight,
+  children,
+}: {
+  title: string;
+  partnerId: string;
+  section: string;
+  highlight: boolean;
+  children: React.ReactNode;
+}) {
+  const highlightRef = useHighlightEffect(highlight);
+  return (
+    <div ref={highlightRef} className={cn(highlight && "rounded-lg ring-2 ring-amber-500/70 ring-offset-2 ring-offset-background animate-pulse")}>
+      <Card className="border-hairline shadow-none">
+        <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{title}</CardTitle>
+          {highlight && (
+            <Button asChild size="sm" variant="outline" className="h-7 gap-1">
+              <Link to={`/partners/${partnerId}/edit#${section}`}><Pencil className="h-3.5 w-3.5" /> Fill in</Link>
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 text-sm">
+          {children}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  badge,
+  className,
+  children,
+}: {
+  label: React.ReactNode;
+  badge?: React.ReactNode;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={cn("space-y-1.5 min-w-0", className)}>
+      <div className="text-xs text-muted-foreground inline-flex items-center flex-wrap gap-x-1">{label}{badge}</div>
+      <div>{children}</div>
+    </div>
+  );
+}
+
+const Dash = () => <span className="text-muted-foreground">—</span>;
+
+function Chips({ values, variant = "outline", className }: { values: string[] | null | undefined; variant?: "outline" | "secondary"; className?: string }) {
+  if (!values?.length) return <Dash />;
+  return (
+    <div className="flex gap-1.5 flex-wrap">
+      {values.map((v) => (
+        <Badge key={v} variant={variant} className={cn("text-xs font-normal", className)}>{v}</Badge>
+      ))}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Investment Parameters
 // ─────────────────────────────────────────────────────────────────────────────
@@ -248,198 +212,33 @@ function InvestmentParametersCard({
   partner,
   renderBadge,
   equityKey,
-  onSave,
-  saving,
   highlight = false,
 }: {
   partner: Partner;
-  renderBadge: (k: string | null) => React.ReactNode;
+  renderBadge: RenderBadge;
   equityKey: string | null;
-  onSave: (draft: Partial<Partner>) => Promise<void>;
-  saving: boolean;
   highlight?: boolean;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [minEq, setMinEq] = useState<string>(partner.min_equity_m?.toString() ?? "");
-  const [maxEq, setMaxEq] = useState<string>(partner.max_equity_m?.toString() ?? "");
-  const [investorType, setInvestorType] = useState<string[]>(partner.investor_type ?? []);
-  const [investmentType, setInvestmentType] = useState<string[]>(partner.investment_type ?? []);
-  const [holdPeriod, setHoldPeriod] = useState<string[]>(partner.hold_period ?? []);
-  const highlightRef = useHighlightEffect(highlight);
-
-  const enterEdit = () => {
-    setMinEq(partner.min_equity_m?.toString() ?? "");
-    setMaxEq(partner.max_equity_m?.toString() ?? "");
-    setInvestorType(partner.investor_type ?? []);
-    setInvestmentType(partner.investment_type ?? []);
-    setHoldPeriod(partner.hold_period ?? []);
-    setEditing(true);
-  };
-
-  const cancel = () => setEditing(false);
-
-  const save = async () => {
-    const parsedMin = minEq === "" ? null : Number(minEq);
-    const parsedMax = maxEq === "" ? null : Number(maxEq);
-    if ((parsedMin !== null && isNaN(parsedMin)) || (parsedMax !== null && isNaN(parsedMax))) {
-      toast.error("Equity values must be numbers");
-      return;
-    }
-    try {
-      await onSave({
-        min_equity_m: parsedMin,
-        max_equity_m: parsedMax,
-        investor_type: investorType,
-        investment_type: investmentType,
-        hold_period: holdPeriod,
-      });
-      setEditing(false);
-    } catch {
-      /* toast already fired */
-    }
-  };
-
   const equityRange =
     partner.min_equity_m != null || partner.max_equity_m != null
       ? `$${partner.min_equity_m ?? "?"}M – $${partner.max_equity_m ?? "?"}M`
-      : "Not specified";
+      : null;
 
   return (
-    <div ref={highlightRef} className={cn("h-full", highlight && "rounded-lg ring-2 ring-amber-500/70 ring-offset-2 ring-offset-background animate-pulse")}>
-    <Card className="h-full flex flex-col border-hairline shadow-none">
-
-
-      <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
-        <CardTitle className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Investment Parameters
-        </CardTitle>
-        {editing ? (
-          <div className="flex gap-1">
-            <Button size="sm" variant="ghost" onClick={cancel} className="h-7 px-2">
-              <X className="h-3.5 w-3.5 mr-1" /> Cancel
-            </Button>
-            <Button size="sm" onClick={save} disabled={saving} className="h-7 px-2">
-              <Check className="h-3.5 w-3.5 mr-1" /> Save
-            </Button>
-          </div>
-        ) : (
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={enterEdit}
-            className="h-7 w-7"
-            aria-label="Edit investment parameters"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </Button>
-        )}
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        {/* Equity */}
-        <div className="flex justify-between items-center gap-2">
-          <span className="text-muted-foreground">
-            Equity Range
-            {renderBadge(equityKey)}
-          </span>
-          {editing ? (
-            <div className="flex items-center gap-1">
-              <Input
-                type="number"
-                step="any"
-                value={minEq}
-                onChange={(e) => setMinEq(e.target.value)}
-                placeholder="Min $M"
-                className="h-7 w-20 text-xs"
-              />
-              <span className="text-muted-foreground text-xs">–</span>
-              <Input
-                type="number"
-                step="any"
-                value={maxEq}
-                onChange={(e) => setMaxEq(e.target.value)}
-                placeholder="Max $M"
-                className="h-7 w-20 text-xs"
-              />
-            </div>
-          ) : (
-            <span className="tabular-nums">{equityRange}</span>
-          )}
-        </div>
-        <Separator />
-
-        {/* Investor Type */}
-        <div className={editing ? "space-y-1" : "flex justify-between"}>
-          <span className="text-muted-foreground">
-            Investor Type
-            {renderBadge("investor_type")}
-          </span>
-          {editing ? (
-            <CheckboxOptions options={withCurrent(INVESTOR_TYPES, investorType)} value={investorType} onChange={setInvestorType} />
-          ) : (
-            <div className="flex gap-1 flex-wrap justify-end">
-              {partner.investor_type?.length ? (
-                partner.investor_type.map((t) => (
-                  <Badge key={t} variant="outline" className="text-[10px]">
-                    {t}
-                  </Badge>
-                ))
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
-            </div>
-          )}
-        </div>
-        <Separator />
-
-        {/* Investment Type */}
-        <div className={editing ? "space-y-1" : "flex justify-between"}>
-          <span className="text-muted-foreground">
-            Investment Type
-            {renderBadge("investment_type")}
-          </span>
-          {editing ? (
-            <CheckboxOptions options={withCurrent(INVESTMENT_TYPES, investmentType)} value={investmentType} onChange={setInvestmentType} />
-          ) : (
-            <div className="flex gap-1 flex-wrap justify-end">
-              {partner.investment_type?.length ? (
-                partner.investment_type.map((t) => (
-                  <Badge key={t} variant="outline" className="text-[10px]">
-                    {t}
-                  </Badge>
-                ))
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
-            </div>
-          )}
-        </div>
-        <Separator />
-
-        {/* Hold Period */}
-        <div className={editing ? "space-y-1" : "flex justify-between"}>
-          <span className="text-muted-foreground">
-            Hold Period
-            {renderBadge("hold_period")}
-          </span>
-          {editing ? (
-            <CheckboxOptions options={HOLD_PERIODS} value={holdPeriod} onChange={setHoldPeriod} />
-          ) : (
-            <div className="flex gap-1 flex-wrap justify-end">
-              {partner.hold_period?.length ? (
-                partner.hold_period.map((h) => (
-                  <Badge key={h} variant="outline" className="text-[10px]">
-                    {h}
-                  </Badge>
-                ))
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
-            </div>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-    </div>
+    <SummaryCard title="Investment Parameters" partnerId={partner.id} section="equity" highlight={highlight}>
+      <Field label="Equity Range" badge={renderBadge(equityKey)}>
+        {equityRange ? <span className="text-base font-medium tabular-nums">{equityRange}</span> : <Dash />}
+      </Field>
+      <Field label="Investor Type" badge={renderBadge("investor_type")}>
+        <Chips values={partner.investor_type} />
+      </Field>
+      <Field label="Investment Type" badge={renderBadge("investment_type")}>
+        <Chips values={partner.investment_type} variant="secondary" />
+      </Field>
+      <Field label="Hold Period" badge={renderBadge("hold_period")}>
+        <Chips values={partner.hold_period} />
+      </Field>
+    </SummaryCard>
   );
 }
 
@@ -452,289 +251,46 @@ function GeographyStrategyCard({
   renderBadge,
   strategyKey,
   locationKey,
-  onSave,
-  saving,
   highlight = false,
 }: {
   partner: Partner;
-  renderBadge: (k: string | null) => React.ReactNode;
+  renderBadge: RenderBadge;
   strategyKey: string | null;
   locationKey: string | null;
-  onSave: (draft: Partial<Partner>, extraChangedKeys?: string[]) => Promise<void>;
-  saving: boolean;
   highlight?: boolean;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [geography, setGeography] = useState<string[]>(partner.geography ?? []);
-  const [geographyAvoid, setGeographyAvoid] = useState<string[]>(partner.geography_avoid ?? []);
-  const [va, setVA] = useState(partner.strategy_value_add);
-  const [cp, setCP] = useState(partner.strategy_core_plus);
-  const [wf, setWF] = useState(partner.strategy_workforce);
-  const [aff, setAff] = useState(partner.strategy_affordable);
-  const [productTypes, setProductTypes] = useState<string[]>(partner.product_types ?? []);
-  const [urban, setUrban] = useState(partner.urban_infill);
-  const [suburban, setSuburban] = useState(partner.suburban);
-  const highlightRef = useHighlightEffect(highlight);
-
-  const enterEdit = () => {
-    setGeography(partner.geography ?? []);
-    setGeographyAvoid(partner.geography_avoid ?? []);
-    setVA(partner.strategy_value_add);
-    setCP(partner.strategy_core_plus);
-    setWF(partner.strategy_workforce);
-    setAff(partner.strategy_affordable);
-    setProductTypes(partner.product_types ?? []);
-    setUrban(partner.urban_infill);
-    setSuburban(partner.suburban);
-    setEditing(true);
-  };
-
-  const cancel = () => setEditing(false);
-
-  const save = async () => {
-    try {
-      await onSave(
-        {
-          geography,
-          geography_avoid: geographyAvoid,
-          strategy_value_add: va,
-          strategy_core_plus: cp,
-          strategy_workforce: wf,
-          strategy_affordable: aff,
-          product_types: productTypes,
-          urban_infill: urban,
-          suburban,
-        },
-        // geography_avoid is tracked as a change but excluded from manual_fields
-        // (it's manual-only by design; enricher never touches it).
-        ["geography_avoid"],
-      );
-      setEditing(false);
-    } catch {
-      /* toast already fired */
-    }
-  };
-
   const strategies: string[] = [];
   if (partner.strategy_value_add) strategies.push("Value Add");
   if (partner.strategy_core_plus) strategies.push("Core Plus");
   if (partner.strategy_workforce) strategies.push("Workforce");
   if (partner.strategy_affordable) strategies.push("Affordable");
+  const sites = [partner.urban_infill && "Urban Infill", partner.suburban && "Suburban"].filter(Boolean) as string[];
 
   return (
-    <div ref={highlightRef} className={cn("h-full", highlight && "rounded-lg ring-2 ring-amber-500/70 ring-offset-2 ring-offset-background animate-pulse")}>
-    <Card className="h-full flex flex-col border-hairline shadow-none">
-
-      <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
-        <CardTitle className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Geography & Strategy
-        </CardTitle>
-        {editing ? (
-          <div className="flex gap-1">
-            <Button size="sm" variant="ghost" onClick={cancel} className="h-7 px-2">
-              <X className="h-3.5 w-3.5 mr-1" /> Cancel
-            </Button>
-            <Button size="sm" onClick={save} disabled={saving} className="h-7 px-2">
-              <Check className="h-3.5 w-3.5 mr-1" /> Save
-            </Button>
-          </div>
-        ) : (
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={enterEdit}
-            className="h-7 w-7"
-            aria-label="Edit geography and strategy"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </Button>
-        )}
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        {/* Geography */}
-        <div>
-          <span className="text-muted-foreground text-xs">
-            Geography
-            {renderBadge("geography")}
-          </span>
-          {editing ? (
-            <div className="mt-1">
-              <TagInput value={geography} onChange={setGeography} placeholder="e.g. Southeast US" />
-            </div>
-          ) : (
-            <div className="flex gap-1 flex-wrap mt-1">
-              {partner.geography?.length ? (
-                partner.geography.map((g) => (
-                  <Badge key={g} variant="outline" className="text-[10px]">
-                    {g}
-                  </Badge>
-                ))
-              ) : (
-                <span className="text-muted-foreground text-xs">—</span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Avoided Markets */}
-        <div>
-          <span className="text-muted-foreground text-xs inline-flex items-center gap-1">
-            <MapPinOff className="h-3 w-3 text-destructive/70" />
-            Avoids
-            <span className="text-[10px] text-muted-foreground/70 font-normal">
-              (manual only — never AI-guessed)
-            </span>
-          </span>
-          {editing ? (
-            <div className="mt-1">
-              <TagInput
-                value={geographyAvoid}
-                onChange={setGeographyAvoid}
-                placeholder="e.g. California, San Francisco"
-                chipVariant="destructive"
-              />
-            </div>
-          ) : (
-            <div className="flex gap-1 flex-wrap mt-1">
-              {partner.geography_avoid?.length ? (
-                partner.geography_avoid.map((g) => (
-                  <Badge
-                    key={g}
-                    variant="outline"
-                    className="text-[10px] border-destructive/60 text-destructive bg-destructive/10"
-                  >
-                    {g}
-                  </Badge>
-                ))
-              ) : (
-                <span className="text-muted-foreground text-xs">—</span>
-              )}
-            </div>
-          )}
-        </div>
-        <Separator />
-
-        {/* Strategy */}
-        <div>
-          <span className="text-muted-foreground text-xs">
-            Strategy
-            {renderBadge(strategyKey)}
-          </span>
-          {editing ? (
-            <div className="grid grid-cols-2 gap-2 mt-2">
-              {[
-                { label: "Value Add", val: va, set: setVA },
-                { label: "Core Plus", val: cp, set: setCP },
-                { label: "Workforce", val: wf, set: setWF },
-                { label: "Affordable", val: aff, set: setAff },
-              ].map((s) => (
-                <label key={s.label} className="flex items-center gap-2 text-xs cursor-pointer">
-                  <Checkbox checked={s.val} onCheckedChange={(v) => s.set(!!v)} />
-                  {s.label}
-                </label>
-              ))}
-            </div>
-          ) : (
-            <div className="flex gap-1 flex-wrap mt-1">
-              {strategies.length ? (
-                strategies.map((s) => (
-                  <Badge key={s} variant="secondary" className="text-[10px]">
-                    {s}
-                  </Badge>
-                ))
-              ) : (
-                <span className="text-muted-foreground text-xs">—</span>
-              )}
-            </div>
-          )}
-        </div>
-        <Separator />
-
-        {/* Product Types */}
-        <div>
-          <span className="text-muted-foreground text-xs">
-            Product Types
-            {renderBadge("product_types")}
-          </span>
-          {editing ? (
-            <div className="mt-1">
-              <CheckboxOptions options={PRODUCT_TYPES} value={productTypes} onChange={setProductTypes} />
-            </div>
-          ) : (
-            <div className="flex gap-1 flex-wrap mt-1">
-              {partner.product_types?.length ? (
-                partner.product_types.map((pt) => (
-                  <Badge key={pt} variant="outline" className="text-[10px]">
-                    {pt}
-                  </Badge>
-                ))
-              ) : (
-                <span className="text-muted-foreground text-xs">—</span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Urban / Suburban */}
-        <div className="flex gap-4 mt-2 items-center flex-wrap">
-          <span className="text-xs inline-flex items-center gap-2">
-            <span className="text-muted-foreground">Urban Infill:</span>
-            {editing ? (
-              <Switch checked={urban} onCheckedChange={setUrban} />
-            ) : (
-              <span className={partner.urban_infill ? "text-primary" : "text-muted-foreground"}>
-                {partner.urban_infill ? "Yes" : "No"}
-              </span>
-            )}
-          </span>
-          <span className="text-xs inline-flex items-center gap-2">
-            <span className="text-muted-foreground">Suburban:</span>
-            {editing ? (
-              <Switch checked={suburban} onCheckedChange={setSuburban} />
-            ) : (
-              <span className={partner.suburban ? "text-primary" : "text-muted-foreground"}>
-                {partner.suburban ? "Yes" : "No"}
-              </span>
-            )}
-          </span>
-          {renderBadge(locationKey)}
-        </div>
-      </CardContent>
-    </Card>
-    </div>
-  );
-}
-
-/**
- * Checkbox grid for a fixed option list. Values already on the partner that
- * aren't in the list (older free-text entries like "JV") show as extra checked
- * boxes, so they can be kept or unticked instead of being silently dropped.
- */
-function CheckboxOptions({
-  options,
-  value,
-  onChange,
-}: {
-  options: string[];
-  value: string[];
-  onChange: (v: string[]) => void;
-}) {
-  // Captured once per edit session so an unticked extra stays visible to re-tick.
-  const [extras] = useState(() => value.filter((v) => !options.includes(v)));
-  const toggle = (opt: string) =>
-    onChange(value.includes(opt) ? value.filter((v) => v !== opt) : [...value, opt]);
-
-  return (
-    <div className="flex flex-wrap gap-1.5 mt-1">
-      {[...options, ...extras].map((opt) => (
-        <label
-          key={opt}
-          className="inline-flex items-center gap-1.5 text-xs border rounded-md px-2 py-1 cursor-pointer hover:bg-muted/50"
-        >
-          <Checkbox checked={value.includes(opt)} onCheckedChange={() => toggle(opt)} />
-          <span className="whitespace-nowrap">{opt}</span>
-        </label>
-      ))}
-    </div>
+    <SummaryCard title="Geography & Strategy" partnerId={partner.id} section="criteria" highlight={highlight}>
+      <Field label="Strategy" badge={renderBadge(strategyKey)}>
+        <Chips values={strategies} variant="secondary" />
+      </Field>
+      <Field label="Product Types" badge={renderBadge("product_types")}>
+        <Chips values={partner.product_types} />
+      </Field>
+      <Field label="Site Preference" badge={renderBadge(locationKey)}>
+        <Chips values={sites} />
+      </Field>
+      <Field label="Target Geography" badge={renderBadge("geography")} className="sm:col-span-2">
+        <Chips values={partner.geography} />
+      </Field>
+      <Field
+        label={
+          <>
+            <MapPinOff className="h-3 w-3 text-destructive/70" /> Avoids
+            <span className="text-[10px] text-muted-foreground/70">(manual only — never AI-guessed)</span>
+          </>
+        }
+        className="sm:col-span-2"
+      >
+        <Chips values={partner.geography_avoid} className="border-destructive/60 text-destructive bg-destructive/10" />
+      </Field>
+    </SummaryCard>
   );
 }

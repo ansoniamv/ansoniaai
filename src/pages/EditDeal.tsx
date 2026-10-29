@@ -10,7 +10,7 @@ export default function EditDeal() {
   const { data: deal, isLoading } = useDeal(id);
   const updateDeal = useUpdateDeal();
 
-  if (isLoading) return <div className="max-w-3xl mx-auto"><Skeleton className="h-48 w-full" /></div>;
+  if (isLoading) return <div className="max-w-4xl mx-auto"><Skeleton className="h-48 w-full" /></div>;
   if (!deal) return <p className="text-center text-muted-foreground py-12">Deal not found.</p>;
 
   const handleSubmit = (values: DealFormValues) => {
@@ -51,7 +51,7 @@ export default function EditDeal() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
       <h1 className="text-2xl font-bold tracking-tight">Edit Deal</h1>
       <DealForm
         defaultValues={{

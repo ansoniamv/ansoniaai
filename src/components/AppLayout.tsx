@@ -57,8 +57,19 @@ const FULL_BLEED = [/^\/pipeline-map/];
  */
 const FIXED_HEIGHT = [/^\/chat/];
 
+/**
+ * Record pages that keep the shell's padding but use the whole width. A
+ * partner or deal record lays out in two or three columns; held to 1280px the
+ * middle column ends up narrow, and everything in it wraps and scrolls.
+ */
+const WIDE = [/^\/partners\/(?!new$|import$)[^/]+$/, /^\/deals\/(?!new$)[^/]+$/];
+
 function isFullBleed(pathname: string): boolean {
   return FULL_BLEED.some((r) => r.test(pathname));
+}
+
+function isWide(pathname: string): boolean {
+  return WIDE.some((r) => r.test(pathname));
 }
 
 function isFixedHeight(pathname: string): boolean {
@@ -82,6 +93,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const routeLabel = getRouteLabel(location.pathname);
   const fullBleed = isFullBleed(location.pathname);
   const fixedHeight = isFixedHeight(location.pathname);
+  const wide = isWide(location.pathname);
   const today = format(new Date(), "EEEE, MMM d, yyyy");
   const [noteOpen, setNoteOpen] = useState(false);
   const [requestOpen, setRequestOpen] = useState(false);
@@ -163,7 +175,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               className={
                 fullBleed
                   ? "h-full flex flex-col"
-                  : "max-w-[1280px] mx-auto px-6 py-8 flex flex-col " +
+                  : (wide ? "max-w-[2000px]" : "max-w-[1280px]") + " mx-auto px-6 py-8 flex flex-col " +
                     (fixedHeight ? "h-full" : "min-h-full")
               }
             >

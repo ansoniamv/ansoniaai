@@ -19,6 +19,7 @@ const DataRoomPage = lazy(() => import("./pages/DataRoomPage"));
 const PartnersPage = lazy(() => import("./pages/PartnersPage"));
 const PartnerDetail = lazy(() => import("./pages/PartnerDetail"));
 const NewPartner = lazy(() => import("./pages/NewPartner"));
+const EditPartner = lazy(() => import("./pages/EditPartner"));
 const DevNotesPage = lazy(() => import("./pages/DevNotesPage"));
 const RoadmapPage = lazy(() => import("./pages/RoadmapPage"));
 const BuyBoxPage = lazy(() => import("./pages/BuyBoxPage"));
@@ -81,6 +82,7 @@ const App = () => (
               <Route path="/partners/new" element={<Protected><NewPartner /></Protected>} />
               <Route path="/partners/import" element={<Protected><PartnerImportPage /></Protected>} />
               <Route path="/partners/:id" element={<Protected><PartnerDetail /></Protected>} />
+              <Route path="/partners/:id/edit" element={<Protected><EditPartner /></Protected>} />
               <Route path="/capital-raise" element={<Protected><CapitalRaisePage /></Protected>} />
               <Route path="/capital-feed" element={<Protected><CapitalFeedPage /></Protected>} />
               <Route path="/suggestions" element={<Protected><SuggestionsPage /></Protected>} />
