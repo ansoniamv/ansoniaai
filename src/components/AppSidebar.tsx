@@ -1,5 +1,6 @@
 import { Inbox, Mail, List, Plus, Target, BarChart3, LayoutDashboard, Users, Columns3, StickyNote, MessageSquare, ShieldCheck, LogOut, Map, Activity, Plug, Sparkles, FileText, Building2, LineChart, Brain, Newspaper } from "lucide-react";
-import logoAsset from "@/assets/ansonia-logo.png.asset.json";
+import logoWideLight from "@/assets/ansonia-ai-logo-wide-light.png";
+import markLight from "@/assets/ansonia-ai-mark-light.png";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/useAuth";
 import { usePendingSuggestionCount } from "@/hooks/usePartnerSuggestions";
@@ -98,19 +99,16 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon" className="border-r-0">
       <SidebarHeader className="px-4 py-5 border-b border-sidebar-border">
-        <div className="flex items-center gap-2.5">
-          <img src={logoAsset.url} alt="Ansonia" className="h-8 w-auto" />
-          {!collapsed && (
-            <div className="leading-tight">
-              <div className="text-[15px] font-semibold tracking-tight text-sidebar-foreground font-display">
-                Ansonia
-              </div>
-              <div className="text-[10px] uppercase tracking-[0.18em] text-sidebar-foreground/50 font-medium">
-                Acquisitions
-              </div>
+        {collapsed ? (
+          <img src={markLight} alt="Ansonia.AI" className="h-7 w-auto mx-auto" />
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <img src={logoWideLight} alt="Ansonia.AI" className="h-6 w-auto self-start" />
+            <div className="text-[10px] uppercase tracking-[0.18em] text-sidebar-foreground/50 font-medium">
+              Acquisitions
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </SidebarHeader>
 
       <SidebarContent className="px-2">
