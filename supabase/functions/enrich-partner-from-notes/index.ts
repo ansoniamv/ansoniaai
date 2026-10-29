@@ -217,14 +217,14 @@ Notes are provided NEWEST-FIRST with their dates. When notes conflict, PREFER TH
 
 Extract ONLY the fields listed. If a field is not clearly supported by the notes, return null for it. Do NOT invent.
 
-For every field you fill, cite the note IDs (from the [NOTE X id=...] header) that support it.
+For every field you fill, cite the note IDs (from the [NOTE X id=...] header) that support it, and copy into "quote" the exact sentence or bullet from one of those notes that states the value, character for character. A field without a verbatim quote is discarded. Our own asks, proposals or deal sizes (e.g. "we're targeting a $20M equity check") are not the partner's criteria.
 
 Return your answer as TWO blocks, in this exact order and format:
 
 <FIELDS_JSON>
 {
   "fields": {
-    "<field_key>": { "value": <value or null>, "source_note_ids": ["<id>", ...] }
+    "<field_key>": { "value": <value or null>, "source_note_ids": ["<id>", ...], "quote": "<verbatim text from a cited note>" }
   }
 }
 </FIELDS_JSON>
@@ -288,12 +288,24 @@ ${notesBlock}`;
     const enrichedMeta: Record<string, any> = { ...(partner.enriched_fields ?? {}) };
     const validSourceIds = new Set<string>();
     const noteDates = new Map<string, string | null>();
-    for (const b of blobs) { validSourceIds.add(b.id); noteDates.set(b.id, b.date); }
+    const noteText = new Map<string, string>();
+    for (const b of blobs) { validSourceIds.add(b.id); noteDates.set(b.id, b.date); noteText.set(b.id, b.text); }
+    const squash = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
     /** Newest source-note date = when the information is true as of. */
     const newestNoteDate = (ids: string[], fallback: string): string => {
       const ts = ids.map((id) => noteDates.get(id)).filter(Boolean) as string[];
       if (ts.length === 0) return fallback;
       return ts.reduce((a, b) => (new Date(b).getTime() > new Date(a).getTime() ? b : a));
+    };
+
+    /** True when a cited dated note is newer than the notes behind the current value (or, failing those, when it was written). */
+    const hasNewerNote = (ids: string[], meta: any): boolean => {
+      const dated = (xs: string[]) => xs.map((id) => noteDates.get(id)).filter(Boolean).map((d) => new Date(d as string).getTime());
+      const cited = dated(ids);
+      if (cited.length === 0) return false;
+      const behind = dated(meta?.note_ids ?? []);
+      const basis = behind.length ? Math.max(...behind) : new Date(meta?.written_at ?? meta?.extracted_at ?? 0).getTime();
+      return Math.max(...cited) > (Number.isNaN(basis) ? 0 : basis);
     };
 
     // Fields the user has manually set via the pencil-edit UI on the partner
@@ -315,6 +327,13 @@ ${notesBlock}`;
       if (f.type === "boolean" && typeof val !== "boolean") continue;
 
       const cleanSourceIds = (entry.source_note_ids ?? []).filter((id: string) => validSourceIds.has(id));
+      // The quote is what a person checks the change against, so it has to be
+      // really there: in a note the model cited, not paraphrased.
+      const quote = typeof entry.quote === "string" ? entry.quote.trim() : "";
+      const quoteNoteId = quote.length >= 8
+        ? cleanSourceIds.find((id: string) => squash(noteText.get(id) ?? "").includes(squash(quote)))
+        : undefined;
+      if (!quoteNoteId) continue;
       const now = new Date().toISOString();
       const asOf = newestNoteDate(cleanSourceIds, now);
       const stamp = {
@@ -324,6 +343,9 @@ ${notesBlock}`;
         note_ids: cleanSourceIds,
         source_note_ids: cleanSourceIds,
         extracted_at: now,
+        quote: quote.slice(0, 500),
+        quote_note_id: quoteNoteId,
+        quote_note_date: noteDates.get(quoteNoteId) ?? null,
       };
       const currentVal = (partner as any)[f.key];
       const currentMeta = enrichedMeta[f.key];
@@ -363,7 +385,12 @@ ${notesBlock}`;
           delete enrichedMeta[f.key].suggested;
         }
       } else if (wasEnriched) {
-        // Previously enriched — safe to overwrite with newer note-derived value
+        // Previously enriched. Re-reading the same notes gives a different
+        // answer from run to run (a partner's minimum flipped from a years-old
+        // call note), so only a dated note newer than what the current value
+        // rests on may change it. Undated notes (the imported OneNote text)
+        // never do.
+        if (!hasNewerNote(cleanSourceIds, currentMeta)) continue;
         updates[f.key] = val;
         enrichedMeta[f.key] = { ...stamp };
         overwritten.push(f.key);

@@ -93,10 +93,14 @@ describe("storiesFromChanges", () => {
     ], name)).toEqual([]);
   });
 
-  it("credits Atlas for automatic criteria updates", () => {
-    const [s] = storiesFromChanges([change({ source: "system", changed_by_label: null, old_value: 5, new_value: 10 })], name);
-    expect(s.automated).toBe(true);
-    expect(s.byline).toBe("Updated by Atlas from partner notes");
+  it("leaves out Atlas's own rewrites of a partner's criteria", () => {
+    expect(storiesFromChanges([change({ source: "system", changed_by_label: null, old_value: 5, new_value: 25 })], name)).toEqual([]);
+  });
+
+  it("carries what led to each change", () => {
+    const ref = { source: "email", message_ids: ["m1"], quote: "Our minimum check is now $10M." };
+    const [s] = storiesFromChanges([change({ source: "suggestion", old_value: 5, new_value: 10, source_ref: ref })], name);
+    expect(s.changes![0].ref).toEqual(ref);
   });
 });
 

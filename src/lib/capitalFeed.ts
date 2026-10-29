@@ -1,7 +1,7 @@
 // Capital Feed: notes the team writes on capital partners, and changes to what
 // a partner will invest in, as headline stories ("Skydeck raised their maximum
 // equity check to $10M"). Pure so the rules are testable.
-import { describeChange, type ChangeRow, type FieldChange } from "@/lib/partnerFeed";
+import { describeChange, type ChangeRef, type ChangeRow, type FieldChange } from "@/lib/partnerFeed";
 
 export type StoryCategory = "note" | "criteria";
 
@@ -55,8 +55,6 @@ export type Story = {
   note?: { content: string; format: string };
   changes?: FieldChange[];
   byline?: string | null;
-  /** Written by Atlas from partner notes, not by a person. */
-  automated?: boolean;
 };
 
 export const htmlToText = (s: string) =>
@@ -143,7 +141,7 @@ const STRATEGY_NAMES: Record<string, string> = {
   suburban: "suburban",
 };
 
-type RawChange = { field: string; from: unknown; to: unknown };
+type RawChange = { field: string; from: unknown; to: unknown; ref?: ChangeRef | null };
 
 /** Plain-English clauses ("raised their maximum equity check to $10M") for one save. */
 export function criteriaClauses(changes: RawChange[]): string[] {
@@ -228,12 +226,15 @@ const sameValue = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON
 /**
  * One story per partner + actor + source + minute: a single save of the edit
  * dialog writes several fields at once. Only criteria fields count; warmth,
- * imports and other bookkeeping never make a story.
+ * imports and other bookkeeping never make a story. Neither do Atlas's own
+ * rewrites (source "system"): they are re-reads of notes we already had, often
+ * years old, and "X raised their minimum" would report news the partner
+ * never sent.
  */
 export function storiesFromChanges(rows: ChangeRow[], nameOf: (id: string) => string): Story[] {
   const groups = new Map<string, ChangeRow[]>();
   for (const r of rows) {
-    if (!CRITERIA_FIELDS.has(r.field) || r.source === "import") continue;
+    if (!CRITERIA_FIELDS.has(r.field) || r.source === "import" || r.source === "system") continue;
     const key = `${r.partner_id}|${r.source}|${r.changed_by_label ?? ""}|${r.changed_at.slice(0, 16)}`;
     const g = groups.get(key);
     if (g) g.push(r); else groups.set(key, [r]);
@@ -246,7 +247,7 @@ export function storiesFromChanges(rows: ChangeRow[], nameOf: (id: string) => st
     const byField = new Map<string, RawChange>();
     for (const r of sorted) {
       const prev = byField.get(r.field);
-      byField.set(r.field, { field: r.field, from: prev ? prev.from : r.old_value, to: r.new_value });
+      byField.set(r.field, { field: r.field, from: prev ? prev.from : r.old_value, to: r.new_value, ref: r.source_ref });
     }
     let detail: string | null = null;
     const raw = [...byField.values()]
@@ -258,7 +259,6 @@ export function storiesFromChanges(rows: ChangeRow[], nameOf: (id: string) => st
       })
       .filter((c) => !sameValue(c.from, c.to) || (c.field === "capital_status" && detail));
     if (!raw.length) continue;
-    const automated = latest.source === "system";
     const who = latest.changed_by_label;
     out.push({
       key: `c-${key}`,
@@ -267,10 +267,8 @@ export function storiesFromChanges(rows: ChangeRow[], nameOf: (id: string) => st
       partnerId: latest.partner_id,
       headline: criteriaHeadline(nameOf(latest.partner_id), raw),
       dek: detail,
-      changes: raw.map((c) => describeChange({ field: c.field, old_value: c.from, new_value: c.to })),
-      automated,
-      byline: automated ? "Updated by Atlas from partner notes"
-        : latest.source === "suggestion" ? `Atlas suggestion approved${who ? ` by ${who}` : ""}`
+      changes: raw.map((c) => ({ ...describeChange({ field: c.field, old_value: c.from, new_value: c.to }), ref: c.ref ?? undefined })),
+      byline: latest.source === "suggestion" ? `Atlas suggestion approved${who ? ` by ${who}` : ""}`
         : who ? `Updated by ${who}` : "Updated",
     });
   }

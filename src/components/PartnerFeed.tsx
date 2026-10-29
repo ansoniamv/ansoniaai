@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { NoteContent } from "@/components/NoteContent";
+import { ChangeSourceRef } from "@/components/ChangeSourceRef";
 import { usePartners } from "@/hooks/usePartners";
 import { usePartnerFeed } from "@/hooks/usePartnerFeed";
 import { FEED_KIND_LABEL, dayLabel, feedSearchText, type FeedItem, type FeedKind } from "@/lib/partnerFeed";
@@ -148,6 +149,7 @@ export function PartnerFeed() {
                             ) : (
                               <span className="font-medium">{c.to}</span>
                             )}
+                            <ChangeSourceRef refInfo={c.ref} />
                           </li>
                         ))}
                       </ul>

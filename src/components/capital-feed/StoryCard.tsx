@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NoteContent } from "@/components/NoteContent";
+import { ChangeSourceRef } from "@/components/ChangeSourceRef";
 import { cn } from "@/lib/utils";
 import { CATEGORY_LABEL, type Story } from "@/lib/capitalFeed";
 import { CATEGORY_TONE } from "@/components/capital-feed/tone";
@@ -89,6 +90,7 @@ export function StoryCard({ story: s, partnerName, isNew, comments, reactions, s
                   ) : (
                     <span className="font-medium">{c.to}</span>
                   )}
+                  <ChangeSourceRef refInfo={c.ref} />
                 </td>
               </tr>
             ))}

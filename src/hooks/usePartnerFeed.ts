@@ -43,7 +43,7 @@ export function usePartnerFeed(days: number) {
           .gte("created_at", since)
           .limit(ROW_LIMIT),
         db.from("partner_change_log")
-          .select("id,partner_id,field,old_value,new_value,changed_by_label,source,changed_at")
+          .select("id,partner_id,field,old_value,new_value,changed_by_label,source,changed_at,source_ref")
           .gte("changed_at", since)
           .order("changed_at", { ascending: false })
           .limit(ROW_LIMIT * 4),

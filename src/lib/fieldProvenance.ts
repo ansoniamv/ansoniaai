@@ -23,6 +23,8 @@ export type FieldProvenance = {
   message_ids?: string[];
   note_ids?: string[];
   deal_id?: string | null;
+  /** The sentence in the source note that states the value, verbatim. */
+  quote?: string;
 };
 
 export type ProvenanceMap = Record<string, FieldProvenance>;
@@ -51,6 +53,7 @@ export function readProvenance(raw: any, field: string): FieldProvenance | null 
     note_ids: Array.isArray(m.source_note_ids) ? m.source_note_ids
             : Array.isArray(m.note_ids) ? m.note_ids : undefined,
     deal_id: m.deal_id ?? null,
+    quote: typeof m.quote === "string" && m.quote ? m.quote : undefined,
   };
 }
 
