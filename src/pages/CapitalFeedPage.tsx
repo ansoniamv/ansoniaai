@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2, Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/useAuth";
 import { usePartners } from "@/hooks/usePartners";
 import { useCapitalFeed, useFeedSocial } from "@/hooks/useCapitalFeed";
@@ -34,7 +33,6 @@ export default function CapitalFeedPage() {
   const [query, setQuery] = useState("");
   const [cats, setCats] = useState<Set<StoryCategory>>(new Set(ALL_CATEGORIES));
   const [partnerFilter, setPartnerFilter] = useState<string | null>(null);
-  const [showAutomated, setShowAutomated] = useState(true);
   const [limit, setLimit] = useState(PAGE);
   // Captured once, before this visit is recorded, so "New" marks what arrived
   // since the previous visit.
@@ -60,8 +58,8 @@ export default function CapitalFeedPage() {
     [data, partnerName],
   );
   const base = useMemo(
-    () => stories.filter((s) => (showAutomated || !s.automated) && (!partnerFilter || s.partnerId === partnerFilter)),
-    [stories, showAutomated, partnerFilter],
+    () => stories.filter((s) => !partnerFilter || s.partnerId === partnerFilter),
+    [stories, partnerFilter],
   );
 
   const counts = useMemo(() => {
@@ -75,7 +73,7 @@ export default function CapitalFeedPage() {
     () => base.filter((s) => cats.has(s.category) && (!q || storySearchText(s).includes(q))),
     [base, cats, q],
   );
-  useEffect(() => setLimit(PAGE), [days, q, cats, partnerFilter, showAutomated]);
+  useEffect(() => setLimit(PAGE), [days, q, cats, partnerFilter]);
 
   const isNew = (s: Story) => lastSeen != null && new Date(s.at).getTime() > lastSeen;
   const newCount = lastSeen == null ? 0 : stories.filter(isNew).length;
@@ -97,9 +95,9 @@ export default function CapitalFeedPage() {
 
   const topPartners = useMemo(() => {
     const m = new Map<string, number>();
-    for (const s of stories) if (showAutomated || !s.automated) m.set(s.partnerId, (m.get(s.partnerId) ?? 0) + 1);
+    for (const s of stories) m.set(s.partnerId, (m.get(s.partnerId) ?? 0) + 1);
     return [...m].sort((a, b) => b[1] - a[1]).slice(0, 6);
-  }, [stories, showAutomated]);
+  }, [stories]);
 
   return (
     <div className="space-y-6">
@@ -132,10 +130,6 @@ export default function CapitalFeedPage() {
                 {PERIODS.map((d) => <SelectItem key={d} value={String(d)}>Last {d} days</SelectItem>)}
               </SelectContent>
             </Select>
-            <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
-              <Switch checked={showAutomated} onCheckedChange={setShowAutomated} />
-              Include Atlas updates
-            </label>
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5">

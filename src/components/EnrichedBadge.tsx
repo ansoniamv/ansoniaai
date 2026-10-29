@@ -267,14 +267,17 @@ export function ProvenanceChip({
           <div className="text-amber-700">This value is older than we'd normally trust — worth re-confirming.</div>
         )}
         {prov.message_ids && prov.message_ids.length > 0 && (
-          <SuggestionEvidencePanel messageIds={prov.message_ids} />
+          <SuggestionEvidencePanel messageIds={prov.message_ids} quote={prov.quote} />
         )}
         {prov.deal_id && (
           <Link to={`/deals/${prov.deal_id}`} className="text-primary hover:underline block">
             from the pass on this deal
           </Link>
         )}
-        {prov.note_ids && prov.note_ids.length > 0 && (
+        {prov.quote && !prov.message_ids?.length && (
+          <div className="leading-snug border-l-2 border-amber-400/60 pl-2 italic">“{prov.quote}”</div>
+        )}
+        {!prov.quote && prov.note_ids && prov.note_ids.length > 0 && (
           <ul className="space-y-1.5">
             {prov.note_ids.slice(0, 4).map((id) => (
               <li key={id} className="leading-snug border-l-2 border-amber-400/60 pl-2">

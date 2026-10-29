@@ -14,9 +14,26 @@ export type ChangeRow = {
   changed_by_label: string | null;
   source: ChangeSource;
   changed_at: string;
+  source_ref?: ChangeRef | null;
 };
 
-export type FieldChange = { field: string; label: string; from: string; to: string };
+/**
+ * What led to a change: the provenance stamp the writer left on the field
+ * (partner_change_log.source_ref). Notes carry a verbatim quote; emails carry
+ * Graph message ids.
+ */
+export type ChangeRef = {
+  source?: string;
+  as_of?: string | null;
+  quote?: string;
+  quote_note_id?: string;
+  quote_note_date?: string | null;
+  note_ids?: string[];
+  message_ids?: string[];
+  deal_id?: string | null;
+};
+
+export type FieldChange = { field: string; label: string; from: string; to: string; ref?: ChangeRef | null };
 
 export type FeedItem = {
   key: string;
@@ -123,7 +140,10 @@ export function groupChanges(rows: ChangeRow[]): FeedItem[] {
       if (list) list.push(r); else byField.set(r.field, [r]);
     }
     const changes = Array.from(byField.values())
-      .map((list) => describeChange({ field: list[0].field, old_value: list[0].old_value, new_value: list[list.length - 1].new_value }))
+      .map((list) => ({
+        ...describeChange({ field: list[0].field, old_value: list[0].old_value, new_value: list[list.length - 1].new_value }),
+        ref: list[list.length - 1].source_ref ?? undefined,
+      }))
       .filter((c) => c.from !== c.to);
     if (!changes.length) continue;
     const who = latest.changed_by_label;
