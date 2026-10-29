@@ -95,7 +95,7 @@ async function applyCreateOrAttach(
     for (const f of strFields) {
       if (typeof pv[f] === "string" && pv[f].trim()) row[f] = pv[f].trim();
     }
-    const arrFields = ["investor_type", "geography", "geography_avoid", "hold_period", "product_types"];
+    const arrFields = ["investor_type", "investment_type", "geography", "geography_avoid", "hold_period", "product_types"];
     for (const f of arrFields) {
       if (Array.isArray(pv[f]) && pv[f].length) row[f] = pv[f];
     }

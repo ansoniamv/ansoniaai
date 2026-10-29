@@ -2330,6 +2330,7 @@ export type Database = {
           headquarters: string | null
           hold_period: string[] | null
           id: string
+          investment_type: string[] | null
           investor_type: string[] | null
           last_edited_at: string
           manual_fields: string[]
@@ -2375,6 +2376,7 @@ export type Database = {
           headquarters?: string | null
           hold_period?: string[] | null
           id?: string
+          investment_type?: string[] | null
           investor_type?: string[] | null
           last_edited_at?: string
           manual_fields?: string[]
@@ -2420,6 +2422,7 @@ export type Database = {
           headquarters?: string | null
           hold_period?: string[] | null
           id?: string
+          investment_type?: string[] | null
           investor_type?: string[] | null
           last_edited_at?: string
           manual_fields?: string[]
@@ -2981,6 +2984,7 @@ export type Database = {
           headquarters: string | null
           hold_period: string[] | null
           id: string
+          investment_type: string[] | null
           investor_type: string[] | null
           last_edited_at: string
           manual_fields: string[]

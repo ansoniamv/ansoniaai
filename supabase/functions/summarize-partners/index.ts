@@ -23,7 +23,7 @@ const PROMPT_INSTRUCTION =
   "like 'well-respected', and omit anything you were not given. Maximum 45 words.";
 
 const PARTNER_FIELDS =
-  "id, name, firm_type, investor_type, headquarters, min_equity_m, max_equity_m, " +
+  "id, name, firm_type, investor_type, investment_type, headquarters, min_equity_m, max_equity_m, " +
   "geography, geography_avoid, strategy_value_add, strategy_core_plus, strategy_workforce, " +
   "strategy_affordable, product_types, hold_period, additional_notes, organized_notes, " +
   "profile_summary, profile_summary_hash";
@@ -41,6 +41,7 @@ type PartnerRow = {
   name: string;
   firm_type: string | null;
   investor_type: string[] | null;
+  investment_type: string[] | null;
   headquarters: string | null;
   min_equity_m: number | null;
   max_equity_m: number | null;
@@ -69,6 +70,7 @@ function hashInput(p: any, contacts: ContactLite[]): string {
     name: p.name ?? null,
     firm_type: p.firm_type ?? null,
     investor_type: p.investor_type ?? [],
+    investment_type: p.investment_type ?? [],
     headquarters: p.headquarters ?? null,
     min_equity_m: p.min_equity_m ?? null,
     max_equity_m: p.max_equity_m ?? null,
@@ -103,6 +105,8 @@ function buildFacts(p: any, contacts: ContactLite[]): string {
   if (p.firm_type) lines.push(`Firm type: ${p.firm_type}`);
   const inv = list(p.investor_type);
   if (inv.length) lines.push(`Investor type: ${inv.join(", ")}`);
+  const invests = list(p.investment_type);
+  if (invests.length) lines.push(`Investment type: ${invests.join(", ")}`);
   if (p.headquarters) lines.push(`Headquarters: ${p.headquarters}`);
   const band = formatBand(p.min_equity_m, p.max_equity_m);
   if (band) lines.push(`Equity cheque size: ${band}`);

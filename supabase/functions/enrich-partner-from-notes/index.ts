@@ -18,7 +18,9 @@ type FieldSpec = {
 
 const FIELDS: FieldSpec[] = [
   { key: "geography", type: "text[]", description: "Markets/regions where the partner INVESTS (not where the firm is headquartered). Accept broad regions like 'Midwest', 'Sunbelt', 'Southeast US', 'Texas', or specific MSAs like 'Denver'. Include any location the notes describe as a place they invest in, target, focus on, allocate capital to, own assets in, or have a mandate for. Do NOT include the firm's HQ / office location unless the notes explicitly say they also invest there." },
-  { key: "investor_type", type: "text[]", description: "Investor type: e.g. Family Office, HNW, Institutional, Fund, Pension, GP Co-Invest" },
+  // Option lists mirror src/lib/partnerOptions.ts. Investor type is who they are; investment type is how they invest with us.
+  { key: "investor_type", type: "text[]", description: "WHO the investor is. Use only: Individual, Family Office, RIA, Syndicator, Fund, Institution, Pension, Endowment, Insurance, Sovereign. Do NOT put deal structures (JV, pref, co-invest) here." },
+  { key: "investment_type", type: "text[]", description: "HOW the partner invests in a deal. Use only: JV Equity, Large JV, Preferred Equity, GP Equity, LP Equity, Passive Co-Invest, GP Co-Invest, Sidecar." },
   { key: "hold_period", type: "text[]", description: "Hold period options (e.g. '3-5 yr', '5-7 yr', '10+ yr')" },
   { key: "product_types", type: "text[]", description: "Asset/product types: multifamily, BTR, student, industrial, retail, mixed-use, etc." },
   { key: "min_equity_m", type: "number", description: "Minimum check size in USD millions (number only)" },

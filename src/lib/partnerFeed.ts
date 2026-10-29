@@ -77,6 +77,7 @@ export const FIELD_LABEL: Record<string, string> = {
   min_equity_m: "Min equity ($M)",
   max_equity_m: "Max equity ($M)",
   investor_type: "Investor type",
+  investment_type: "Investment type",
   hold_period: "Hold period",
   product_types: "Product types",
   geography: "Geography",

@@ -99,6 +99,7 @@ function CreateAttachPreview({ s }: { s: PartnerSuggestion }) {
       ["Name", pv.name],
       ["Firm type", pv.firm_type],
       ["Investor type", pv.investor_type],
+      ["Investment type", pv.investment_type],
       ["Geography", pv.geography],
       ["HQ", pv.headquarters],
       ["Website", pv.website],

@@ -4,11 +4,10 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { format } from "date-fns";
-import { Building2, ChevronDown, ChevronRight, Inbox, Mail, MessageSquare, Pencil, RefreshCw, Search, Send, Sparkles, StickyNote } from "lucide-react";
+import { Building2, ChevronDown, ChevronRight, Inbox, Mail, MessageSquare, RefreshCw, Search, Send, Sparkles, StickyNote } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { WarmthBadge } from "@/components/WarmthBadge";
 import { NoteContent } from "@/components/NoteContent";
 import { PipelineSharedLine } from "@/components/PipelineSharedLine";
@@ -101,60 +100,25 @@ function Property({ label, children }: { label: string; children: React.ReactNod
 
 const Empty = () => <span className="text-muted-foreground">--</span>;
 
-function Chips({ values, tone = "secondary" }: { values: string[] | null | undefined; tone?: "secondary" | "outline" }) {
-  if (!values || values.length === 0) return <Empty />;
-  return (
-    <div className="flex flex-wrap gap-1 pt-0.5">
-      {values.map((v) => (
-        <Badge key={v} variant={tone} className="font-normal">{v}</Badge>
-      ))}
-    </div>
-  );
-}
-
-export function AboutPartnerCard({ partner, onEdit }: { partner: Partner; onEdit: () => void }) {
+/**
+ * Identity facts only. The investment criteria (equity, investor type,
+ * strategy, geography...) show once, in the Overview cards, not here as well.
+ */
+export function AboutPartnerCard({ partner }: { partner: Partner }) {
   const host = partnerHostname(partner.website);
   const href = safeExternalUrl(partner.website);
-  const strategies = [
-    partner.strategy_value_add && "Value-add",
-    partner.strategy_core_plus && "Core-plus",
-    partner.strategy_workforce && "Workforce",
-    partner.strategy_affordable && "Affordable",
-  ].filter(Boolean) as string[];
-  const locations = [partner.urban_infill && "Urban infill", partner.suburban && "Suburban"].filter(Boolean) as string[];
-  const equity =
-    partner.min_equity_m != null || partner.max_equity_m != null
-      ? `$${partner.min_equity_m ?? "?"}M – $${partner.max_equity_m ?? "?"}M`
-      : null;
 
   return (
-    <RecordSection
-      title="About this partner"
-      actions={
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit} aria-label="Edit partner details">
-          <Pencil className="h-3.5 w-3.5" />
-        </Button>
-      }
-    >
+    <RecordSection title="About this partner">
       <div className="space-y-4">
         <Property label="Website">
           {host && href ? (
             <a href={href} target="_blank" rel="noreferrer" className="text-primary hover:underline">{host}</a>
           ) : <Empty />}
         </Property>
-        <Property label="Firm type">{partner.firm_type || <Empty />}</Property>
         <Property label="Relationship warmth"><WarmthBadge strength={partner.relationship_strength} /></Property>
         <Property label="Ansonia POC">{partner.ansonia_poc || <Empty />}</Property>
         <Property label="Headquarters">{partner.headquarters || <Empty />}</Property>
-        <Property label="Investor type"><Chips values={partner.investor_type} /></Property>
-        <Property label="Equity check">{equity || <Empty />}</Property>
-        <Property label="Hold period"><Chips values={partner.hold_period} /></Property>
-        <Property label="Strategy"><Chips values={strategies} /></Property>
-        <Property label="Product types"><Chips values={partner.product_types} /></Property>
-        <Property label="Location type"><Chips values={locations} /></Property>
-        <Property label="Target geography"><Chips values={partner.geography} /></Property>
-        <Property label="Avoided markets"><Chips values={partner.geography_avoid} tone="outline" /></Property>
-        <Property label="Capital status">{partner.capital_status || <Empty />}</Property>
         <Property label="Data source">{partner.data_source || <Empty />}</Property>
         <Property label="Created">{format(new Date(partner.created_at), "MM/dd/yyyy")}</Property>
       </div>

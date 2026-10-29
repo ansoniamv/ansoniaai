@@ -29,8 +29,8 @@ export function criteriaRows(partner: Partner): Array<[string, string]> {
     ["Strategies", strategies.length ? strategies.join(" · ") : NOT_ON_FILE],
     ["Product types", listOr(partner.product_types)],
     ["Hold period", listOr(partner.hold_period)],
-    ["Firm type", partner.firm_type || NOT_ON_FILE],
     ["Investor type", listOr(partner.investor_type)],
+    ["Investment type", listOr(partner.investment_type)],
     ["Headquarters", partner.headquarters || NOT_ON_FILE],
     ["Sub-market preference", submarket || NOT_ON_FILE],
   ];

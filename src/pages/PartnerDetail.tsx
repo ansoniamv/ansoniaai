@@ -2,19 +2,15 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { safeExternalUrl } from "@/lib/safeUrl";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChevronDown, ChevronLeft, Copy, ExternalLink, Mail, Linkedin, MapPin, Plus, Search, StickyNote, Sparkles, Archive, Ban, Pencil, Check, X, Trash2, Loader2, RefreshCw, Star } from "lucide-react";
+import { ChevronDown, ChevronLeft, Copy, ExternalLink, Mail, Linkedin, MapPin, Plus, Search, StickyNote, Sparkles, Archive, Ban, Pencil, RefreshCw, Star } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { RichTextEditor } from "@/components/RichTextEditor";
 import { NoteContent } from "@/components/NoteContent";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,7 +20,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
@@ -34,21 +29,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { WarmthBadge } from "@/components/WarmthBadge";
 import { BlacklistBanner, BlacklistPartnerDialog } from "@/components/PartnerBlacklist";
-import { usePartner, usePartnerContacts, usePartnerInteractions, usePartnerCurrency, useCreateInteraction, useArchivePartner, useUpdatePartner, useCreatePartnerContact, useUpdatePartnerContact, useDeletePartnerContact, withManualField, type Partner, type PartnerContact } from "@/hooks/usePartners";
+import { usePartner, usePartnerContacts, usePartnerInteractions, usePartnerCurrency, useCreateInteraction, useArchivePartner, useUpdatePartnerContact, type Partner, type PartnerContact } from "@/hooks/usePartners";
 import { AboutPartnerCard, ActivityTimeline, DataHighlightsCard, ProfileSummaryCard, RecordSection, initials, noteDealIds, partnerHostname } from "@/components/PartnerRecordPanels";
 import { PartnerDealsCard } from "@/components/PartnerDealsCard";
 import { useDealNames, useEngagementsByPartner } from "@/hooks/useCapitalRaiseEngagements";
-import { Label } from "@/components/ui/label";
-import { DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { useOutlookMessages, type OutlookMessage } from "@/hooks/useOutlook";
 import { ComposeEmailDialog } from "@/components/ComposeEmailDialog";
 import { EntityNotes } from "@/components/EntityNotes";
@@ -63,9 +49,6 @@ import { useNotes } from "@/hooks/useNotes";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { Checkbox } from "@/components/ui/checkbox";
-import { INVESTOR_TYPES, GEOGRAPHY_QUICK_ADDS } from "@/lib/partnerOptions";
-
-const WARMTH_OPTIONS = ["Existing Partner", "Very Warm", "Warm", "Tepid", "Cold"];
 
 export default function PartnerDetail() {
   const { id } = useParams();
@@ -83,7 +66,6 @@ export default function PartnerDetail() {
   const { data: emails } = useOutlookMessages({ partnerId: id });
   const [newNote, setNewNote] = useState("");
   const [notesOpen, setNotesOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
   const [tab, setTab] = useState("overview");
   const { data: currency } = usePartnerCurrency(id);
   const { data: partnerNotes } = useNotes("partner", id);
@@ -200,7 +182,7 @@ export default function PartnerDetail() {
   };
 
   if (isLoading) return (
-    <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)_320px]">
+    <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)_340px]">
       <Skeleton className="h-96 w-full" />
       <Skeleton className="h-96 w-full" />
       <Skeleton className="hidden xl:block h-96 w-full" />
@@ -218,7 +200,7 @@ export default function PartnerDetail() {
     contacts?.find((c) => c.is_primary && c.email)?.email ?? contacts?.find((c) => c.email)?.email ?? "";
 
   return (
-    <div className="grid gap-4 items-start lg:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)_320px]">
+    <div className="grid gap-4 items-start lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)_340px]">
 
       {/* ── Left: identity, quick actions, properties ── */}
       <aside className="space-y-4 lg:sticky lg:top-0 lg:max-h-[calc(100vh-4rem)] lg:overflow-y-auto lg:pb-4">
@@ -226,7 +208,7 @@ export default function PartnerDetail() {
           partner={partner}
           primaryEmail={primaryEmail}
           onBack={goBack}
-          onEdit={() => setEditOpen(true)}
+          onEdit={() => navigate(`/partners/${id}/edit`)}
           onRerunEnrichment={rerunEnrichment}
           reEnriching={reEnriching}
           onRegenerateSummary={regenerateSummary}
@@ -234,7 +216,7 @@ export default function PartnerDetail() {
           onOpenNotes={() => setNotesOpen(true)}
           onArchived={() => navigate("/partners")}
         />
-        <AboutPartnerCard partner={partner} onEdit={() => setEditOpen(true)} />
+        <AboutPartnerCard partner={partner} />
       </aside>
 
       {/* ── Middle: tabs ── */}
@@ -287,8 +269,8 @@ export default function PartnerDetail() {
                 </CardContent>
               </Card>
             )}
-            {/* Full Notes (from imported capital partners list) — editable */}
-            <EditablePartnerNotesCard partner={partner} />
+            {/* Full Notes (from imported capital partners list); edited in the partner form */}
+            <PartnerNotesCard partner={partner} />
           </TabsContent>
 
           <TabsContent value="activities" className="space-y-4 mt-4">
@@ -326,7 +308,6 @@ export default function PartnerDetail() {
       </aside>
 
       <EmailReaderDialog message={openEmail} onClose={() => setOpenEmail(null)} />
-      <PartnerEditDialog partner={partner} open={editOpen} onOpenChange={setEditOpen} />
 
       {id && (
         <FloatingPanel
@@ -431,7 +412,7 @@ function PartnerRecordCard({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuItem onClick={onEdit}><Pencil className="h-4 w-4 mr-2" /> Edit details</DropdownMenuItem>
+            <DropdownMenuItem onClick={onEdit}><Pencil className="h-4 w-4 mr-2" /> Edit partner</DropdownMenuItem>
             <DropdownMenuItem onClick={onRerunEnrichment} disabled={reEnriching}>
               <Sparkles className="h-4 w-4 mr-2" /> {reEnriching ? "Enriching…" : "Re-run enrichment"}
             </DropdownMenuItem>
@@ -464,9 +445,6 @@ function PartnerRecordCard({
           <div className="min-w-0 flex-1">
             <h1 className="font-display text-xl font-semibold tracking-tight leading-tight flex items-start gap-1.5">
               <span className="break-words">{partner.name}</span>
-              <button type="button" onClick={onEdit} aria-label="Edit partner" className="mt-1 text-muted-foreground hover:text-foreground shrink-0">
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
             </h1>
             {partner.archived_at && (
               <Badge variant="outline" className="mt-1 text-[10px] uppercase tracking-wide border-muted-foreground/40 text-muted-foreground">
@@ -494,9 +472,9 @@ function PartnerRecordCard({
             </div>
           )}
           <div className="flex items-center gap-2 flex-wrap pt-1">
-            {partner.firm_type && (
-              <span className="text-xs px-1.5 py-0.5 rounded bg-muted border text-muted-foreground">{partner.firm_type}</span>
-            )}
+            {(partner.investor_type ?? []).map((t) => (
+              <span key={t} className="text-xs px-1.5 py-0.5 rounded bg-muted border text-muted-foreground">{t}</span>
+            ))}
             <WarmthBadge strength={partner.relationship_strength} />
           </div>
         </div>
@@ -511,8 +489,11 @@ function PartnerRecordCard({
           />
           <QuickAction icon={Sparkles} label="Enrich" onClick={onRerunEnrichment} disabled={reEnriching} spinning={false} />
           <QuickAction icon={RefreshCw} label="Summary" onClick={onRegenerateSummary} disabled={regenerating} spinning={regenerating} />
-          <QuickAction icon={Pencil} label="Edit" onClick={onEdit} />
         </div>
+
+        <Button variant="outline" className="w-full gap-1.5" onClick={onEdit}>
+          <Pencil className="h-3.5 w-3.5" /> Edit partner
+        </Button>
       </CardContent>
 
       <ArchivePartnerDialog partner={partner} open={archiveOpen} onOpenChange={setArchiveOpen} onArchived={onArchived} />
@@ -566,213 +547,11 @@ function ArchivePartnerDialog({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Edit dialog — name, firm type, warmth, POC, website, HQ, investor type, geography
-// ─────────────────────────────────────────────────────────────────────────────
-
-function PartnerEditDialog({
-  partner,
-  open,
-  onOpenChange,
-}: {
-  partner: Partner;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const update = useUpdatePartner();
-  const [name, setName] = useState(partner.name);
-  const [firmType, setFirmType] = useState(partner.firm_type ?? "");
-  const [warmth, setWarmth] = useState(partner.relationship_strength ?? "");
-  const [poc, setPoc] = useState(partner.ansonia_poc ?? "");
-  const [website, setWebsite] = useState(partner.website ?? "");
-  const [hq, setHq] = useState(partner.headquarters ?? "");
-  const [investorType, setInvestorType] = useState<string[]>(partner.investor_type ?? []);
-  const [geography, setGeography] = useState<string[]>(partner.geography ?? []);
-  const [geoInput, setGeoInput] = useState("");
-
-  // Reset the draft from the stored record every time the dialog opens.
-  useEffect(() => {
-    if (!open) return;
-    setName(partner.name);
-    setFirmType(partner.firm_type ?? "");
-    setWarmth(partner.relationship_strength ?? "");
-    setPoc(partner.ansonia_poc ?? "");
-    setWebsite(partner.website ?? "");
-    setHq(partner.headquarters ?? "");
-    setInvestorType(partner.investor_type ?? []);
-    setGeography(partner.geography ?? []);
-    setGeoInput("");
-  }, [open, partner]);
-
-  const toggleInvestorType = (v: string) =>
-    setInvestorType((arr) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]));
-
-  const addGeo = () => {
-    const parts = geoInput.split(",").map((s) => s.trim()).filter(Boolean);
-    if (!parts.length) return;
-    setGeography((g) => Array.from(new Set([...g, ...parts])));
-    setGeoInput("");
-  };
-  const removeGeo = (g: string) => setGeography((arr) => arr.filter((x) => x !== g));
-
-  const save = () => {
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      toast.error("Name is required");
-      return;
-    }
-    update.mutate(
-      {
-        id: partner.id,
-        name: trimmedName,
-        firm_type: firmType.trim() || null,
-        relationship_strength: warmth || null,
-        // Lock only when the human changed it, so saving other fields doesn't
-        // freeze a warmth the job derived.
-        ...((warmth || null) !== (partner.relationship_strength ?? null)
-          ? { manual_fields: withManualField(partner.manual_fields, "relationship_strength") }
-          : {}),
-        ansonia_poc: poc.trim() || null,
-        website: website.trim() || null,
-        headquarters: hq.trim() || null,
-        investor_type: investorType,
-        geography: geography,
-      } as any,
-      {
-        onSuccess: () => {
-          toast.success("Partner updated");
-          onOpenChange(false);
-        },
-        onError: (err: any) => toast.error("Save failed: " + (err?.message ?? err)),
-      },
-    );
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Edit partner details</DialogTitle>
-          <DialogDescription>Investment parameters and capital status are edited in their own cards on the Overview tab.</DialogDescription>
-        </DialogHeader>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Partner Name</label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Firm Type</label>
-            <Input value={firmType} onChange={(e) => setFirmType(e.target.value)} placeholder="e.g. Family Office" />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Relationship Warmth</label>
-            <Select value={warmth || "__none"} onValueChange={(v) => setWarmth(v === "__none" ? "" : v)}>
-              <SelectTrigger><SelectValue placeholder="Not set" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none">Not set</SelectItem>
-                {WARMTH_OPTIONS.map((w) => (
-                  <SelectItem key={w} value={w}>{w}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Ansonia POC</label>
-            <Input value={poc} onChange={(e) => setPoc(e.target.value)} />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Website</label>
-            <Input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://" />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Headquarters</label>
-            <Input value={hq} onChange={(e) => setHq(e.target.value)} placeholder="City, State" />
-          </div>
-          <div className="space-y-1 md:col-span-2">
-            <label className="text-xs text-muted-foreground">Investor Type</label>
-            <div className="flex flex-wrap gap-1.5">
-              {INVESTOR_TYPES.map((t) => {
-                const on = investorType.includes(t);
-                return (
-                  <Button
-                    key={t}
-                    type="button"
-                    size="sm"
-                    variant={on ? "default" : "outline"}
-                    className="h-7 text-xs"
-                    onClick={() => toggleInvestorType(t)}
-                  >
-                    {t}
-                  </Button>
-                );
-              })}
-            </div>
-          </div>
-          <div className="space-y-1 md:col-span-2">
-            <label className="text-xs text-muted-foreground">Geography</label>
-            <div className="flex gap-2">
-              <Input
-                value={geoInput}
-                onChange={(e) => setGeoInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === ",") {
-                    e.preventDefault();
-                    addGeo();
-                  }
-                }}
-                placeholder="Add markets / MSAs / states, then press Enter"
-              />
-              <Button type="button" variant="outline" onClick={addGeo}>Add</Button>
-            </div>
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {GEOGRAPHY_QUICK_ADDS.map((q) => {
-                const already = geography.includes(q);
-                return (
-                  <Button
-                    key={q}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    disabled={already}
-                    onClick={() => setGeography((g) => Array.from(new Set([...g, q])))}
-                  >
-                    {already ? `✓ ${q}` : `+ ${q}`}
-                  </Button>
-                );
-              })}
-            </div>
-            {geography.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {geography.map((g) => (
-                  <Badge key={g} variant="secondary" className="gap-1">
-                    {g}
-                    <button type="button" onClick={() => removeGeo(g)} className="hover:text-destructive">
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            <X className="h-3.5 w-3.5 mr-1" /> Cancel
-          </Button>
-          <Button onClick={save} disabled={update.isPending}>
-            <Check className="h-3.5 w-3.5 mr-1" /> Save
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Right column — Contacts (HubSpot association card)
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ContactsSidebarCard({ partner, contacts }: { partner: Partner; contacts: PartnerContact[] | undefined }) {
+  const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   // The outreach default leads the list; the rest keep their alphabetical order.
@@ -784,14 +563,9 @@ function ContactsSidebarCard({ partner, contacts }: { partner: Partner; contacts
     <RecordSection
       title={`Contacts (${contacts?.length ?? 0})`}
       actions={
-        <ContactEditorDialog
-          partnerId={partner.id}
-          trigger={
-            <Button variant="ghost" size="sm" className="h-7 gap-1 text-primary">
-              <Plus className="h-3.5 w-3.5" /> Add
-            </Button>
-          }
-        />
+        <Button variant="ghost" size="sm" className="h-7 gap-1 text-primary" onClick={() => navigate(`/partners/${partner.id}/edit#contacts`)}>
+          <Plus className="h-3.5 w-3.5" /> Add / edit
+        </Button>
       }
     >
       {(contacts?.length ?? 0) > 3 && (
@@ -814,16 +588,6 @@ function ContactsSidebarCard({ partner, contacts }: { partner: Partner; contacts
                 </div>
                 <div className="flex items-center shrink-0 -mr-1">
                   <PrimaryContactButton contact={c} />
-                  <ContactEditorDialog
-                    partnerId={partner.id}
-                    contact={c}
-                    trigger={
-                      <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Edit contact">
-                        <Pencil className="h-3 w-3" />
-                      </Button>
-                    }
-                  />
-                  <DeleteContactButton contact={c} />
                 </div>
               </div>
               <div className="text-xs space-y-1">
@@ -879,175 +643,25 @@ function ContactsSidebarCard({ partner, contacts }: { partner: Partner; contacts
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Editable "Partner Notes" (additional_notes) card
+// "Partner Notes" (additional_notes) card
 // ─────────────────────────────────────────────────────────────────────────────
 
-function EditablePartnerNotesCard({ partner }: { partner: Partner }) {
-  const update = useUpdatePartner();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(partner.additional_notes ?? "");
-
-  const enterEdit = () => {
-    setDraft(partner.additional_notes ?? "");
-    setEditing(true);
-  };
-
-  const save = () => {
-    update.mutate(
-      { id: partner.id, additional_notes: draft.trim() || null } as any,
-      {
-        onSuccess: () => {
-          toast.success("Partner notes saved");
-          setEditing(false);
-        },
-        onError: (err: any) => toast.error("Save failed: " + (err?.message ?? err)),
-      },
-    );
-  };
-
+function PartnerNotesCard({ partner }: { partner: Partner }) {
   return (
     <Card className="border-hairline shadow-none">
-      <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
+      <CardHeader className="pb-3">
         <CardTitle className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground flex items-center gap-2">
           <StickyNote className="h-4 w-4" /> Partner Notes
         </CardTitle>
-        {editing ? (
-          <div className="flex gap-1">
-            <Button size="sm" variant="ghost" onClick={() => setEditing(false)} className="h-7 px-2">
-              <X className="h-3.5 w-3.5 mr-1" /> Cancel
-            </Button>
-            <Button size="sm" onClick={save} disabled={update.isPending} className="h-7 px-2">
-              <Check className="h-3.5 w-3.5 mr-1" /> Save
-            </Button>
-          </div>
-        ) : (
-          <Button size="icon" variant="ghost" onClick={enterEdit} className="h-7 w-7" aria-label="Edit partner notes">
-            <Pencil className="h-3.5 w-3.5" />
-          </Button>
-        )}
       </CardHeader>
       <CardContent>
-        {editing ? (
-          <RichTextEditor
-            value={draft}
-            onChange={setDraft}
-            placeholder="Free-form notes about this partner…"
-          />
-        ) : partner.additional_notes ? (
+        {partner.additional_notes ? (
           <NoteContent content={partner.additional_notes} className="leading-relaxed" />
         ) : (
           <p className="text-sm text-muted-foreground">No notes on file for this partner.</p>
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function ContactEditorDialog({
-  partnerId,
-  contact,
-  trigger,
-}: {
-  partnerId: string;
-  contact?: PartnerContact;
-  trigger: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState(contact?.name ?? "");
-  const [email, setEmail] = useState(contact?.email ?? "");
-  const [phone, setPhone] = useState(contact?.phone ?? "");
-  const [role, setRole] = useState(contact?.role ?? "");
-  const [linkedin, setLinkedin] = useState(contact?.linkedin_url ?? "");
-  const [firmLocation, setFirmLocation] = useState(contact?.firm_location ?? "");
-
-  const createContact = useCreatePartnerContact();
-  const updateContact = useUpdatePartnerContact();
-  const isEdit = !!contact;
-  const busy = createContact.isPending || updateContact.isPending;
-
-  useEffect(() => {
-    if (open) {
-      setName(contact?.name ?? "");
-      setEmail(contact?.email ?? "");
-      setPhone(contact?.phone ?? "");
-      setRole(contact?.role ?? "");
-      setLinkedin(contact?.linkedin_url ?? "");
-      setFirmLocation(contact?.firm_location ?? "");
-    }
-  }, [open, contact]);
-
-  const handleSave = async () => {
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      toast.error("Name is required");
-      return;
-    }
-    const payload = {
-      name: trimmedName,
-      email: email.trim() || null,
-      phone: phone.trim() || null,
-      role: role.trim() || null,
-      linkedin_url: linkedin.trim() || null,
-      firm_location: firmLocation.trim() || null,
-    };
-    try {
-      if (isEdit && contact) {
-        await updateContact.mutateAsync({ id: contact.id, ...payload });
-        toast.success("Contact updated");
-      } else {
-        await createContact.mutateAsync({ partner_id: partnerId, ...payload });
-        toast.success("Contact added");
-      }
-      setOpen(false);
-    } catch (e: any) {
-      toast.error(e?.message ?? "Failed to save contact");
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit contact" : "Add contact"}</DialogTitle>
-          <DialogDescription>
-            {isEdit ? "Update this contact's details." : "Add a new contact for this partner."}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="contact-name">Name <span className="text-destructive">*</span></Label>
-            <Input id="contact-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={200} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="contact-email">Email</Label>
-            <Input id="contact-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={255} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="contact-phone">Phone</Label>
-            <Input id="contact-phone" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={50} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="contact-role">Role</Label>
-            <Input id="contact-role" value={role} onChange={(e) => setRole(e.target.value)} maxLength={120} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="contact-linkedin">LinkedIn URL</Label>
-            <Input id="contact-linkedin" value={linkedin} onChange={(e) => setLinkedin(e.target.value)} maxLength={500} placeholder="https://linkedin.com/in/..." />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="contact-location">Firm location</Label>
-            <Input id="contact-location" value={firmLocation} onChange={(e) => setFirmLocation(e.target.value)} maxLength={200} />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>Cancel</Button>
-          <Button onClick={handleSave} disabled={busy}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : isEdit ? "Save changes" : "Add contact"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -1106,50 +720,3 @@ function OutreachRoleLine({ contact }: { contact: PartnerContact }) {
     </label>
   );
 }
-
-function DeleteContactButton({ contact }: { contact: PartnerContact }) {
-  const [open, setOpen] = useState(false);
-  const deleteContact = useDeletePartnerContact();
-
-  const handleDelete = async () => {
-    try {
-      await deleteContact.mutateAsync({ id: contact.id, partner_id: contact.partner_id });
-      toast.success("Contact deleted");
-      setOpen(false);
-    } catch (e: any) {
-      toast.error(e?.message ?? "Failed to delete contact");
-    }
-  };
-
-  return (
-    <AlertDialog open={open} onOpenChange={setOpen}>
-      <AlertDialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" aria-label="Delete contact">
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete contact?</AlertDialogTitle>
-          <AlertDialogDescription>
-            This will permanently remove <strong>{contact.name}</strong> from this partner. This action cannot be undone.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={deleteContact.isPending}>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={(e) => { e.preventDefault(); handleDelete(); }}
-            disabled={deleteContact.isPending}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-          >
-            {deleteContact.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete"}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-}
-
-
-
-

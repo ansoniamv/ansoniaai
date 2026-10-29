@@ -73,7 +73,7 @@ export function exportPartnerMatches({
 
   const headers = [
     "Rank", "Firm", "Match Score %", "Tier", "Confidence", "Pillars Covered",
-    "Base Score %", "Notes Adj (pts)", "Capital Status", "Capital Rank Adj (pts)", "Warmth", "Firm Type", "Investor Type",
+    "Base Score %", "Notes Adj (pts)", "Capital Status", "Capital Rank Adj (pts)", "Warmth", "Investor Type", "Investment Type",
     "Min Equity ($M)", "Max Equity ($M)", "Hold Period", "Strategy", "Product Types",
     "Geography", "HQ", "Ansonia POC", "In Pipeline", "Why It Fits", "Gaps", "Profile", "Website",
   ];
@@ -92,8 +92,8 @@ export function exportPartnerMatches({
       m.capital.needsReconfirmation ? `${m.capital.status} (needs re-confirmation)` : m.capital.status ?? "",
       m.capital.adjustment,
       p.relationship_strength ?? "",
-      p.firm_type ?? "",
       joinList(p.investor_type),
+      joinList(p.investment_type),
       p.min_equity_m ?? "",
       p.max_equity_m ?? "",
       joinList(p.hold_period),

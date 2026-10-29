@@ -82,6 +82,7 @@ function fieldPreview(primary: Partner | undefined, duplicate: Partner | undefin
     { label: "Min equity ($M)", primary: primary.min_equity_m?.toString() ?? "—", duplicate: duplicate.min_equity_m?.toString() ?? "—", result: (primary.min_equity_m ?? duplicate.min_equity_m ?? "—").toString() },
     { label: "Max equity ($M)", primary: primary.max_equity_m?.toString() ?? "—", duplicate: duplicate.max_equity_m?.toString() ?? "—", result: (primary.max_equity_m ?? duplicate.max_equity_m ?? "—").toString() },
     { label: "Investor type", primary: joinArr(primary.investor_type), duplicate: joinArr(duplicate.investor_type), result: union(primary.investor_type, duplicate.investor_type) },
+    { label: "Investment type", primary: joinArr(primary.investment_type), duplicate: joinArr(duplicate.investment_type), result: union(primary.investment_type, duplicate.investment_type) },
     { label: "Geography", primary: joinArr(primary.geography), duplicate: joinArr(duplicate.geography), result: union(primary.geography, duplicate.geography) },
     { label: "Geography avoid", primary: joinArr(primary.geography_avoid), duplicate: joinArr(duplicate.geography_avoid), result: union(primary.geography_avoid, duplicate.geography_avoid) },
     { label: "Hold period", primary: joinArr(primary.hold_period), duplicate: joinArr(duplicate.hold_period), result: union(primary.hold_period, duplicate.hold_period) },

@@ -253,6 +253,7 @@ export function CapitalRaiseTab({ deal }: { deal: Deal }) {
         ? {
             firm_type: (partner as any).firm_type ?? null,
             investor_type: (partner as any).investor_type ?? null,
+            investment_type: (partner as any).investment_type ?? null,
             geography: (partner as any).geography ?? null,
             min_equity_m: (partner as any).min_equity_m ?? null,
             max_equity_m: (partner as any).max_equity_m ?? null,

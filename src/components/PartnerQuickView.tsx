@@ -69,6 +69,7 @@ export function PartnerQuickView({ partner: p, trigger }: Props) {
               <KVRow label="Equity range" value={formatEquityRange(p.min_equity_m, p.max_equity_m)} />
               <KVRow label="Hold period" value={p.hold_period?.length ? p.hold_period.join(", ") : "—"} />
               <KVRow label="Investor type" value={p.investor_type?.length ? p.investor_type.join(", ") : "—"} />
+              <KVRow label="Investment type" value={p.investment_type?.length ? p.investment_type.join(", ") : "—"} />
               <KVRow label="Product types" value={p.product_types?.length ? p.product_types.join(", ") : "—"} />
               <KVRow label="Geography" value={p.geography?.length ? p.geography.join(", ") : "—"} />
               <KVRow label="Strategy" value={strategies.length ? strategies.join(", ") : "—"} />
