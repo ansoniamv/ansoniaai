@@ -69,6 +69,7 @@ export const STALE_DAYS: Record<string, number> = {
   strategy_workforce: 365,
   strategy_affordable: 365,
   investor_type: 545,
+  investment_type: 545,
 };
 export const DEFAULT_STALE_DAYS = 365;
 

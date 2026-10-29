@@ -180,6 +180,18 @@ const COLUMNS: ColumnDef[] = [
     getValue: (p) => (p.investor_type || []).join(", "),
   },
   {
+    key: "investment_type", label: "Investment Type", defaultVisible: true,
+    render: (p) => (
+      <div className="flex gap-1 justify-center flex-wrap max-w-[200px] mx-auto">
+        {p.investment_type?.length ? p.investment_type.map((t) => (
+          <span key={t} className="text-[10px] px-1.5 py-0.5 rounded bg-muted border text-muted-foreground whitespace-normal break-words">{t}</span>
+        )) : <span className="text-muted-foreground text-xs">—</span>}
+      </div>
+    ),
+    filterType: "select",
+    getValue: (p) => (p.investment_type || []).join(", "),
+  },
+  {
     key: "ansonia_poc", label: "POC", defaultVisible: true, sortKey: "ansonia_poc",
     render: (p) => <span className="text-xs text-muted-foreground">{p.ansonia_poc || "—"}</span>,
     editable: true, editType: "text", fieldKey: "ansonia_poc",
@@ -454,9 +466,10 @@ export default function PartnersPage() {
           if (p.strategy_core_plus) valSet.add("Core+");
           if (p.strategy_workforce) valSet.add("Workforce");
           if (p.strategy_affordable) valSet.add("Affordable");
-        } else if (col.key === "investor_type") {
-          if (!p.investor_type || p.investor_type.length === 0) hasBlank = true;
-          else (p.investor_type).forEach((t) => valSet.add(t));
+        } else if (col.key === "investor_type" || col.key === "investment_type") {
+          const tags = p[col.key];
+          if (!tags || tags.length === 0) hasBlank = true;
+          else tags.forEach((t) => valSet.add(t));
         } else if (col.key === "geography") {
           if (!p.geography || p.geography.length === 0) hasBlank = true;
           else (p.geography).forEach((g) => valSet.add(g));
@@ -508,13 +521,14 @@ export default function PartnersPage() {
       if (col.key === "strategy") {
         const stratMap: Record<string, keyof Partner> = { "Value-Add": "strategy_value_add", "Core+": "strategy_core_plus", "Workforce": "strategy_workforce", "Affordable": "strategy_affordable" };
         result = result.filter((p) => filterVals.some((fv) => { const field = stratMap[fv]; return field && p[field] === true; }));
-      } else if (col.key === "investor_type") {
+      } else if (col.key === "investor_type" || col.key === "investment_type") {
+        const key = col.key;
         result = result.filter((p) => {
           const hasBlankFilter = filterVals.includes("(Blank)");
           const otherVals = filterVals.filter((v) => v !== "(Blank)");
-          const isEmpty = !p.investor_type || p.investor_type.length === 0;
+          const isEmpty = !p[key] || p[key].length === 0;
           if (hasBlankFilter && isEmpty) return true;
-          if (otherVals.length > 0 && otherVals.some((fv) => (p.investor_type || []).includes(fv))) return true;
+          if (otherVals.length > 0 && otherVals.some((fv) => (p[key] || []).includes(fv))) return true;
           return false;
         });
       } else if (col.key === "geography") {

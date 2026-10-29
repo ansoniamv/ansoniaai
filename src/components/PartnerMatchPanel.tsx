@@ -31,6 +31,7 @@ import { useNotes } from "@/hooks/useNotes";
 import { supabase } from "@/integrations/supabase/client";
 import type { Deal } from "@/hooks/useDeals";
 import type { Partner } from "@/hooks/usePartners";
+import { INVESTOR_TYPES, INVESTMENT_TYPES } from "@/lib/partnerOptions";
 import {
   rankPartnerMatches,
   defaultDealStrategies,
@@ -106,10 +107,6 @@ function StrategyConfirmDialog({
 // Filter option lists + helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-const INVESTOR_TYPE_OPTIONS = [
-  "LP", "GP", "Co-GP", "Passive Co-Invest", "Family Office", "Institutional",
-  "HNW", "Sovereign", "Insurance", "Pension", "Endowment",
-];
 const HOLD_PERIOD_OPTIONS = ["Short (<3 yr)", "Medium (3–7 yr)", "Long (7–10 yr)", "Perpetual"];
 const STRATEGY_OPTIONS: { label: string; field: keyof Partner }[] = [
   { label: "Value-Add", field: "strategy_value_add" },
@@ -325,6 +322,7 @@ export function PartnerMatchPanel({ deal }: { deal: Deal }) {
   const [onlyFitting, setOnlyFitting] = useState(false);
   const [geoFilter, setGeoFilter] = useState<string[]>([]);
   const [investorFilter, setInvestorFilter] = useState<string[]>([]);
+  const [investmentFilter, setInvestmentFilter] = useState<string[]>([]);
   const [holdFilter, setHoldFilter] = useState<string[]>([]);
   const [strategyFilter, setStrategyFilter] = useState<string[]>([]);
   const [productFilter, setProductFilter] = useState<string[]>([]);
@@ -403,6 +401,7 @@ export function PartnerMatchPanel({ deal }: { deal: Deal }) {
         );
       })
       .filter((m) => arrayMatches(m.partner.investor_type, investorFilter))
+      .filter((m) => arrayMatches(m.partner.investment_type, investmentFilter))
       .filter((m) => arrayMatches(m.partner.hold_period, holdFilter))
       .filter((m) => arrayMatches(m.partner.product_types, productFilter))
       .filter((m) => {
@@ -417,12 +416,13 @@ export function PartnerMatchPanel({ deal }: { deal: Deal }) {
       });
   }, [
     matches, onlyFitting, checkTarget,
-    geoFilter, eqMinNum, eqMaxNum, investorFilter, holdFilter, productFilter, strategyFilter, warmthFilter,
+    geoFilter, eqMinNum, eqMaxNum, investorFilter, investmentFilter, holdFilter, productFilter, strategyFilter, warmthFilter,
   ]);
 
   const activeChips: { key: string; label: string; remove: () => void }[] = [
     ...geoFilter.map((v) => ({ key: `geo-${v}`, label: `Geo: ${v}`, remove: () => setGeoFilter((p) => p.filter((x) => x !== v)) })),
-    ...investorFilter.map((v) => ({ key: `inv-${v}`, label: `Type: ${v}`, remove: () => setInvestorFilter((p) => p.filter((x) => x !== v)) })),
+    ...investorFilter.map((v) => ({ key: `inv-${v}`, label: `Investor: ${v}`, remove: () => setInvestorFilter((p) => p.filter((x) => x !== v)) })),
+    ...investmentFilter.map((v) => ({ key: `invt-${v}`, label: `Investment: ${v}`, remove: () => setInvestmentFilter((p) => p.filter((x) => x !== v)) })),
     ...holdFilter.map((v) => ({ key: `hold-${v}`, label: `Hold: ${v}`, remove: () => setHoldFilter((p) => p.filter((x) => x !== v)) })),
     ...strategyFilter.map((v) => ({ key: `strat-${v}`, label: `Strategy: ${v}`, remove: () => setStrategyFilter((p) => p.filter((x) => x !== v)) })),
     ...productFilter.map((v) => ({ key: `prod-${v}`, label: `Product: ${v}`, remove: () => setProductFilter((p) => p.filter((x) => x !== v)) })),
@@ -434,6 +434,7 @@ export function PartnerMatchPanel({ deal }: { deal: Deal }) {
   const clearAllFilters = () => {
     setGeoFilter([]);
     setInvestorFilter([]);
+    setInvestmentFilter([]);
     setHoldFilter([]);
     setStrategyFilter([]);
     setProductFilter([]);
@@ -618,10 +619,17 @@ export function PartnerMatchPanel({ deal }: { deal: Deal }) {
             )}
             <MultiSelectFilter
               label="Investor Type"
-              options={INVESTOR_TYPE_OPTIONS}
+              options={INVESTOR_TYPES}
               selected={investorFilter}
               onToggle={(v) => setInvestorFilter((p) => toggleIn(p, v))}
               onClear={() => setInvestorFilter([])}
+            />
+            <MultiSelectFilter
+              label="Investment Type"
+              options={INVESTMENT_TYPES}
+              selected={investmentFilter}
+              onToggle={(v) => setInvestmentFilter((p) => toggleIn(p, v))}
+              onClear={() => setInvestmentFilter([])}
             />
             <MultiSelectFilter
               label="Hold Period"

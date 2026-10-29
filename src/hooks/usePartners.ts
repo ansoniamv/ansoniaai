@@ -7,6 +7,7 @@ export type Partner = {
   firm_type: string | null;
   relationship_strength: string | null;
   investor_type: string[];
+  investment_type: string[];
   headquarters: string | null;
   website: string | null;
   min_equity_m: number | null;
@@ -79,7 +80,7 @@ export type PartnerInteraction = {
 
 export const PROFILE_COMPLETENESS_FIELDS = [
   "capital_status", "min_equity_m", "max_equity_m", "geography", "product_types",
-  "hold_period", "investor_type", "relationship_strength",
+  "hold_period", "investor_type", "investment_type", "relationship_strength",
   "strategy_value_add", "strategy_core_plus", "strategy_workforce", "strategy_affordable",
 ] as const;
 

@@ -427,6 +427,7 @@ export function PartnerDetailSheet({
                   : "—"
               } />
               <AboutRow label="Investor Type" value={partner.investor_type?.join(", ") || "—"} />
+              <AboutRow label="Investment Type" value={partner.investment_type?.join(", ") || "—"} />
               <AboutRow label="Hold Period" value={partner.hold_period?.join(", ") || "—"} />
               <AboutRow label="Geography" value={partner.geography?.join(", ") || "—"} />
               <AboutRow label="Product Types" value={partner.product_types?.join(", ") || "—"} />

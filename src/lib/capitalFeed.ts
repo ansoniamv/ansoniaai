@@ -15,7 +15,7 @@ export const ALL_CATEGORIES = Object.keys(CATEGORY_LABEL) as StoryCategory[];
 /** Fields that describe what a partner will invest in. Warmth, POC and the like are left out on purpose. */
 export const CRITERIA_FIELDS = new Set([
   "capital_status", "capital_status_detail", "capital_available_from",
-  "min_equity_m", "max_equity_m", "investor_type", "hold_period", "product_types",
+  "min_equity_m", "max_equity_m", "investor_type", "investment_type", "hold_period", "product_types",
   "geography", "geography_avoid", "urban_infill", "suburban",
   "strategy_value_add", "strategy_core_plus", "strategy_workforce", "strategy_affordable",
 ]);
@@ -193,6 +193,7 @@ export function criteriaClauses(changes: RawChange[]): string[] {
     ["capital_available_from", (to) => `expects capital to be available from ${to}`, "capital availability date"],
     ["hold_period", (to) => `changed their hold period to ${to}`, "hold period"],
     ["investor_type", (to) => `changed their investor type to ${to}`, "investor type"],
+    ["investment_type", (to) => `changed their investment type to ${to}`, "investment type"],
   ];
   for (const [field, phrase, label] of simple) {
     const c = by.get(field);

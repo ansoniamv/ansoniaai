@@ -233,6 +233,7 @@ function PassDialog({
       partner: {
         firm_type: partner.firm_type ?? null,
         investor_type: partner.investor_type ?? null,
+        investment_type: partner.investment_type ?? null,
         geography: partner.geography ?? null,
         min_equity_m: partner.min_equity_m ?? null,
         max_equity_m: partner.max_equity_m ?? null,

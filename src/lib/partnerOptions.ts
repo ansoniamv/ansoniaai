@@ -1,19 +1,37 @@
 // Shared option lists for capital-partner forms.
 // Keep in sync between NewPartner and PartnerDetail editors.
 
+// Who the partner is.
 export const INVESTOR_TYPES = [
-  "LP",
-  "GP",
-  "Co-GP",
-  "Passive Co-Invest",
+  "Individual",
   "Family Office",
-  "Institutional",
-  "HNW",
-  "Sovereign",
-  "Insurance",
+  "RIA",
+  "Syndicator",
+  "Fund",
+  "Institution",
   "Pension",
   "Endowment",
+  "Insurance",
+  "Sovereign",
 ];
+
+// How the partner invests with us. Kept separate from INVESTOR_TYPES: a family
+// office can write JV equity or pref, so the two are different questions.
+export const INVESTMENT_TYPES = [
+  "JV Equity",
+  "Large JV",
+  "Preferred Equity",
+  "GP Equity",
+  "LP Equity",
+  "Passive Co-Invest",
+  "GP Co-Invest",
+  "Sidecar",
+];
+
+/** The option list plus any stored values not in it, so editors can still show and clear them. */
+export function withCurrent(options: readonly string[], current: readonly string[] | null | undefined): string[] {
+  return [...options, ...(current ?? []).filter((v) => !options.includes(v))];
+}
 
 export const HOLD_PERIODS = ["Short (<3 yr)", "Medium (3–7 yr)", "Long (7–10 yr)", "Perpetual"];
 

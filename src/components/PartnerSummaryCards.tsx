@@ -15,7 +15,7 @@ import { EnrichedBadge, ProvenanceChip, type EnrichedFieldsMap } from "@/compone
 import { useUpdatePartner, type Partner } from "@/hooks/usePartners";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
-import { INVESTOR_TYPES, HOLD_PERIODS, PRODUCT_TYPES } from "@/lib/partnerOptions";
+import { INVESTOR_TYPES, INVESTMENT_TYPES, HOLD_PERIODS, PRODUCT_TYPES, withCurrent } from "@/lib/partnerOptions";
 
 /**
  * Map of highlight tokens (from `?highlight=` on the URL) → which card owns them.
@@ -41,7 +41,7 @@ type NoteLite = { id: string; content: string; content_format: string; created_a
  * purposes — it's manual-only and never AI-derived.
  */
 const CARD_FIELDS = {
-  investment: ["min_equity_m", "max_equity_m", "investor_type", "hold_period"] as const,
+  investment: ["min_equity_m", "max_equity_m", "investor_type", "investment_type", "hold_period"] as const,
   geography: [
     "geography",
     "strategy_value_add",
@@ -263,6 +263,7 @@ function InvestmentParametersCard({
   const [minEq, setMinEq] = useState<string>(partner.min_equity_m?.toString() ?? "");
   const [maxEq, setMaxEq] = useState<string>(partner.max_equity_m?.toString() ?? "");
   const [investorType, setInvestorType] = useState<string[]>(partner.investor_type ?? []);
+  const [investmentType, setInvestmentType] = useState<string[]>(partner.investment_type ?? []);
   const [holdPeriod, setHoldPeriod] = useState<string[]>(partner.hold_period ?? []);
   const highlightRef = useHighlightEffect(highlight);
 
@@ -270,6 +271,7 @@ function InvestmentParametersCard({
     setMinEq(partner.min_equity_m?.toString() ?? "");
     setMaxEq(partner.max_equity_m?.toString() ?? "");
     setInvestorType(partner.investor_type ?? []);
+    setInvestmentType(partner.investment_type ?? []);
     setHoldPeriod(partner.hold_period ?? []);
     setEditing(true);
   };
@@ -288,6 +290,7 @@ function InvestmentParametersCard({
         min_equity_m: parsedMin,
         max_equity_m: parsedMax,
         investor_type: investorType,
+        investment_type: investmentType,
         hold_period: holdPeriod,
       });
       setEditing(false);
@@ -371,11 +374,35 @@ function InvestmentParametersCard({
             {renderBadge("investor_type")}
           </span>
           {editing ? (
-            <CheckboxOptions options={INVESTOR_TYPES} value={investorType} onChange={setInvestorType} />
+            <CheckboxOptions options={withCurrent(INVESTOR_TYPES, investorType)} value={investorType} onChange={setInvestorType} />
           ) : (
             <div className="flex gap-1 flex-wrap justify-end">
               {partner.investor_type?.length ? (
                 partner.investor_type.map((t) => (
+                  <Badge key={t} variant="outline" className="text-[10px]">
+                    {t}
+                  </Badge>
+                ))
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </div>
+          )}
+        </div>
+        <Separator />
+
+        {/* Investment Type */}
+        <div className={editing ? "space-y-1" : "flex justify-between"}>
+          <span className="text-muted-foreground">
+            Investment Type
+            {renderBadge("investment_type")}
+          </span>
+          {editing ? (
+            <CheckboxOptions options={withCurrent(INVESTMENT_TYPES, investmentType)} value={investmentType} onChange={setInvestmentType} />
+          ) : (
+            <div className="flex gap-1 flex-wrap justify-end">
+              {partner.investment_type?.length ? (
+                partner.investment_type.map((t) => (
                   <Badge key={t} variant="outline" className="text-[10px]">
                     {t}
                   </Badge>

@@ -63,7 +63,7 @@ import { useNotes } from "@/hooks/useNotes";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { Checkbox } from "@/components/ui/checkbox";
-import { INVESTOR_TYPES, GEOGRAPHY_QUICK_ADDS } from "@/lib/partnerOptions";
+import { INVESTOR_TYPES, INVESTMENT_TYPES, GEOGRAPHY_QUICK_ADDS, withCurrent } from "@/lib/partnerOptions";
 
 const WARMTH_OPTIONS = ["Existing Partner", "Very Warm", "Warm", "Tepid", "Cold"];
 
@@ -494,9 +494,9 @@ function PartnerRecordCard({
             </div>
           )}
           <div className="flex items-center gap-2 flex-wrap pt-1">
-            {partner.firm_type && (
-              <span className="text-xs px-1.5 py-0.5 rounded bg-muted border text-muted-foreground">{partner.firm_type}</span>
-            )}
+            {(partner.investor_type ?? []).map((t) => (
+              <span key={t} className="text-xs px-1.5 py-0.5 rounded bg-muted border text-muted-foreground">{t}</span>
+            ))}
             <WarmthBadge strength={partner.relationship_strength} />
           </div>
         </div>
@@ -566,8 +566,47 @@ function ArchivePartnerDialog({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Edit dialog — name, firm type, warmth, POC, website, HQ, investor type, geography
+// Edit dialog — name, warmth, POC, website, HQ, investor/investment type, geography
 // ─────────────────────────────────────────────────────────────────────────────
+
+function TypeToggles({
+  label,
+  hint,
+  options,
+  value,
+  onToggle,
+}: {
+  label: string;
+  hint: string;
+  options: readonly string[];
+  value: string[];
+  onToggle: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-1 md:col-span-2">
+      <label className="text-xs text-muted-foreground">
+        {label} <span className="opacity-70">· {hint}</span>
+      </label>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((t) => {
+          const on = value.includes(t);
+          return (
+            <Button
+              key={t}
+              type="button"
+              size="sm"
+              variant={on ? "default" : "outline"}
+              className="h-7 text-xs"
+              onClick={() => onToggle(t)}
+            >
+              {t}
+            </Button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function PartnerEditDialog({
   partner,
@@ -580,12 +619,12 @@ function PartnerEditDialog({
 }) {
   const update = useUpdatePartner();
   const [name, setName] = useState(partner.name);
-  const [firmType, setFirmType] = useState(partner.firm_type ?? "");
   const [warmth, setWarmth] = useState(partner.relationship_strength ?? "");
   const [poc, setPoc] = useState(partner.ansonia_poc ?? "");
   const [website, setWebsite] = useState(partner.website ?? "");
   const [hq, setHq] = useState(partner.headquarters ?? "");
   const [investorType, setInvestorType] = useState<string[]>(partner.investor_type ?? []);
+  const [investmentType, setInvestmentType] = useState<string[]>(partner.investment_type ?? []);
   const [geography, setGeography] = useState<string[]>(partner.geography ?? []);
   const [geoInput, setGeoInput] = useState("");
 
@@ -593,18 +632,18 @@ function PartnerEditDialog({
   useEffect(() => {
     if (!open) return;
     setName(partner.name);
-    setFirmType(partner.firm_type ?? "");
     setWarmth(partner.relationship_strength ?? "");
     setPoc(partner.ansonia_poc ?? "");
     setWebsite(partner.website ?? "");
     setHq(partner.headquarters ?? "");
     setInvestorType(partner.investor_type ?? []);
+    setInvestmentType(partner.investment_type ?? []);
     setGeography(partner.geography ?? []);
     setGeoInput("");
   }, [open, partner]);
 
-  const toggleInvestorType = (v: string) =>
-    setInvestorType((arr) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]));
+  const toggle = (set: (fn: (arr: string[]) => string[]) => void) => (v: string) =>
+    set((arr) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]));
 
   const addGeo = () => {
     const parts = geoInput.split(",").map((s) => s.trim()).filter(Boolean);
@@ -624,7 +663,6 @@ function PartnerEditDialog({
       {
         id: partner.id,
         name: trimmedName,
-        firm_type: firmType.trim() || null,
         relationship_strength: warmth || null,
         // Lock only when the human changed it, so saving other fields doesn't
         // freeze a warmth the job derived.
@@ -635,6 +673,7 @@ function PartnerEditDialog({
         website: website.trim() || null,
         headquarters: hq.trim() || null,
         investor_type: investorType,
+        investment_type: investmentType,
         geography: geography,
       } as any,
       {
@@ -660,10 +699,6 @@ function PartnerEditDialog({
             <Input value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Firm Type</label>
-            <Input value={firmType} onChange={(e) => setFirmType(e.target.value)} placeholder="e.g. Family Office" />
-          </div>
-          <div className="space-y-1">
             <label className="text-xs text-muted-foreground">Relationship Warmth</label>
             <Select value={warmth || "__none"} onValueChange={(v) => setWarmth(v === "__none" ? "" : v)}>
               <SelectTrigger><SelectValue placeholder="Not set" /></SelectTrigger>
@@ -687,26 +722,20 @@ function PartnerEditDialog({
             <label className="text-xs text-muted-foreground">Headquarters</label>
             <Input value={hq} onChange={(e) => setHq(e.target.value)} placeholder="City, State" />
           </div>
-          <div className="space-y-1 md:col-span-2">
-            <label className="text-xs text-muted-foreground">Investor Type</label>
-            <div className="flex flex-wrap gap-1.5">
-              {INVESTOR_TYPES.map((t) => {
-                const on = investorType.includes(t);
-                return (
-                  <Button
-                    key={t}
-                    type="button"
-                    size="sm"
-                    variant={on ? "default" : "outline"}
-                    className="h-7 text-xs"
-                    onClick={() => toggleInvestorType(t)}
-                  >
-                    {t}
-                  </Button>
-                );
-              })}
-            </div>
-          </div>
+          <TypeToggles
+            label="Investor Type"
+            hint="who they are"
+            options={withCurrent(INVESTOR_TYPES, investorType)}
+            value={investorType}
+            onToggle={toggle(setInvestorType)}
+          />
+          <TypeToggles
+            label="Investment Type"
+            hint="how they invest with us"
+            options={withCurrent(INVESTMENT_TYPES, investmentType)}
+            value={investmentType}
+            onToggle={toggle(setInvestmentType)}
+          />
           <div className="space-y-1 md:col-span-2">
             <label className="text-xs text-muted-foreground">Geography</label>
             <div className="flex gap-2">

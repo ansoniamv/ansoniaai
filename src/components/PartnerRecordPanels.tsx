@@ -142,11 +142,11 @@ export function AboutPartnerCard({ partner, onEdit }: { partner: Partner; onEdit
             <a href={href} target="_blank" rel="noreferrer" className="text-primary hover:underline">{host}</a>
           ) : <Empty />}
         </Property>
-        <Property label="Firm type">{partner.firm_type || <Empty />}</Property>
         <Property label="Relationship warmth"><WarmthBadge strength={partner.relationship_strength} /></Property>
         <Property label="Ansonia POC">{partner.ansonia_poc || <Empty />}</Property>
         <Property label="Headquarters">{partner.headquarters || <Empty />}</Property>
         <Property label="Investor type"><Chips values={partner.investor_type} /></Property>
+        <Property label="Investment type"><Chips values={partner.investment_type} /></Property>
         <Property label="Equity check">{equity || <Empty />}</Property>
         <Property label="Hold period"><Chips values={partner.hold_period} /></Property>
         <Property label="Strategy"><Chips values={strategies} /></Property>

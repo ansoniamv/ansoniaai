@@ -57,6 +57,7 @@ export interface MatchablePartner {
   // Used only for the analyst-facing blurb, never for scoring.
   firm_type?: string | null;
   investor_type?: string[] | null;
+  investment_type?: string[] | null;
   headquarters?: string | null;
   product_types?: string[] | null;
   hold_period?: string[] | null;

@@ -21,20 +21,19 @@ import { useCreateNote } from "@/hooks/useNotes";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentTeamMember } from "@/hooks/useTeamMembers";
 import { supabase } from "@/integrations/supabase/client";
-import { INVESTOR_TYPES, HOLD_PERIODS, PRODUCT_TYPES, GEOGRAPHY_QUICK_ADDS } from "@/lib/partnerOptions";
+import { INVESTOR_TYPES, INVESTMENT_TYPES, HOLD_PERIODS, PRODUCT_TYPES, GEOGRAPHY_QUICK_ADDS } from "@/lib/partnerOptions";
 
-const FIRM_TYPES = ["GP", "LP", "Family Office", "REIT", "Insurance", "Pension", "Endowment", "Fund of Funds", "Other"];
 const WARMTH_LEVELS = ["Existing Partner", "Very Warm", "Warm", "Tepid", "Cold"];
 
 type FormState = {
   name: string;
-  firm_type: string;
   relationship_strength: string;
   ansonia_poc: string;
   headquarters: string;
   min_equity_m: string;
   max_equity_m: string;
   investor_type: string[];
+  investment_type: string[];
   hold_period: string[];
   product_types: string[];
   geography: string[];
@@ -64,13 +63,13 @@ const emptyContact = (): ContactDraft => ({
 
 const initial: FormState = {
   name: "",
-  firm_type: "",
   relationship_strength: "",
   ansonia_poc: "",
   headquarters: "",
   min_equity_m: "",
   max_equity_m: "",
   investor_type: [],
+  investment_type: [],
   hold_period: [],
   product_types: [],
   geography: [],
@@ -110,7 +109,7 @@ export default function NewPartner() {
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
-  const toggleInArray = (key: "investor_type" | "hold_period" | "product_types", val: string) => {
+  const toggleInArray = (key: "investor_type" | "investment_type" | "hold_period" | "product_types", val: string) => {
     setForm((f) => {
       const arr = f[key];
       return { ...f, [key]: arr.includes(val) ? arr.filter((x) => x !== val) : [...arr, val] };
@@ -158,7 +157,6 @@ export default function NewPartner() {
     try {
       const partner = await createPartner.mutateAsync({
         name: form.name.trim(),
-        firm_type: form.firm_type || null,
         relationship_strength: form.relationship_strength || null,
         manual_fields: form.relationship_strength ? ["relationship_strength"] : [],
         ansonia_poc: form.ansonia_poc.trim() || null,
@@ -166,6 +164,7 @@ export default function NewPartner() {
         min_equity_m: min,
         max_equity_m: max,
         investor_type: form.investor_type,
+        investment_type: form.investment_type,
         hold_period: form.hold_period,
         product_types: form.product_types,
         geography: form.geography,
@@ -266,15 +265,6 @@ export default function NewPartner() {
             ))}
           </div>
           <div className="space-y-1.5">
-            <Label>Firm Type</Label>
-            <Select value={form.firm_type} onValueChange={(v) => set("firm_type", v)}>
-              <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
-              <SelectContent>
-                {FIRM_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
             <Label>Relationship Strength</Label>
             <Select value={form.relationship_strength} onValueChange={(v) => set("relationship_strength", v)}>
               <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
@@ -328,6 +318,13 @@ export default function NewPartner() {
             options={INVESTOR_TYPES}
             selected={form.investor_type}
             onToggle={(v) => toggleInArray("investor_type", v)}
+          />
+          <Separator />
+          <CheckboxGroup
+            label="Investment Type"
+            options={INVESTMENT_TYPES}
+            selected={form.investment_type}
+            onToggle={(v) => toggleInArray("investment_type", v)}
           />
           <Separator />
           <CheckboxGroup

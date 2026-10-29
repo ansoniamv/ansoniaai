@@ -54,7 +54,7 @@ const phaseNotes: NoteSection[] = [
       "Equity columns sort numerically (not alphabetically); filter dropdowns also ordered numerically.",
       "Strategy flags: Value-Add (VA), Core+ (C+), Workforce (WF), Affordable (Aff). Displayed as comma-separated abbreviations.",
       "Geography and Product Types stored as arrays; displayed comma-separated.",
-      "Investor Type: multi-select with options JV, Large JV, Sidecar. Stored as array; displayed as tags.",
+      "Investor Type (who they are: Individual, Family Office, Fund, Institution…) and Investment Type (how they invest: JV Equity, Preferred Equity, GP Equity…): separate multi-selects, stored as arrays; displayed as tags.",
       "Location Preference: Urban Infill / Suburban boolean flags.",
       "Per-column multi-select filter dropdowns on every column header; filter by any values present in the dataset.",
       "All filter dropdowns include a '(Blank)' option to filter for null/empty values.",
