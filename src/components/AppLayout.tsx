@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "react-router-dom";
 import { format } from "date-fns";
 import { NoteComposerDialog } from "@/components/NoteComposerDialog";
-import logoAsset from "@/assets/ansonia-logo.png.asset.json";
+import markLight from "@/assets/ansonia-ai-mark-light.png";
 import { AskAtlasWidget } from "@/components/AskAtlasWidget";
 import { PageSearchWidget } from "@/components/PageSearchWidget";
 import { GlobalSearchPalette } from "@/components/GlobalSearchPalette";
@@ -112,7 +112,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <header className="h-14 flex items-center gap-4 border-b border-hairline px-6 bg-card shrink-0">
             <div className="h-8 w-8 rounded-md bg-[hsl(217,53%,26%)] flex items-center justify-center">
-              <img src={logoAsset.url} alt="Ansonia" className="h-5 w-auto" />
+              <img src={markLight} alt="Ansonia.AI" className="h-5 w-auto" />
             </div>
             <div className="h-5 w-px bg-hairline" />
             <SidebarTrigger className="text-muted-foreground hover:text-foreground -ml-2" />

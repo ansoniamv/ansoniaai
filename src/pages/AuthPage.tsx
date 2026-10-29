@@ -5,8 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import ansoniaLogoAsset from "@/assets/ansonia-logo.png.asset.json";
-const ansoniaLogo = ansoniaLogoAsset.url;
+import ansoniaLogo from "@/assets/ansonia-ai-logo-stacked-light.png";
 
 const schema = z.object({
   email: z.string().trim().email("Invalid email").max(255),
@@ -95,8 +94,8 @@ export default function AuthPage() {
         <div className="flex flex-col items-center">
           <img
             src={ansoniaLogo}
-            alt="Ansonia Properties"
-            className="h-24 w-auto"
+            alt="Ansonia.AI"
+            className="h-28 w-auto"
           />
           <p
             className="text-white text-sm uppercase my-10"
