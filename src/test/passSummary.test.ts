@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  emailText,
   mentionsDeal,
   newPart,
   planUpdates,
@@ -66,6 +67,19 @@ describe("newPart", () => {
   it("drops the quoted thread under the reply", () => {
     const body = "We'll pass on this one.\r\n\r\nFrom: Analyst <a@ansoniaproperties.com>\r\nSent: ...\r\nOld text";
     expect(newPart(body)).toBe("We'll pass on this one.");
+  });
+});
+
+describe("emailText", () => {
+  it("reads the HTML body (body_text is never synced) and stops at Outlook's quoted thread", () => {
+    const body_html =
+      '<html><head><style>p{margin:0}</style></head><body><div>Phill,</div><div><br></div>' +
+      "<div>Unfortunately, we&#39;ll have to pass.</div><div>We have limited availability in our current fund for additional multifamily investments in Illinois.</div>" +
+      '<hr><div id="divRplyFwdMsg"><b>From:</b> Analyst</div><div>COMING SOON: Randall Highlands</div></body></html>';
+    const text = emailText({ body_html, preview: "Phill, Unfortunately, we'll have to pass. We have limited availability in our current fund for additional multifamil" });
+    expect(text).toContain("additional multifamily investments in Illinois.");
+    expect(text).not.toContain("COMING SOON");
+    expect(text).not.toContain("margin");
   });
 });
 

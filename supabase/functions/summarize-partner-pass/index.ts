@@ -20,7 +20,7 @@ import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 import { PARTNER_MODEL } from "../_shared/featureModels.ts";
 import { logAiFailure, logAiUsage } from "../_shared/logUsage.ts";
 import {
-  buildPrompt, dealFacts, newPart, planUpdates, quoteHolds, sourceTexts, stripHtml, mentionsDeal,
+  buildPrompt, dealFacts, emailText, planUpdates, quoteHolds, sourceTexts, stripHtml, mentionsDeal,
   ANSONIA_DOMAIN, SCHEMA, type Email, type ModelOut,
 } from "../_shared/passSummary.ts";
 
@@ -47,15 +47,17 @@ async function sha256(str: string): Promise<string> {
 async function loadEmails(sb: any, partnerId: string, deal: any): Promise<Email[]> {
   const { data, error } = await sb
     .from("outlook_messages")
-    .select("id, conversation_id, deal_id, from_email, subject, body_text, preview, received_at, sent_at")
+    .select("id, conversation_id, deal_id, from_email, subject, body_html, preview, received_at, sent_at")
     .eq("partner_id", partnerId)
     .order("received_at", { ascending: false })
     .limit(300);
   if (error) throw error;
   const rows = (data ?? []) as any[];
+  // Matching reads the whole body, quoted thread included: a short reply
+  // often names the deal only in the message it quotes.
   const hit = rows.filter((m) =>
     m.deal_id === deal.id ||
-    mentionsDeal(`${m.subject ?? ""}\n${m.body_text ?? m.preview ?? ""}`, deal.property_name ?? "")
+    mentionsDeal(`${m.subject ?? ""}\n${m.body_html ? stripHtml(m.body_html) : m.preview ?? ""}`, deal.property_name ?? "")
   );
   // Whole conversations: a reply often drops the property name from its body.
   const convs = new Set(hit.map((m) => m.conversation_id).filter(Boolean));
@@ -72,7 +74,7 @@ async function loadEmails(sb: any, partnerId: string, deal: any): Promise<Email[
       from: m.from_email ?? null,
       partner_sent: partner,
       subject: String(m.subject ?? "").slice(0, 200),
-      body: newPart(stripHtml(String(m.body_text ?? m.preview ?? ""))).slice(0, EMAIL_CHARS),
+      body: emailText(m).slice(0, EMAIL_CHARS),
     }))
     .sort((a, b) => String(a.date ?? "").localeCompare(String(b.date ?? "")));
 }

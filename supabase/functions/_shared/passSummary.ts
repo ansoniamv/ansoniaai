@@ -72,15 +72,36 @@ export type UpdateRecord = {
 
 export function stripHtml(s: string): string {
   return s
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, " ")
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>/gi, "\n")
+    .replace(/<\/(p|div|tr|li|h\d)>/gi, "\n")
+    .replace(/<hr[^>]*>/gi, "\n________________\n")
     .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
+    .replace(/&nbsp;|&#160;/g, " ")
     .replace(/&amp;/g, "&")
-    .replace(/&#39;|&rsquo;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&rsquo;|&#8217;/g, "'")
     .replace(/[ \t]+/g, " ")
+    .replace(/\s*\n\s*/g, "\n")
     .trim();
+}
+
+/**
+ * The text of a synced email. outlook_messages.body_text is never filled
+ * (Graph returns HTML), and the 255-character preview stops before most
+ * replies get to the point, so the HTML body is the source. Outlook marks the
+ * start of the quoted thread with divRplyFwdMsg; cutting there first keeps the
+ * earlier messages out.
+ */
+export function emailText(m: { body_html?: string | null; body_text?: string | null; preview?: string | null }): string {
+  if (m.body_html) {
+    const cut = m.body_html.search(/<div[^>]*id="?(divRplyFwdMsg|appendonsend)/i);
+    return newPart(stripHtml(cut > 0 ? m.body_html.slice(0, cut) : m.body_html));
+  }
+  return newPart(String(m.body_text ?? m.preview ?? ""));
 }
 
 /** The new part of an email: everything above the quoted thread. */
