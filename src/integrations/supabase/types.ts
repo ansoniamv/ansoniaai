@@ -974,6 +974,9 @@ export type Database = {
           property_phone: string | null
           property_website: string | null
           race_breakdown_tract: Json | null
+          quick_cap_rate: number | null
+          quick_noi_adjustment: number | null
+          quick_noi_adjustment_note: string | null
           raise_archive_note: string | null
           raise_archived_at: string | null
           raise_archived_by: string | null
@@ -1134,6 +1137,9 @@ export type Database = {
           property_phone?: string | null
           property_website?: string | null
           race_breakdown_tract?: Json | null
+          quick_cap_rate?: number | null
+          quick_noi_adjustment?: number | null
+          quick_noi_adjustment_note?: string | null
           raise_archive_note?: string | null
           raise_archived_at?: string | null
           raise_archived_by?: string | null
@@ -1294,6 +1300,9 @@ export type Database = {
           property_phone?: string | null
           property_website?: string | null
           race_breakdown_tract?: Json | null
+          quick_cap_rate?: number | null
+          quick_noi_adjustment?: number | null
+          quick_noi_adjustment_note?: string | null
           raise_archive_note?: string | null
           raise_archived_at?: string | null
           raise_archived_by?: string | null
