@@ -288,6 +288,13 @@ export type Database = {
           pass_category: string | null
           pass_feedback: string | null
           pass_price_surmountable: boolean | null
+          pass_summary: string | null
+          pass_summary_at: string | null
+          pass_summary_basis: string | null
+          pass_summary_evidence: Json | null
+          pass_summary_hash: string | null
+          pass_summary_pending: boolean
+          pass_summary_updates: Json | null
           passed: boolean
           removed_at: string | null
           serious_interest: boolean
@@ -317,6 +324,13 @@ export type Database = {
           pass_category?: string | null
           pass_feedback?: string | null
           pass_price_surmountable?: boolean | null
+          pass_summary?: string | null
+          pass_summary_at?: string | null
+          pass_summary_basis?: string | null
+          pass_summary_evidence?: Json | null
+          pass_summary_hash?: string | null
+          pass_summary_pending?: boolean
+          pass_summary_updates?: Json | null
           passed?: boolean
           removed_at?: string | null
           serious_interest?: boolean
@@ -346,6 +360,13 @@ export type Database = {
           pass_category?: string | null
           pass_feedback?: string | null
           pass_price_surmountable?: boolean | null
+          pass_summary?: string | null
+          pass_summary_at?: string | null
+          pass_summary_basis?: string | null
+          pass_summary_evidence?: Json | null
+          pass_summary_hash?: string | null
+          pass_summary_pending?: boolean
+          pass_summary_updates?: Json | null
           passed?: boolean
           removed_at?: string | null
           serious_interest?: boolean
