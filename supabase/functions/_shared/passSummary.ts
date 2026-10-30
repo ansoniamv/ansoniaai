@@ -173,7 +173,12 @@ export function partnerCriteria(p: any): string {
     ["Product types", list(p.product_types)],
     ["Suburban", p.suburban == null ? null : p.suburban ? "yes" : "no"],
     ["Urban infill", p.urban_infill == null ? null : p.urban_infill ? "yes" : "no"],
-    ["Capital status", p.capital_status ? `${p.capital_status}${p.capital_status_detail ? ` (${p.capital_status_detail})` : ""}` : null],
+    // Dates included so a wrong "available from" reads as a difference, not a match.
+    ["Capital status", p.capital_status
+      ? `${p.capital_status}${p.capital_status_detail ? ` (${p.capital_status_detail})` : ""}` +
+        `${p.capital_available_from ? `, available from ${p.capital_available_from}` : ""}` +
+        `${p.capital_status_as_of ? `, as of ${String(p.capital_status_as_of).slice(0, 10)}` : ""}`
+      : null],
   ]
     .filter(([, v]) => v != null && String(v).trim() !== "")
     .map(([k, v]) => `${k}: ${v}`)
