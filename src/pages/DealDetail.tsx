@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { safeExternalUrl } from "@/lib/safeUrl";
 import { useQueryClient } from "@tanstack/react-query";
@@ -49,7 +49,9 @@ import { DealDocumentsPanel } from "@/components/DealDocumentsPanel";
 import { SubmarketSignalsPanel } from "@/components/SubmarketSignalsPanel";
 import { AiScoreTab } from "@/components/AiScoreTab";
 import { NoteComposerDialog } from "@/components/NoteComposerDialog";
-import { useDeal, useDeleteDeal } from "@/hooks/useDeals";
+import { useDeal, useDeleteDeal, useUpdateDeal, type Deal } from "@/hooks/useDeals";
+import { DEFAULT_QUICK_CAP_RATE, quickUnderwrite } from "@/lib/quickUnderwrite";
+import { Input } from "@/components/ui/input";
 import { persistDealScore } from "@/lib/persistDealScore";
 import { capRateHint, equityCheck, grmHint, latestT3Noi, pricePerSqft } from "@/lib/dealRatios";
 import { useDealDocuments } from "@/hooks/useDealDocuments";
@@ -339,6 +341,148 @@ function FitBadge({ tier }: { tier: string | null }) {
     <Badge className={cn("font-display uppercase tracking-wider px-3 py-1 text-xs", cls)}>
       {label}
     </Badge>
+  );
+}
+
+/* ---------- quick underwrite ---------- */
+/** "6", "6.25%", "-$120,000" → number; "" → null (cleared); anything else → undefined. */
+function parseEntry(raw: string): number | null | undefined {
+  const t = raw.replace(/[$,%\s]/g, "");
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function QuickUnderwriteCard({ deal }: { deal: Deal }) {
+  const updateDeal = useUpdateDeal();
+  const saved = {
+    cap: isNum(deal.quick_cap_rate) ? String(deal.quick_cap_rate) : "",
+    adj: isNum(deal.quick_noi_adjustment) ? String(deal.quick_noi_adjustment) : "",
+    note: deal.quick_noi_adjustment_note ?? "",
+  };
+  const [cap, setCap] = useState(saved.cap);
+  const [adj, setAdj] = useState(saved.adj);
+  const [note, setNote] = useState(saved.note);
+  useEffect(() => setCap(saved.cap), [saved.cap]);
+  useEffect(() => setAdj(saved.adj), [saved.adj]);
+  useEffect(() => setNote(saved.note), [saved.note]);
+
+  // Live while typing; an entry that does not parse counts as blank.
+  const q = quickUnderwrite({
+    t12Noi: deal.t12_noi,
+    adjustment: parseEntry(adj),
+    capRate: parseEntry(cap),
+    askingPriceM: deal.asking_price,
+    unitCount: deal.unit_count,
+  });
+
+  const save = (
+    column: "quick_cap_rate" | "quick_noi_adjustment" | "quick_noi_adjustment_note",
+    value: number | string | null,
+    revert: () => void,
+  ) => {
+    if (value === (deal[column] ?? null)) return;
+    updateDeal.mutate(
+      { id: deal.id, [column]: value },
+      { onError: (err) => (revert(), toast.error("Failed to save: " + err.message)) },
+    );
+  };
+  const saveNumber = (
+    column: "quick_cap_rate" | "quick_noi_adjustment",
+    raw: string,
+    revert: () => void,
+  ) => {
+    const n = parseEntry(raw);
+    if (n === undefined) return revert(), toast.error(`"${raw}" is not a number`);
+    if (column === "quick_cap_rate" && n !== null && (n <= 0 || n >= 25))
+      return revert(), toast.error("Cap rate must be between 0% and 25%");
+    save(column, n, revert);
+  };
+
+  const vsAskTone = !isNum(q.vsAsk) ? undefined : q.vsAsk >= 0 ? "text-emerald-700" : "text-destructive";
+
+  return (
+    <Card className="surface-card border-hairline">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground font-display">
+          Quick Underwrite
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-3 gap-2">
+          <label className="space-y-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Cap Rate (%)
+            </span>
+            <Input
+              inputMode="decimal"
+              value={cap}
+              placeholder={String(DEFAULT_QUICK_CAP_RATE)}
+              onChange={(e) => setCap(e.target.value)}
+              onBlur={() => saveNumber("quick_cap_rate", cap, () => setCap(saved.cap))}
+              className="h-8 tabular-nums"
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              NOI Adjustment ($/yr)
+            </span>
+            <Input
+              inputMode="decimal"
+              value={adj}
+              placeholder="0"
+              onChange={(e) => setAdj(e.target.value)}
+              onBlur={() => saveNumber("quick_noi_adjustment", adj, () => setAdj(saved.adj))}
+              className="h-8 tabular-nums"
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Why
+            </span>
+            <Input
+              value={note}
+              placeholder="e.g. taxes reassessed"
+              onChange={(e) => setNote(e.target.value)}
+              onBlur={() => save("quick_noi_adjustment_note", note.trim() || null, () => setNote(saved.note))}
+              className="h-8"
+            />
+          </label>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <Stat label="T-12 NOI" value={fmtMoney(deal.t12_noi)} />
+          <Stat
+            label="Quick NOI"
+            value={fmtMoney(q.noi)}
+            hint={isNum(parseEntry(adj)) && parseEntry(adj) !== 0 ? "T-12 NOI + adjustment" : "T-12 NOI"}
+          />
+          <Stat
+            label="Value"
+            value={isNum(q.value) ? fmtMillions(q.value / 1_000_000) : null}
+            hint={q.missing ?? `Quick NOI ÷ ${q.capRate}%${q.capIsDefault ? " (house cap)" : ""}`}
+          />
+          <Stat label="Value / Unit" value={fmtMoney(q.valuePerUnit)} />
+          <Stat
+            label="Value vs Ask"
+            value={
+              isNum(q.vsAsk) ? (
+                <span className={vsAskTone}>
+                  {q.vsAsk >= 0 ? "+" : "−"}
+                  {fmtMillions(Math.abs(q.vsAsk) / 1_000_000)}
+                </span>
+              ) : null
+            }
+            hint={
+              isNum(q.vsAskPct)
+                ? `${q.vsAskPct >= 0 ? "+" : "−"}${Math.abs(q.vsAskPct).toFixed(1)}% · ${q.vsAsk! >= 0 ? "ask below value" : "ask above value"}`
+                : isNum(deal.asking_price)
+                  ? undefined
+                  : "Needs asking price"
+            }
+          />
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -984,6 +1128,8 @@ export default function DealDetail() {
                 </CardContent>
               </Card>
             )}
+
+            <QuickUnderwriteCard deal={deal} />
 
             {/* In-Place Performance */}
             {hasInPlace && (
