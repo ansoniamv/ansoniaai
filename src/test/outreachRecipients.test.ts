@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { outreachAddressees, type OutreachContact } from "@/lib/outreachRecipients";
+import { outreachAddressees, outreachCcEmails, type OutreachContact } from "@/lib/outreachRecipients";
 
 const c = (id: string, over: Partial<OutreachContact> = {}): OutreachContact => ({
   id,
@@ -39,5 +39,27 @@ describe("outreachAddressees", () => {
 
   it("returns no To when nobody has an email", () => {
     expect(outreachAddressees([c("anna", { email: null })])).toEqual({ to: null, cc: [] });
+  });
+});
+
+describe("outreachCcEmails", () => {
+  it("always CCs Daniel and Atlas after the partner's own CCs", () => {
+    expect(outreachCcEmails("bart@firm.com", [c("anna")])).toEqual([
+      "anna@firm.com",
+      "dstevens@ansoniaproperties.com",
+      "atlas@ansoniaproperties.com",
+    ]);
+  });
+
+  it("CCs Daniel and Atlas with no partner CCs", () => {
+    expect(outreachCcEmails("bart@firm.com", [])).toEqual([
+      "dstevens@ansoniaproperties.com",
+      "atlas@ansoniaproperties.com",
+    ]);
+  });
+
+  it("never repeats an address or CCs the To address", () => {
+    const daniel = c("daniel", { email: "DStevens@ansoniaproperties.com" });
+    expect(outreachCcEmails("atlas@ansoniaproperties.com", [daniel])).toEqual(["DStevens@ansoniaproperties.com"]);
   });
 });
