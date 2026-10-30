@@ -22,11 +22,9 @@ export const INVESTMENT_TYPES = [
   "JV Equity",
   "Large JV",
   "Preferred Equity",
-  "GP Equity",
-  "LP Equity",
-  "Passive Co-Invest",
-  "GP Co-Invest",
-  "Sidecar",
+  "Co-Invest/Passive LP",
+  "Fund Investor",
+  "GP Fund Investor",
 ];
 
 /** The option list plus any stored values not in it, so editors can still show and clear them. */
