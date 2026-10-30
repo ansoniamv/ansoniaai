@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import { NoteContent } from "@/components/NoteContent";
+import { ExpandPassNote } from "@/components/ExpandPassNote";
 import { RecordSection } from "@/components/PartnerRecordPanels";
 import {
   PASS_CATEGORIES,
@@ -295,6 +296,13 @@ function PassDialog({
           <div className="space-y-1.5">
             <Label>Pass feedback <span className="text-destructive">*</span></Label>
             <RichTextEditor value={feedback} onChange={setFeedback} placeholder="What did they say?" />
+            <ExpandPassNote
+              engagementId={engagement?.id}
+              note={feedback}
+              category={category}
+              priceSurmountable={surmountable}
+              onUse={setFeedback}
+            />
           </div>
           <label className="flex items-center gap-2 text-sm">
             <Checkbox checked={surmountable} onCheckedChange={(v) => setSurmountable(v === true)} />

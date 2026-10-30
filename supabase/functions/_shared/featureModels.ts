@@ -66,3 +66,11 @@ export const PARTNER_MODEL = Deno.env.get("PARTNER_MODEL") ?? "claude-sonnet-5";
  * sits in), not a fact to find in the text. One call per deal, once.
  */
 export const SUBMARKET_MODEL = Deno.env.get("SUBMARKET_MODEL") ?? "claude-sonnet-5";
+
+/**
+ * Expanding an analyst's short pass note on the capital raise. Sonnet, not
+ * Haiku: the job is to say what the partner meant without adding anything they
+ * did not say, and that restraint is where Haiku slips. Someone clicked and is
+ * waiting, so effort stays low.
+ */
+export const PASS_NOTE_MODEL = Deno.env.get("PASS_NOTE_MODEL") ?? "claude-sonnet-5";
