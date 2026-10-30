@@ -12,6 +12,7 @@ import {
 
 const partnerEmail: Email = {
   id: "m-partner",
+  message_id: "AAMk-partner",
   date: "2026-09-10T19:36:57Z",
   from: "someone@partnerfirm.com",
   partner_sent: true,
@@ -20,6 +21,7 @@ const partnerEmail: Email = {
 };
 const ourEmail: Email = {
   id: "m-ours",
+  message_id: "AAMk-ours",
   date: "2026-09-11T10:00:00Z",
   from: "analyst@ansoniaproperties.com",
   partner_sent: false,
@@ -101,7 +103,7 @@ describe("planUpdates", () => {
     const p = { ...basePartner, geography: [] };
     const plan = planUpdates(p, [up({ market: "Chicago suburbs" })], texts, PASS_AT, ctx);
     expect(plan.write.geography_avoid).toEqual(["Chicago suburbs"]);
-    expect(plan.write.enriched_fields.geography_avoid).toMatchObject({ source: "deal_pass", deal_id: "deal-1", message_ids: ["m-partner"] });
+    expect(plan.write.enriched_fields.geography_avoid).toMatchObject({ source: "deal_pass", deal_id: "deal-1", message_ids: ["AAMk-partner"] });
     expect(plan.records[0].outcome).toBe("applied");
   });
 
