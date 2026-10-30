@@ -47,7 +47,7 @@ async function sha256(str: string): Promise<string> {
 async function loadEmails(sb: any, partnerId: string, deal: any): Promise<Email[]> {
   const { data, error } = await sb
     .from("outlook_messages")
-    .select("id, conversation_id, deal_id, from_email, subject, body_html, preview, received_at, sent_at")
+    .select("id, message_id, conversation_id, deal_id, from_email, subject, body_html, preview, received_at, sent_at")
     .eq("partner_id", partnerId)
     .order("received_at", { ascending: false })
     .limit(300);
@@ -70,6 +70,7 @@ async function loadEmails(sb: any, partnerId: string, deal: any): Promise<Email[
   return ordered
     .map(({ m, partner }) => ({
       id: m.id as string,
+      message_id: m.message_id as string,
       date: (m.received_at ?? m.sent_at ?? null) as string | null,
       from: m.from_email ?? null,
       partner_sent: partner,

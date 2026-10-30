@@ -61,7 +61,11 @@ export type ModelOut = {
   source: string | null;
   criteria_updates: CriteriaUpdate[];
 };
-export type Email = { id: string; date: string | null; from: string | null; partner_sent: boolean; subject: string; body: string };
+/**
+ * id is the outlook_messages row id, short enough for the model to copy back
+ * exactly; message_id is the Outlook id the evidence panel looks emails up by.
+ */
+export type Email = { id: string; message_id: string; date: string | null; from: string | null; partner_sent: boolean; subject: string; body: string };
 export type UpdateRecord = {
   field: string;
   value: unknown;
@@ -232,10 +236,10 @@ Skip an update that matches what is already on file.`;
 }
 
 /** The text a quote is checked against, keyed by the source the model cites. */
-export function sourceTexts(notes: string, emails: Email[]): Map<string, { text: string; date: string | null; partner: boolean }> {
-  const m = new Map<string, { text: string; date: string | null; partner: boolean }>();
-  if (notes) m.set("feedback", { text: notes, date: null, partner: true });
-  for (const e of emails) m.set(e.id, { text: `${e.subject}\n${e.body}`, date: e.date, partner: e.partner_sent });
+export function sourceTexts(notes: string, emails: Email[]): Map<string, { text: string; date: string | null; partner: boolean; message_id: string | null }> {
+  const m = new Map<string, { text: string; date: string | null; partner: boolean; message_id: string | null }>();
+  if (notes) m.set("feedback", { text: notes, date: null, partner: true, message_id: null });
+  for (const e of emails) m.set(e.id, { text: `${e.subject}\n${e.body}`, date: e.date, partner: e.partner_sent, message_id: e.message_id });
   return m;
 }
 
@@ -272,7 +276,7 @@ export function planUpdates(partner: any, ups: CriteriaUpdate[], texts: ReturnTy
       as_of: asOf,
       written_at: now,
       quote: u.quote.slice(0, 500),
-      message_ids: u.source === "feedback" ? [] : [u.source],
+      message_ids: src.message_id ? [src.message_id] : [],
       deal_id: ctx.deal_id,
       engagement_id: ctx.engagement_id,
     };

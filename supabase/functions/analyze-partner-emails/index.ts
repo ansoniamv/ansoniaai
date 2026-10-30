@@ -972,7 +972,11 @@ Notes on noise reduction:
 
 
           const evidence = s.evidence || {};
-          evidence.message_ids = evidence.message_ids || threadMsgs.map((m: any) => m.message_id);
+          // Outlook ids run ~150 characters and the model sometimes mangles
+          // them; keep only ids that are really in this thread.
+          const threadIds = threadMsgs.map((m: any) => m.message_id);
+          const cited = (Array.isArray(evidence.message_ids) ? evidence.message_ids : []).filter((id: string) => threadIds.includes(id));
+          evidence.message_ids = cited.length ? cited : threadIds;
           s.evidence = evidence;
           allProposals.push(s);
         }
