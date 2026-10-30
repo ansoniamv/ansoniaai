@@ -187,15 +187,20 @@ async function summarizeOne(sb: any, engagementId: string, opts: RunOpts): Promi
   }
 
   if (plan.suggestions.length) {
-    // One suggestion per pass and value, ever: a rejected one stays rejected.
+    // One suggestion per partner and proposed value, ever, across all their
+    // passes: a rejected one stays rejected, and a re-run that words the
+    // capital detail differently is the same suggestion. Keyed on the status
+    // alone for capital, since the detail is free text.
     const { data: existing } = await sb
       .from("partner_suggestions")
       .select("type, field, proposed_value")
       .eq("partner_id", partner.id)
-      .eq("engagement_id", e.id);
-    const seen = new Set((existing ?? []).map((s: any) => `${s.type}|${s.field}|${JSON.stringify(s.proposed_value)}`));
+      .eq("evidence->>source", "deal_pass");
+    const key = (s: any) =>
+      `${s.type}|${s.field}|${s.type === "capital_status_change" ? s.proposed_value?.status : JSON.stringify(s.proposed_value).toLowerCase()}`;
+    const seen = new Set((existing ?? []).map(key));
     const rows = plan.suggestions
-      .filter((s) => !seen.has(`${s.type}|${s.field}|${JSON.stringify(s.proposed_value)}`))
+      .filter((s) => !seen.has(key(s)) && seen.add(key(s)))
       .map((s) => ({
         ...s,
         partner_id: partner.id,
