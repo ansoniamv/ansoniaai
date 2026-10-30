@@ -180,7 +180,7 @@ export function partnerCriteria(p: any): string {
     .join("\n") || "(nothing on file)";
 }
 
-export function buildPrompt(deal: any, partner: any, notes: string, category: string | null, emails: Email[]): string {
+export function buildPrompt(deal: any, partner: any, notes: string, category: string | null, emails: Email[], passAt: string): string {
   const emailBlock = emails.length
     ? emails.map((m) =>
       `[EMAIL id=${m.id} date=${m.date?.slice(0, 10) ?? "?"} from=${m.partner_sent ? "PARTNER" : "ANSONIA"}]\nSubject: ${m.subject}\n${m.body}`
@@ -189,6 +189,8 @@ export function buildPrompt(deal: any, partner: any, notes: string, category: st
   const strip = (s: string) => s.replace(/<<<\s*UNTRUSTED_(?:BEGIN|END)\s*>>>/gi, "");
 
   return `A capital partner passed on a multifamily deal Ansonia Properties brought them. Record why, and what the pass tells us about the partner's criteria.
+
+PASS RECORDED: ${passAt.slice(0, 10)} (the pass notes date from then)
 
 DEAL
 ${dealFacts(deal)}
@@ -219,7 +221,7 @@ quote, source — for basis "partner", the sentence giving the reason, copied ch
 criteria_updates — ONLY standing preferences the partner stated about themselves that would apply to other deals too. Most passes have none. One-deal reasons ("too rich", "not a fit for us", "pricing doesn't work", "too far from our other assets") are never criteria. Each update needs a quote copied character for character from the pass notes or a PARTNER email, and its source. Never use an ANSONIA email or the deal facts as the basis for an update. Set the fields that do not apply to null.
 - geography_avoid: a market they say they do not invest in at all. market = the place as they named it ("Chicago suburbs", "Texas"). A full fund or no current allocation for a market is capital_status, not geography_avoid.
 - min_equity_m / max_equity_m: amount_m in USD millions, when they state their minimum or maximum equity check.
-- capital_status: what they say about their capacity to invest right now. status: "Out of Capital" (fully allocated, nothing to deploy), "Constrained" (waiting on a fund close, exit or approval), "Selective" (has capital, narrower bar), "Actively Deploying". available_from: YYYY-MM-DD when they give a time ("early 2027" → 2027-01-01, "Q2 2027" → 2027-04-01), else null. detail: one clause in their words.
+- capital_status: what they say about their capacity to invest right now. status: "Out of Capital" (fully allocated, nothing to deploy), "Constrained" (waiting on a fund close, exit or approval), "Selective" (has capital, narrower bar), "Actively Deploying". available_from: YYYY-MM-DD when they give a time ("early 2027" → 2027-01-01, "Q2 2027" → 2027-04-01), else null. Resolve relative times ("next year", "end of the year") against the date of the email or pass that says it, never today. detail: one clause in their words.
 - strategy_value_add, strategy_core_plus, strategy_workforce, strategy_affordable, suburban, urban_infill: only when they say they do NOT do that.
 Skip an update that matches what is already on file.`;
 }
@@ -298,10 +300,19 @@ export function planUpdates(partner: any, ups: CriteriaUpdate[], texts: ReturnTy
     if (u.field === "capital_status") {
       if (!u.status || !CAPITAL_STATUS_VALUES.includes(u.status)) continue;
       const value = { status: u.status, available_from: /^\d{4}-\d{2}-\d{2}$/.test(u.available_from ?? "") ? u.available_from : null, detail: u.detail?.trim() || null };
-      if (partner.capital_status === u.status) { rec(value, "unchanged"); continue; }
       const statusAsOf = partner.capital_status_as_of ?? meta?.as_of;
-      if (statusAsOf && new Date(statusAsOf).getTime() >= new Date(asOf).getTime()) { rec(value, "older"); continue; }
-      if (manual.has("capital_status") || (partner.capital_status && !aiOwned(meta))) {
+      const older = !!statusAsOf && new Date(statusAsOf).getTime() >= new Date(asOf).getTime();
+      const owned = !manual.has("capital_status") && (!partner.capital_status || aiOwned(meta));
+      if (partner.capital_status === u.status) {
+        // Same status, but a newer pass can still say more ("fund 9 starts
+        // next year"): refresh the detail and dates when the AI owns them.
+        const nothingNew = (partner.capital_status_detail ?? null) === value.detail &&
+          (partner.capital_available_from ?? null) === value.available_from;
+        if (!owned || older || nothingNew) { rec(value, "unchanged"); continue; }
+      } else if (older) {
+        rec(value, "older");
+        continue;
+      } else if (!owned) {
         suggestions.push({ type: "capital_status_change", field: "capital_status", current_value: { status: partner.capital_status ?? null }, proposed_value: value, evidence,
           summary: `Capital status → ${u.status}` });
         rec(value, "suggested");

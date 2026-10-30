@@ -29,7 +29,7 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const FUNCTION_NAME = "summarize-partner-pass";
 
 /** Bump when the prompt changes so the sweep re-summarizes every pass. */
-const PROMPT_VERSION = 1;
+const PROMPT_VERSION = 2;
 /** Model calls per sweep run; the rest are picked up the next night. */
 const SWEEP_LIMIT = 30;
 const CONCURRENCY = 3;
@@ -79,7 +79,13 @@ async function loadEmails(sb: any, partnerId: string, deal: any): Promise<Email[
     .sort((a, b) => String(a.date ?? "").localeCompare(String(b.date ?? "")));
 }
 
-/** When the pass happened: the latest move to Passed, else the row's last edit. */
+/**
+ * When the pass happened: the latest move to Passed. Passes entered before
+ * stage events were logged have none, so fall back to when the partner was
+ * tagged on the deal: earlier than the real pass, which is the safe side (it
+ * never outranks newer information). Not updated_at: writing the summary
+ * bumps it, which would date months-old notes to today.
+ */
 async function passDate(sb: any, e: any): Promise<string> {
   const { data } = await sb
     .from("stage_change_events")
@@ -88,7 +94,7 @@ async function passDate(sb: any, e: any): Promise<string> {
     .eq("to_stage", "passed")
     .order("created_at", { ascending: false })
     .limit(1);
-  return data?.[0]?.created_at ?? e.updated_at;
+  return data?.[0]?.created_at ?? e.created_at;
 }
 
 async function summarizeOne(sb: any, engagementId: string, opts: RunOpts): Promise<Outcome> {
@@ -99,7 +105,7 @@ async function summarizeOne(sb: any, engagementId: string, opts: RunOpts): Promi
   };
   const { data: e, error } = await sb
     .from("capital_raise_engagements")
-    .select("id, partner_id, deal_id, stage, removed_at, pass_feedback, pass_category, pass_price_surmountable, updated_at, deal:deals(id, property_name, city, state, msa, unit_count, asking_price, estimated_equity, in_place_cap_rate)" + (opts.dry ? "" : ", pass_summary_hash"))
+    .select("id, partner_id, deal_id, stage, removed_at, pass_feedback, pass_category, pass_price_surmountable, created_at, updated_at, deal:deals(id, property_name, city, state, msa, unit_count, asking_price, estimated_equity, in_place_cap_rate)" + (opts.dry ? "" : ", pass_summary_hash"))
     .eq("id", engagementId)
     .maybeSingle();
   if (error) throw error;
@@ -128,9 +134,10 @@ async function summarizeOne(sb: any, engagementId: string, opts: RunOpts): Promi
     return { engagement_id: e.id, status: "unchanged" };
   }
 
+  const passAt = await passDate(sb, e);
   let out: ModelOut;
   try {
-    const res = await completeText(buildPrompt(e.deal, partner, notes, e.pass_category, emails), {
+    const res = await completeText(buildPrompt(e.deal, partner, notes, e.pass_category, emails, passAt), {
       model: PARTNER_MODEL,
       maxTokens: 4000,
       timeoutMs: 60000,
@@ -164,7 +171,6 @@ async function summarizeOne(sb: any, engagementId: string, opts: RunOpts): Promi
   if (basis === "inferred" && !/^likely\b/i.test(summary)) summary = `Likely: ${summary}`;
   if (basis === "unknown" || !summary) summary = "No reason recorded.";
 
-  const passAt = await passDate(sb, e);
   const plan = planUpdates(partner, out.criteria_updates ?? [], texts, passAt, { deal_id: e.deal_id, engagement_id: e.id });
 
   if (opts.dry) {
@@ -250,15 +256,28 @@ Deno.serve(async (req) => {
       return json({ ok: true, results: [r] });
     }
 
-    let q = sb.from("capital_raise_engagements").select("id, partner_id").eq("stage", "passed").is("removed_at", null).limit(500);
+    let q = sb.from("capital_raise_engagements").select("id, partner_id, created_at").eq("stage", "passed").is("removed_at", null).limit(500);
     if (typeof body?.partner_id === "string") q = q.eq("partner_id", body.partner_id);
     const { data, error } = await q;
     if (error) throw error;
 
+    // A partner's passes run oldest first, so when two say different things
+    // about their capital the newest one is what the profile ends up with.
+    const rows = (data ?? []) as any[];
+    const passedAt = new Map<string, string>(rows.map((r) => [r.id, r.created_at]));
+    for (let i = 0; i < rows.length; i += 100) {
+      const { data: ev } = await sb.from("stage_change_events").select("engagement_id, created_at")
+        .eq("to_stage", "passed").in("engagement_id", rows.slice(i, i + 100).map((r) => r.id));
+      for (const x of (ev ?? []) as any[]) {
+        if (x.created_at > (passedAt.get(x.engagement_id) ?? "")) passedAt.set(x.engagement_id, x.created_at);
+      }
+    }
+    rows.sort((a, b) => String(passedAt.get(a.id)).localeCompare(String(passedAt.get(b.id))));
+
     // One worker per partner, so two passes never read-modify-write the same
     // partners row at once.
     const byPartner = new Map<string, string[]>();
-    for (const r of (data ?? []) as any[]) byPartner.set(r.partner_id, [...(byPartner.get(r.partner_id) ?? []), r.id]);
+    for (const r of rows) byPartner.set(r.partner_id, [...(byPartner.get(r.partner_id) ?? []), r.id]);
     const queues = [...byPartner.values()];
     const results: Outcome[] = [];
     let calls = 0;

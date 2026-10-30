@@ -161,6 +161,22 @@ describe("planUpdates", () => {
     expect(planUpdates(same, [u], texts, PASS_AT, ctx).records[0].outcome).toBe("unchanged");
   });
 
+  it("lets a newer pass with the same status refresh what it says, unless a person set it", () => {
+    const u = up({ field: "capital_status", status: "Out of Capital", available_from: "2027-01-01", detail: "fund 9 starts next year", quote: "We'll have to pass", source: "m-partner" });
+    const aiSet = {
+      ...basePartner,
+      capital_status: "Out of Capital",
+      capital_status_detail: "used the rest of their fund",
+      capital_status_as_of: "2026-07-14T00:00:00Z",
+      enriched_fields: { capital_status: { source: "deal_pass", as_of: "2026-07-14T00:00:00Z" } },
+    };
+    const plan = planUpdates(aiSet, [u], texts, PASS_AT, ctx);
+    expect(plan.write).toMatchObject({ capital_status_detail: "fund 9 starts next year", capital_available_from: "2027-01-01" });
+
+    const personSet = { ...aiSet, enriched_fields: {}, manual_fields: ["capital_status"] };
+    expect(planUpdates(personSet, [u], texts, PASS_AT, ctx).records[0].outcome).toBe("unchanged");
+  });
+
   it("only ever turns a strategy off", () => {
     const p = { ...basePartner, strategy_value_add: null };
     const plan = planUpdates(p, [up({ field: "strategy_value_add", quote: "We'll have to pass", source: "m-partner" })], texts, PASS_AT, ctx);
