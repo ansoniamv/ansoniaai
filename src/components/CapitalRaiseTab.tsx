@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import { NoteContent } from "@/components/NoteContent";
+import { ExpandPassNote } from "@/components/ExpandPassNote";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -689,6 +690,13 @@ export function CapitalRaiseTab({ deal }: { deal: Deal }) {
                 value={passFeedback}
                 onChange={setPassFeedback}
                 placeholder="Why did they pass? What did they say?"
+              />
+              <ExpandPassNote
+                engagementId={passModal?.id}
+                note={passFeedback}
+                category={passCategory}
+                priceSurmountable={passSurmountable}
+                onUse={setPassFeedback}
               />
             </div>
             <div className="flex items-center justify-between rounded-sm border p-3">
@@ -1621,7 +1629,16 @@ function PassedRow({
         }}
         placeholder="Paste the full denial description here…"
       />
-      <div className="flex justify-end">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <ExpandPassNote
+            engagementId={engagement.id}
+            note={text}
+            category={(engagement as any).pass_category ?? null}
+            priceSurmountable={!!engagement.pass_price_surmountable}
+            onUse={setText}
+          />
+        </div>
         <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleBlur}>
           Save
         </Button>
