@@ -28,7 +28,12 @@ import {
   outreachTextToHtml,
   unfilledPlaceholders,
 } from "@/lib/outreachDraft";
-import { outreachAddressees, type OutreachContact } from "@/lib/outreachRecipients";
+import {
+  OUTREACH_ALWAYS_CC,
+  outreachAddressees,
+  outreachCcEmails,
+  type OutreachContact,
+} from "@/lib/outreachRecipients";
 
 const fmtCurrency = (n: number | null | undefined) => {
   if (n == null || Number.isNaN(Number(n))) return "—";
@@ -228,7 +233,7 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
         const { data, error } = await supabase.functions.invoke("outlook-draft", {
           body: {
             to: [r.email!],
-            cc: r.cc.map((c) => c.email!),
+            cc: outreachCcEmails(r.email, r.cc),
             subject: fillTokens(subject, ctx),
             html: outreachEmailHtml(fillTokensHtml(body, ctx)),
             partnerId: r.engagement.partner_id,
@@ -238,20 +243,15 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
         });
         if (error) {
           let detail = error.message;
-          let mailboxRefused = false;
           try {
             const b = await (
-              error as { context?: { json?: () => Promise<{ error?: string; detail?: string; code?: string }> } }
+              error as { context?: { json?: () => Promise<{ error?: string; detail?: string }> } }
             ).context?.json?.();
             if (b?.error) detail = `${b.error}${b.detail ? `: ${b.detail}` : ""}`;
-            mailboxRefused = b?.code === "mailbox_not_enabled";
           } catch {
             /* ignore */
           }
           out.push({ partner: r.engagement.partner_name || "Partner", ok: false, error: detail });
-          // The sender's own mailbox refused the draft: every other one would
-          // fail the same way, so stop at the first.
-          if (mailboxRefused) break;
         } else if ((data as any)?.error) {
           out.push({
             partner: r.engagement.partner_name || "Partner",
@@ -279,7 +279,7 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
     const failed = out.length - ok;
     const skipped = recipients.filter((r) => selected.has(r.engagement.id) && !r.email).length;
     if (ok > 0)
-      toast.success(`Created ${ok} draft${ok === 1 ? "" : "s"} in your Outlook · ${skipped} skipped · ${failed} failed`);
+      toast.success(`Created ${ok} draft${ok === 1 ? "" : "s"} in Atlas · ${skipped} skipped · ${failed} failed`);
     else toast.error(`No drafts created · ${failed} failed`);
   };
 
@@ -289,8 +289,8 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
         <DialogHeader>
           <DialogTitle>Draft Outreach Email</DialogTitle>
           <DialogDescription>
-            Create personalized draft emails in your own Outlook for each selected pipeline partner.
-            Nothing is sent — review and send from your Drafts folder.
+            Create personalized draft emails in the Atlas mailbox for each selected pipeline partner.
+            Nothing is sent: open each draft, switch From to your own address, then send.
           </DialogDescription>
         </DialogHeader>
 
@@ -334,6 +334,9 @@ export function DraftOutreachDialog({ open, onOpenChange, deal, engagements }: P
                 <div className="text-[11px] text-muted-foreground">
                   {selectedWithEmail.length} selected
                 </div>
+              </div>
+              <div className="text-[11px] text-muted-foreground mb-1.5">
+                Every draft also CCs {OUTREACH_ALWAYS_CC.map((c) => c.name).join(" and ")}.
               </div>
               <ScrollArea className="h-40 rounded-sm border">
                 <div className="p-1.5 space-y-1">
