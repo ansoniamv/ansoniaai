@@ -94,7 +94,7 @@ END
 $$;
 
 -- Track the new field in the Capital Feed change log. Same body as
--- 20261102120000_partner_blacklist.sql plus 'investment_type'.
+-- 20261104120000_partner_change_source_ref.sql (#109, keeps source_ref) plus 'investment_type'.
 CREATE OR REPLACE FUNCTION public.trg_partners_log_changes()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -116,14 +116,23 @@ DECLARE
   uid uuid := auth.uid();
   label text;
   k text;
+  ref jsonb;
 BEGIN
   IF uid IS NOT NULL THEN
     SELECT coalesce(nullif(full_name, ''), email) INTO label FROM public.profiles WHERE id = uid;
   END IF;
   FOREACH k IN ARRAY tracked LOOP
     IF (o -> k) IS DISTINCT FROM (n -> k) THEN
-      INSERT INTO public.partner_change_log (partner_id, field, old_value, new_value, changed_by, changed_by_label, source)
-      VALUES (NEW.id, k, o -> k, n -> k, uid, label, CASE WHEN uid IS NULL THEN 'system' ELSE 'user' END);
+      -- Only a stamp written in this same update describes the new value; an
+      -- unchanged one belongs to the value being replaced.
+      ref := n -> 'enriched_fields' -> k;
+      IF ref IS NULL OR jsonb_typeof(ref) <> 'object' OR ref IS NOT DISTINCT FROM (o -> 'enriched_fields' -> k) THEN
+        ref := NULL;
+      ELSE
+        ref := ref - 'suggested';
+      END IF;
+      INSERT INTO public.partner_change_log (partner_id, field, old_value, new_value, changed_by, changed_by_label, source, source_ref)
+      VALUES (NEW.id, k, o -> k, n -> k, uid, label, CASE WHEN uid IS NULL THEN 'system' ELSE 'user' END, ref);
     END IF;
   END LOOP;
   RETURN NEW;
