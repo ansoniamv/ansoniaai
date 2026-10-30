@@ -1,8 +1,10 @@
 // Deals a capital partner is tagged on — the partner side of
 // capital_raise_engagements, the same rows the deal's Capital Raise tab shows.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, Loader2, Plus, X } from "lucide-react";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { format } from "date-fns";
+import { Check, Loader2, Plus, RefreshCw, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -25,6 +27,7 @@ import {
   useTagPartnerOnDeal,
   useUpdatePartnerEngagement,
   type EngagementDeal,
+  type PassCriteriaUpdate,
   type PartnerEngagement,
   type RaiseStage,
 } from "@/hooks/useCapitalRaiseEngagements";
@@ -54,6 +57,15 @@ export function PartnerDealsCard({ partner }: { partner: Partner }) {
   const tag = useTagPartnerOnDeal(partner.id);
   const update = useUpdatePartnerEngagement();
   const [passing, setPassing] = useState<PartnerEngagement | null>(null);
+
+  // When a background summary lands, the criteria it changed need refetching.
+  const qc = useQueryClient();
+  const pendingCount = (engagements ?? []).filter((e) => e.pass_summary_pending).length;
+  const lastPending = useRef(pendingCount);
+  useEffect(() => {
+    if (pendingCount < lastPending.current) refreshPartnerViews(qc, partner.id);
+    lastPending.current = pendingCount;
+  }, [pendingCount, qc, partner.id]);
 
   const taggedIds = useMemo(() => new Set((engagements ?? []).map((e) => e.deal_id)), [engagements]);
   const untagged = (deals ?? []).filter((d) => !taggedIds.has(d.id));
@@ -170,12 +182,7 @@ export function PartnerDealsCard({ partner }: { partner: Partner }) {
                   </SelectContent>
                 </Select>
               </div>
-              {e.stage === "passed" && (e.pass_feedback || e.pass_category) && (
-                <div className="rounded bg-amber-500/10 px-2 py-1.5 text-xs text-amber-800 dark:text-amber-300 space-y-0.5">
-                  {e.pass_category && <div className="font-semibold">{e.pass_category}</div>}
-                  {e.pass_feedback && <NoteContent content={e.pass_feedback} className="text-xs" />}
-                </div>
-              )}
+              {e.stage === "passed" && <PassReason engagement={e} />}
             </div>
           ))}
         </div>
@@ -185,6 +192,122 @@ export function PartnerDealsCard({ partner }: { partner: Partner }) {
 
       <PassDialog partner={partner} engagement={passing} onClose={() => setPassing(null)} />
     </RecordSection>
+  );
+}
+
+/** A pass summary can change the partner's criteria and add suggestions. */
+function refreshPartnerViews(qc: QueryClient, partnerId: string) {
+  qc.invalidateQueries({ queryKey: ["capital-raise-engagements"] });
+  qc.invalidateQueries({ queryKey: ["partners", partnerId] });
+  qc.invalidateQueries({ queryKey: ["partner_currency", partnerId] });
+  qc.invalidateQueries({ queryKey: ["partner_suggestions"] });
+}
+
+const FALSE_FIELD_LABEL: Record<string, string> = {
+  strategy_value_add: "No value-add",
+  strategy_core_plus: "No core-plus",
+  strategy_workforce: "No workforce",
+  strategy_affordable: "No affordable",
+  suburban: "No suburban",
+  urban_infill: "No urban infill",
+};
+
+function criteriaLabel(u: PassCriteriaUpdate): string {
+  const v: any = u.value;
+  if (u.field === "geography_avoid") return `Avoids ${v}`;
+  if (u.field === "min_equity_m") return `Min equity $${v}M`;
+  if (u.field === "max_equity_m") return `Max equity $${v}M`;
+  if (u.field === "capital_status") {
+    const from = v?.available_from ? ` from ${format(new Date(`${v.available_from}T00:00:00`), "MMM yyyy")}` : "";
+    return `Capital: ${v?.status ?? "?"}${from}`;
+  }
+  return FALSE_FIELD_LABEL[u.field] ?? u.field;
+}
+
+/**
+ * Why the partner passed, in one AI line (summarize-partner-pass), with any
+ * criteria change it led to. The analyst's own notes stay one click away.
+ */
+function PassReason({ engagement: e }: { engagement: PartnerEngagement }) {
+  const qc = useQueryClient();
+  const [showNotes, setShowNotes] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const updates = (e.pass_summary_updates ?? []).filter((u) => u.outcome === "applied" || u.outcome === "suggested");
+  const ev = e.pass_summary_evidence;
+  const busy = refreshing || !!e.pass_summary_pending;
+
+  const refresh = async () => {
+    setRefreshing(true);
+    const { data, error } = await supabase.functions.invoke("summarize-partner-pass", {
+      body: { engagement_id: e.id, force: true },
+    });
+    setRefreshing(false);
+    if (error || data?.ok === false) {
+      toast.error("Couldn't summarize this pass: " + (data?.error ?? error?.message ?? "unknown error"));
+      return;
+    }
+    refreshPartnerViews(qc, e.partner_id);
+  };
+
+  const source =
+    e.pass_summary_basis === "partner"
+      ? ev?.source === "feedback" ? "From pass notes" : `From their email${ev?.date ? ` · ${format(new Date(ev.date), "MMM d")}` : ""}`
+      : e.pass_summary_basis === "inferred" ? "Inferred, no reason given" : null;
+
+  return (
+    <div className="rounded bg-amber-500/10 px-2 py-1.5 text-xs text-amber-900 dark:text-amber-200 space-y-1">
+      <div className="flex items-start gap-1.5">
+        <Sparkles className="h-3.5 w-3.5 mt-px shrink-0 text-amber-600" />
+        <div className="min-w-0 flex-1">
+          {e.pass_summary ? (
+            <span className="font-medium" title={ev?.quote ? `"${ev.quote}"` : undefined}>{e.pass_summary}</span>
+          ) : (
+            <span className="text-muted-foreground">{busy ? "Summarizing why they passed…" : "No summary yet."}</span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={refresh}
+          disabled={busy}
+          className="shrink-0 text-amber-700/70 hover:text-amber-800 disabled:opacity-50"
+          aria-label="Re-summarize this pass"
+          title="Re-read the notes and emails"
+        >
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+        </button>
+      </div>
+      {(source || e.pass_category || e.pass_feedback) && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-5 text-[11px] text-amber-800/80 dark:text-amber-300/80">
+          {e.pass_category && <span className="font-semibold">{e.pass_category}</span>}
+          {source && <span>{source}</span>}
+          {e.pass_feedback && (
+            <button type="button" className="underline-offset-2 hover:underline" onClick={() => setShowNotes((v) => !v)}>
+              {showNotes ? "Hide notes" : "Pass notes"}
+            </button>
+          )}
+        </div>
+      )}
+      {showNotes && e.pass_feedback && <NoteContent content={e.pass_feedback} className="pl-5 text-xs" />}
+      {updates.length > 0 && (
+        <div className="flex flex-wrap gap-1 pl-5">
+          {updates.map((u, i) => (
+            <span
+              key={i}
+              title={`"${u.quote}"`}
+              className={cn(
+                "rounded-full border px-1.5 py-px text-[10px] font-medium",
+                u.outcome === "applied"
+                  ? "border-primary/30 bg-background text-primary dark:text-foreground"
+                  : "border-dashed border-amber-600/40 text-amber-800 dark:text-amber-300",
+              )}
+            >
+              {u.outcome === "applied" ? "Profile: " : "Suggested: "}
+              {criteriaLabel(u)}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

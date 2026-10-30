@@ -23,6 +23,17 @@ export const STAGE_LABEL: Record<RaiseStage, string> = {
   passed: "Passed",
 };
 
+export type PassSummaryBasis = "partner" | "inferred" | "unknown";
+
+/** A criteria change a pass led to, as summarize-partner-pass recorded it. */
+export type PassCriteriaUpdate = {
+  field: string;
+  value: unknown;
+  outcome: "applied" | "suggested" | "unchanged" | "older";
+  quote: string;
+  source: string;
+};
+
 export type Engagement = {
   id: string;
   deal_id: string;
@@ -38,6 +49,13 @@ export type Engagement = {
   passed: boolean;
   pass_price_surmountable: boolean | null;
   pass_feedback: string | null;
+  /** AI one-liner on why they passed; see summarize-partner-pass. */
+  pass_summary?: string | null;
+  pass_summary_basis?: PassSummaryBasis | null;
+  pass_summary_evidence?: { quote: string; source: string; date: string | null } | null;
+  pass_summary_updates?: PassCriteriaUpdate[] | null;
+  pass_summary_at?: string | null;
+  pass_summary_pending?: boolean;
   last_contact_date: string | null;
   next_action: string | null;
   next_action_date: string | null;
@@ -187,6 +205,15 @@ export function useEngagementsByPartner(partnerId: string | undefined) {
         .order("updated_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as PartnerEngagement[];
+    },
+    // A pass queues an AI summary in the background; poll until it lands, but
+    // give up on a row after a few minutes so a failed run can't poll forever.
+    refetchInterval: (query) => {
+      const rows = (query.state.data ?? []) as PartnerEngagement[];
+      const waiting = rows.some(
+        (e) => e.pass_summary_pending && Date.now() - new Date(e.updated_at).getTime() < 3 * 60_000,
+      );
+      return waiting ? 4000 : false;
     },
   });
 }
