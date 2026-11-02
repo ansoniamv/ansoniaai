@@ -94,25 +94,61 @@ function MessageBody({ text, quote }: { text: string; quote?: string }) {
 export function SuggestionEvidencePanel({
   messageIds,
   quote,
+  notes,
+  defaultOpen = false,
+  requireSource = false,
 }: {
   messageIds?: string[] | null;
   quote?: string;
+  /** Set when the quote is from the pass notes typed on a deal, not an email:
+   *  the emails are then the partner's thread about that deal. */
+  notes?: string | null;
+  defaultOpen?: boolean;
+  /** Say so when there is nothing to review against, rather than showing nothing. */
+  requireSource?: boolean;
 }) {
   const ids = (messageIds || []).filter(Boolean);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const { data, isLoading, isError } = useSuggestionEvidence(ids, open);
+  const fromNotes = notes != null;
 
-  if (ids.length === 0) return null;
+  const notesBlock = fromNotes && (
+    <div className="rounded border bg-muted/20 p-2 space-y-1">
+      <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+        Quote is from the pass notes typed on the deal
+      </div>
+      <MessageBody text={notes} quote={quote && findQuote(notes, quote) ? quote : undefined} />
+    </div>
+  );
+
+  if (ids.length === 0) {
+    if (fromNotes) {
+      return (
+        <div className="space-y-2">
+          {notesBlock}
+          <div className="text-xs text-amber-700">
+            No email about this deal is synced for this partner. The pass notes are the only source.
+          </div>
+        </div>
+      );
+    }
+    return requireSource ? (
+      <div className="text-xs text-amber-700">No source email is attached to this suggestion.</div>
+    ) : null;
+  }
 
   return (
     <div className="space-y-2">
+      {notesBlock}
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="inline-flex items-center gap-1 text-[11px] uppercase tracking-[0.12em] text-muted-foreground hover:text-foreground"
       >
         <ChevronRight className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} />
-        {ids.length} source email{ids.length > 1 ? "s" : ""}
+        {fromNotes
+          ? `${ids.length} email${ids.length > 1 ? "s" : ""} about this deal`
+          : `${ids.length} source email${ids.length > 1 ? "s" : ""}`}
       </button>
 
       {open && (
@@ -152,7 +188,7 @@ export function SuggestionEvidencePanel({
                   )}
                 </div>
                 <div className="text-xs font-medium">{m.subject || "(no subject)"}</div>
-                {quote && !found && (
+                {quote && !found && !fromNotes && (
                   <div className="border-l-2 border-primary/40 pl-2 text-xs text-muted-foreground">
                     "{quote}"
                     <div className="text-[10px] italic">Quote not found verbatim in the stored body</div>

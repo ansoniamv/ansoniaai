@@ -127,6 +127,29 @@ describe("planUpdates", () => {
     expect(plan.write.enriched_fields.min_equity_m.as_of).toBe(PASS_AT);
   });
 
+  it("attaches the partner's emails about the deal to a quote from the pass notes", () => {
+    const p = { ...basePartner, min_equity_m: 10 };
+    const plan = planUpdates(p, [up({ field: "min_equity_m", amount_m: 50, quote: "$50M minimum investment", source: "feedback" })], texts, PASS_AT, ctx);
+    expect(plan.suggestions[0].evidence).toMatchObject({
+      message_ids: ["AAMk-partner"],
+      quote_from: "pass_notes",
+      notes: "too small, $50M minimum investment",
+    });
+  });
+
+  it("falls back to the latest email when the partner sent none", () => {
+    const only = sourceTexts("too small, $50M minimum investment", [ourEmail]);
+    const p = { ...basePartner, min_equity_m: 10 };
+    const plan = planUpdates(p, [up({ field: "min_equity_m", amount_m: 50, quote: "$50M minimum investment", source: "feedback" })], only, PASS_AT, ctx);
+    expect(plan.suggestions[0].evidence.message_ids).toEqual(["AAMk-ours"]);
+  });
+
+  it("does not mark an email quote as from the pass notes", () => {
+    const plan = planUpdates(basePartner, [up({ market: "chicago" })], texts, PASS_AT, ctx);
+    expect(plan.suggestions[0].evidence.message_ids).toEqual(["AAMk-partner"]);
+    expect(plan.suggestions[0].evidence.quote_from).toBeUndefined();
+  });
+
   it("never overwrites a minimum someone typed in", () => {
     const p = { ...basePartner, min_equity_m: 10 };
     const plan = planUpdates(p, [up({ field: "min_equity_m", amount_m: 50, quote: "$50M minimum investment", source: "feedback" })], texts, PASS_AT, ctx);

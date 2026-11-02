@@ -253,6 +253,18 @@ export function quoteHolds(quote: string | null | undefined, source: string | nu
 }
 
 /**
+ * The emails a reviewer should read for a quote taken from the pass notes.
+ * Notes are typed by a person, usually from the partner's emails about the
+ * deal: attach the partner's own emails, or failing that the latest one (it
+ * quotes the thread below it). Empty when nothing about the deal was synced.
+ */
+export function notesEmailIds(texts: ReturnType<typeof sourceTexts>): string[] {
+  const emails = [...texts.entries()].filter(([k, v]) => k !== "feedback" && v.message_id).map(([, v]) => v);
+  const partner = emails.filter((e) => e.partner).slice(-3);
+  return (partner.length ? partner : emails.slice(-1)).map((e) => e.message_id!);
+}
+
+/**
  * Turns the model's criteria updates into partner writes and suggestions.
  * Mirrors enrich-partner-from-notes: blank or AI-owned fields are written,
  * fields a person owns get a suggestion, and nothing older than the value's
@@ -276,7 +288,7 @@ export function planUpdates(partner: any, ups: CriteriaUpdate[], texts: ReturnTy
       as_of: asOf,
       written_at: now,
       quote: u.quote.slice(0, 500),
-      message_ids: src.message_id ? [src.message_id] : [],
+      message_ids: src.message_id ? [src.message_id] : notesEmailIds(texts),
       deal_id: ctx.deal_id,
       engagement_id: ctx.engagement_id,
     };
@@ -284,7 +296,12 @@ export function planUpdates(partner: any, ups: CriteriaUpdate[], texts: ReturnTy
       records.push({ field: u.field, value, outcome, quote: stamp.quote, source: u.source });
     const meta = enriched[u.field];
     const newerOnFile = (meta?.as_of && new Date(meta.as_of).getTime() >= new Date(asOf).getTime());
-    const evidence = { message_ids: stamp.message_ids, quote: stamp.quote, email_date: asOf, source: "deal_pass", deal_id: ctx.deal_id };
+    // quote_from tells the reviewer the quote is from the pass notes, so the
+    // emails are the thread about the deal, not where it was copied from.
+    const evidence = {
+      message_ids: stamp.message_ids, quote: stamp.quote, email_date: asOf, source: "deal_pass", deal_id: ctx.deal_id,
+      ...(src.message_id ? {} : { quote_from: "pass_notes", notes: src.text.slice(0, 2000) }),
+    };
 
     if (u.field === "geography_avoid") {
       const market = u.market?.trim();
