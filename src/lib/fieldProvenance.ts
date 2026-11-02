@@ -11,7 +11,7 @@ export function ageLabel(as_of: string): string {
   return rem ? `${years}y ${rem}mo` : `${years}y`;
 }
 
-export type FieldSource = "manual" | "email" | "denial" | "notes" | "import";
+export type FieldSource = "manual" | "email" | "denial" | "notes" | "import" | "pass" | "unknown";
 
 export type FieldProvenance = {
   source: FieldSource;
@@ -25,6 +25,11 @@ export type FieldProvenance = {
   deal_id?: string | null;
   /** The sentence in the source note that states the value, verbatim. */
   quote?: string;
+  /** The note holding the quote, for a value from partner notes. */
+  quote_note_id?: string | null;
+  /** For a value from a pass reason typed in Capital Raise. */
+  pass_note?: { notes: string; typed_by: string | null; typed_at: string | null } | null;
+  related_message_ids?: string[];
 };
 
 export type ProvenanceMap = Record<string, FieldProvenance>;
@@ -39,11 +44,16 @@ export function readProvenance(raw: any, field: string): FieldProvenance | null 
   if (!m || typeof m !== "object") return null;
   const as_of = m.as_of ?? m.approved_at ?? m.extracted_at ?? null;
   if (!as_of) return null;
+  // A stamp with no recognised source is "unknown", never guessed as email:
+  // an email label promises an email a reviewer can open.
   const source: FieldSource =
     m.source === "manual" || m.source === "email" || m.source === "denial" ||
     m.source === "notes" || m.source === "import"
       ? m.source
-      : (m.source_note_ids ? "notes" : "email");
+      : m.source === "deal_pass" ? "pass"
+      : Array.isArray(m.message_ids) && m.message_ids.length ? "email"
+      : m.source_note_ids || m.note_ids ? "notes"
+      : "unknown";
   return {
     source,
     as_of,
@@ -54,6 +64,11 @@ export function readProvenance(raw: any, field: string): FieldProvenance | null 
             : Array.isArray(m.note_ids) ? m.note_ids : undefined,
     deal_id: m.deal_id ?? null,
     quote: typeof m.quote === "string" && m.quote ? m.quote : undefined,
+    quote_note_id: m.quote_note_id ?? null,
+    pass_note: m.quote_from === "pass_notes"
+      ? { notes: m.notes ?? "", typed_by: m.typed_by ?? null, typed_at: m.typed_at ?? null }
+      : null,
+    related_message_ids: Array.isArray(m.related_message_ids) ? m.related_message_ids : undefined,
   };
 }
 
@@ -86,6 +101,7 @@ export function isStale(p: FieldProvenance | null, field: string): boolean {
 
 export const SOURCE_LABEL: Record<FieldSource, string> = {
   manual: "MANUAL", email: "EMAIL", denial: "DENIAL", notes: "NOTES", import: "IMPORT",
+  pass: "PASS", unknown: "SOURCE UNKNOWN",
 };
 
 /** Count fields whose provenance is stale, for the profile rollup. */

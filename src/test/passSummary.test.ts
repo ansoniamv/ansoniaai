@@ -9,6 +9,7 @@ import {
   type CriteriaUpdate,
   type Email,
 } from "../../supabase/functions/_shared/passSummary";
+import { hasCitation } from "../../supabase/functions/_shared/citation";
 
 const partnerEmail: Email = {
   id: "m-partner",
@@ -127,14 +128,21 @@ describe("planUpdates", () => {
     expect(plan.write.enriched_fields.min_equity_m.as_of).toBe(PASS_AT);
   });
 
-  it("attaches the partner's emails about the deal to a quote from the pass notes", () => {
+  it("cites the pass reason, who typed it and when, when no email holds the quote", () => {
     const p = { ...basePartner, min_equity_m: 10 };
-    const plan = planUpdates(p, [up({ field: "min_equity_m", amount_m: 50, quote: "$50M minimum investment", source: "feedback" })], texts, PASS_AT, ctx);
+    const typed = { ...ctx, typed_by: "Phil V", typed_at: "2026-10-23T16:32:02Z" };
+    const plan = planUpdates(p, [up({ field: "min_equity_m", amount_m: 50, quote: "$50M minimum investment", source: "feedback" })], texts, PASS_AT, typed);
     expect(plan.suggestions[0].evidence).toMatchObject({
-      message_ids: ["AAMk-partner"],
+      message_ids: [],
       quote_from: "pass_notes",
       notes: "too small, $50M minimum investment",
+      engagement_id: "eng-1",
+      typed_by: "Phil V",
+      typed_at: "2026-10-23T16:32:02Z",
+      // The partner's thread is context, never proof.
+      related_message_ids: ["AAMk-partner"],
     });
+    expect(hasCitation(plan.suggestions[0].evidence)).toBe(true);
   });
 
   it("attaches the email whose quoted thread holds what the notes paraphrase", () => {
@@ -151,11 +159,18 @@ describe("planUpdates", () => {
     expect(plan.suggestions[0].evidence.message_ids).toEqual(["AAMk-thread"]);
   });
 
-  it("falls back to the latest email when the partner sent none", () => {
+  it("keeps the latest email as context when the partner sent none", () => {
     const only = sourceTexts("too small, $50M minimum investment", [ourEmail]);
     const p = { ...basePartner, min_equity_m: 10 };
     const plan = planUpdates(p, [up({ field: "min_equity_m", amount_m: 50, quote: "$50M minimum investment", source: "feedback" })], only, PASS_AT, ctx);
-    expect(plan.suggestions[0].evidence.message_ids).toEqual(["AAMk-ours"]);
+    expect(plan.suggestions[0].evidence.message_ids).toEqual([]);
+    expect(plan.suggestions[0].evidence.related_message_ids).toEqual(["AAMk-ours"]);
+  });
+
+  it("carries the pass-reason citation onto a field it writes", () => {
+    const typed = { ...ctx, typed_by: "Phil V", typed_at: "2026-10-23T16:32:02Z" };
+    const plan = planUpdates(basePartner, [up({ field: "min_equity_m", amount_m: 50, quote: "$50M minimum investment", source: "feedback" })], texts, PASS_AT, typed);
+    expect(plan.write.enriched_fields.min_equity_m).toMatchObject({ source: "deal_pass", quote_from: "pass_notes", typed_by: "Phil V" });
   });
 
   it("does not mark an email quote as from the pass notes", () => {

@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { SuggestionEvidencePanel } from "@/components/SuggestionEvidencePanel";
+import { matchQuote } from "../../supabase/functions/_shared/quoteMatch";
 import { readProvenance, isStale, ageLabel, SOURCE_LABEL } from "@/lib/fieldProvenance";
 import { userMessage } from "@/lib/errors";
 
@@ -29,6 +30,8 @@ type NoteLite = {
   content: string;
   content_format: string;
   created_at: string;
+  author?: string | null;
+  team_members?: { full_name?: string | null } | null;
 };
 
 function stripHtml(html: string): string {
@@ -212,39 +215,104 @@ const SOURCE_SENTENCE: Record<string, string> = {
   manual: "Set by hand",
   email: "Set from an Atlas email",
   denial: "Inferred from a pass on a deal",
-  notes: "Extracted from notes",
+  notes: "Extracted from partner notes",
   import: "Loaded from an import",
+  pass: "Taken from a pass reason typed in Capital Raise",
+  unknown: "Source not recorded",
 };
+
+/** The partner note a value was taken from, with its author, date and the quote highlighted. */
+function NoteSource({ note, id, quote }: { note: NoteLite | undefined; id: string; quote?: string }) {
+  if (!note) {
+    return (
+      <div className="leading-snug border-l-2 border-amber-400/60 pl-2">
+        {snippet(note, id)}
+        {quote && <div className="italic">“{quote}”</div>}
+      </div>
+    );
+  }
+  const text = note.content_format === "html" ? stripHtml(note.content ?? "") : (note.content ?? "");
+  const hit = matchQuote(text, quote);
+  const author = note.team_members?.full_name ?? note.author ?? null;
+  // Keep the popover short: the highlighted sentence with a little context.
+  const from = hit ? Math.max(0, hit.start - 160) : 0;
+  const to = hit ? Math.min(text.length, hit.end + 160) : Math.min(text.length, 320);
+  return (
+    <div className="space-y-0.5 border-l-2 border-amber-400/60 pl-2">
+      <div className="text-[11px] text-muted-foreground">
+        Partner note · {author ? `by ${author}` : "author not recorded"} · {longDate(note.created_at)}
+      </div>
+      <div className="leading-snug whitespace-pre-wrap">
+        {from > 0 && "…"}
+        {hit ? (
+          <>
+            {text.slice(from, hit.start)}
+            <mark className="bg-amber-200/70 text-foreground rounded-sm px-0.5 dark:bg-amber-500/30">{text.slice(hit.start, hit.end)}</mark>
+            {text.slice(hit.end, to)}
+          </>
+        ) : text.slice(from, to)}
+        {to < text.length && "…"}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Quiet "as of" chip: SOURCE · age, amber when the field has decayed past its
- * per-field staleness window. Renders nothing when we have no provenance —
- * an absent chip honestly means "we don't know when this was set".
+ * per-field staleness window. Its popover is the field's citation: the email,
+ * pass reason or partner note it came from, or who set it by hand. A filled
+ * field with no record at all says so, rather than showing nothing.
  */
 export function ProvenanceChip({
   enrichedFields,
   fieldKey,
   notes,
+  hasValue = false,
 }: {
   enrichedFields: any;
   fieldKey: string;
   notes?: NoteLite[] | undefined;
+  /** The field holds a value, so a missing record is worth flagging. */
+  hasValue?: boolean;
 }) {
   const prov = readProvenance(enrichedFields, fieldKey);
-  if (!prov) return null;
+  if (!prov && !hasValue) return null;
+
+  if (!prov) {
+    return (
+      <Popover>
+        <PopoverTrigger asChild>
+          <span
+            className="ml-1 align-middle cursor-pointer text-[10px] uppercase tracking-[0.1em] text-amber-700"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="text-border mr-1">·</span>
+            {SOURCE_LABEL.unknown}
+          </span>
+        </PopoverTrigger>
+        <PopoverContent side="top" className="max-w-sm space-y-2 text-xs">
+          <div className="leading-snug">No record of where this value came from.</div>
+          <div className="text-muted-foreground">
+            It was set before sources were tracked. Confirm it with the partner, then set it by hand so it is cited.
+          </div>
+        </PopoverContent>
+      </Popover>
+    );
+  }
 
   const stale = isStale(prov, fieldKey);
   const notesById = new Map((notes ?? []).map((n) => [n.id, n]));
   const lagDays = Math.round(
     (new Date(prov.written_at).getTime() - new Date(prov.as_of).getTime()) / 86_400_000,
   );
+  const noteIds = prov.quote_note_id ? [prov.quote_note_id] : (prov.note_ids ?? []).slice(0, 3);
 
   return (
     <Popover>
       <PopoverTrigger asChild>
         <span
           className={`ml-1 align-middle cursor-pointer text-[10px] uppercase tracking-[0.1em] ${
-            stale ? "text-amber-700" : "text-muted-foreground/70"
+            stale || prov.source === "unknown" ? "text-amber-700" : "text-muted-foreground/70"
           }`}
           onClick={(e) => e.stopPropagation()}
         >
@@ -266,25 +334,31 @@ export function ProvenanceChip({
         {stale && (
           <div className="text-amber-700">This value is older than we'd normally trust — worth re-confirming.</div>
         )}
-        {prov.message_ids && prov.message_ids.length > 0 && (
-          <SuggestionEvidencePanel messageIds={prov.message_ids} quote={prov.quote} />
+        {prov.source === "unknown" && (
+          <div className="text-amber-700">No email, note or pass reason is recorded for this value.</div>
         )}
-        {prov.deal_id && (
+        {(prov.pass_note || (prov.message_ids && prov.message_ids.length > 0)) && (
+          <SuggestionEvidencePanel
+            messageIds={prov.message_ids}
+            quote={prov.quote}
+            passNote={prov.pass_note ? { ...prov.pass_note, deal_id: prov.deal_id } : null}
+            relatedIds={prov.related_message_ids}
+          />
+        )}
+        {prov.deal_id && !prov.pass_note && (
           <Link to={`/deals/${prov.deal_id}`} className="text-primary hover:underline block">
             from the pass on this deal
           </Link>
         )}
-        {prov.quote && !prov.message_ids?.length && (
-          <div className="leading-snug border-l-2 border-amber-400/60 pl-2 italic">“{prov.quote}”</div>
-        )}
-        {!prov.quote && prov.note_ids && prov.note_ids.length > 0 && (
-          <ul className="space-y-1.5">
-            {prov.note_ids.slice(0, 4).map((id) => (
-              <li key={id} className="leading-snug border-l-2 border-amber-400/60 pl-2">
-                {snippet(notesById.get(id), id)}
-              </li>
+        {prov.source === "notes" && noteIds.length > 0 && (
+          <div className="space-y-1.5">
+            {noteIds.map((id) => (
+              <NoteSource key={id} id={id} note={notesById.get(id)} quote={id === prov.quote_note_id ? prov.quote : undefined} />
             ))}
-          </ul>
+          </div>
+        )}
+        {prov.quote && !prov.message_ids?.length && !prov.pass_note && prov.source !== "notes" && (
+          <div className="leading-snug border-l-2 border-amber-400/60 pl-2 italic">“{prov.quote}”</div>
         )}
       </PopoverContent>
     </Popover>

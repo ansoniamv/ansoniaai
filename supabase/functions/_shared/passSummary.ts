@@ -261,23 +261,31 @@ export function quoteHolds(quote: string | null | undefined, source: string | nu
 }
 
 /**
- * The emails a reviewer should read for a quote taken from the pass notes.
- * Notes are typed by a person, usually from the partner's emails about the
- * deal: attach the email whose thread holds the passage the notes paraphrase
- * (nearest the top when several quote it). Failing that, the partner's own
- * emails, or the latest one (it quotes the thread below it). Empty when
- * nothing about the deal was synced.
+ * The emails behind a quote taken from the pass notes. Notes are typed by a
+ * person, usually from the partner's emails about the deal: `proof` is the
+ * email whose thread holds the passage the notes paraphrase (nearest the top
+ * when several quote it). When none does, the notes are the only source and
+ * `related` keeps the partner's thread about the deal as context only, never
+ * as proof.
  */
-export function notesEmailIds(texts: ReturnType<typeof sourceTexts>, quote: string): string[] {
+export function notesEmails(texts: ReturnType<typeof sourceTexts>, quote: string): { proof: string[]; related: string[] } {
   const emails = [...texts.entries()].filter(([k, v]) => k !== "feedback" && v.message_id).map(([, v]) => v);
   const best = emails
     .map((e) => ({ e, m: matchQuote(e.full, quote) }))
     .filter((x) => x.m)
     .sort((a, b) => b.m!.score - a.m!.score || a.m!.start - b.m!.start)[0];
-  if (best) return [best.e.message_id!];
+  if (best) return { proof: [best.e.message_id!], related: [] };
   const partner = emails.filter((e) => e.partner).slice(-3);
-  return (partner.length ? partner : emails.slice(-1)).map((e) => e.message_id!);
+  return { proof: [], related: (partner.length ? partner : emails.slice(-1)).map((e) => e.message_id!) };
 }
+
+/** Who typed the pass reason, and when: the only source when no email backs it. */
+export type PassContext = {
+  deal_id: string;
+  engagement_id: string;
+  typed_by?: string | null;
+  typed_at?: string | null;
+};
 
 /**
  * Turns the model's criteria updates into partner writes and suggestions.
@@ -285,7 +293,7 @@ export function notesEmailIds(texts: ReturnType<typeof sourceTexts>, quote: stri
  * fields a person owns get a suggestion, and nothing older than the value's
  * current basis changes it.
  */
-export function planUpdates(partner: any, ups: CriteriaUpdate[], texts: ReturnType<typeof sourceTexts>, passAt: string, ctx: { deal_id: string; engagement_id: string }) {
+export function planUpdates(partner: any, ups: CriteriaUpdate[], texts: ReturnType<typeof sourceTexts>, passAt: string, ctx: PassContext) {
   const manual = new Set<string>(partner.manual_fields ?? []);
   const enriched: Record<string, any> = { ...(partner.enriched_fields ?? {}) };
   const write: Record<string, any> = {};
@@ -298,24 +306,34 @@ export function planUpdates(partner: any, ups: CriteriaUpdate[], texts: ReturnTy
     if (!quoteHolds(u.quote, u.source, texts)) continue;
     const src = texts.get(u.source)!;
     const asOf = src.date ?? passAt;
+    const emails = src.message_id ? { proof: [src.message_id], related: [] } : notesEmails(texts, u.quote);
+    // A quote from the pass notes cites the notes themselves: who typed them,
+    // when, and on which deal. Emails count as proof only when they hold it.
+    const passNote = src.message_id ? {} : {
+      quote_from: "pass_notes",
+      notes: src.text.slice(0, 2000),
+      typed_by: ctx.typed_by ?? null,
+      typed_at: ctx.typed_at ?? null,
+      ...(emails.related.length ? { related_message_ids: emails.related } : {}),
+    };
     const stamp = {
       source: "deal_pass",
       as_of: asOf,
       written_at: now,
       quote: u.quote.slice(0, 500),
-      message_ids: src.message_id ? [src.message_id] : notesEmailIds(texts, u.quote),
+      message_ids: emails.proof,
       deal_id: ctx.deal_id,
       engagement_id: ctx.engagement_id,
+      ...passNote,
     };
     const rec = (value: unknown, outcome: UpdateRecord["outcome"]) =>
       records.push({ field: u.field, value, outcome, quote: stamp.quote, source: u.source });
     const meta = enriched[u.field];
     const newerOnFile = (meta?.as_of && new Date(meta.as_of).getTime() >= new Date(asOf).getTime());
-    // quote_from tells the reviewer the quote is from the pass notes, so the
-    // emails are the thread about the deal, not where it was copied from.
     const evidence = {
-      message_ids: stamp.message_ids, quote: stamp.quote, email_date: asOf, source: "deal_pass", deal_id: ctx.deal_id,
-      ...(src.message_id ? {} : { quote_from: "pass_notes", notes: src.text.slice(0, 2000) }),
+      message_ids: stamp.message_ids, quote: stamp.quote, email_date: asOf, source: "deal_pass",
+      deal_id: ctx.deal_id, engagement_id: ctx.engagement_id,
+      ...passNote,
     };
 
     if (u.field === "geography_avoid") {

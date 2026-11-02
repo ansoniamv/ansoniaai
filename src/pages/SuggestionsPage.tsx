@@ -21,7 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { AlertTriangle, ExternalLink, Lock, Sparkles, X, Pencil, Zap } from "lucide-react";
 import { AtlasAutomationCard } from "@/components/AtlasAutomationCard";
-import { SuggestionEvidencePanel } from "@/components/SuggestionEvidencePanel";
+import { SuggestionEvidencePanel, passNoteFrom } from "@/components/SuggestionEvidencePanel";
 import { AtlasUnattributedInbox } from "@/components/AtlasUnattributedInbox";
 
 const TYPE_LABEL: Record<string, string> = {
@@ -335,7 +335,8 @@ function SuggestionCard({ s, partnerName, manualFields }: { s: PartnerSuggestion
         <SuggestionEvidencePanel
           messageIds={s.evidence?.message_ids}
           quote={s.evidence?.quote}
-          notes={s.evidence?.quote_from === "pass_notes" ? s.evidence.notes ?? "" : null}
+          passNote={passNoteFrom(s.evidence)}
+          relatedIds={s.evidence?.related_message_ids}
           defaultOpen
           requireSource={!(s.type === "partner_add" || s.type === "deal_add" || s.type === "attach_email")}
         />
@@ -542,7 +543,8 @@ export default function SuggestionsPage() {
                   <SuggestionEvidencePanel
                     messageIds={s.evidence?.message_ids}
                     quote={s.evidence?.quote}
-                    notes={s.evidence?.quote_from === "pass_notes" ? s.evidence.notes ?? "" : null}
+                    passNote={passNoteFrom(s.evidence)}
+                    relatedIds={s.evidence?.related_message_ids}
                   />
                 </CardContent>
               </Card>

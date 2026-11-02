@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { ChevronRight, ExternalLink } from "lucide-react";
+import { Link } from "react-router-dom";
+import { ChevronRight, ExternalLink, NotebookPen } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { safeExternalUrl } from "@/lib/safeUrl";
 import { useSuggestionEvidence, type EvidenceMessage } from "@/hooks/usePartnerSuggestions";
@@ -92,64 +93,83 @@ function HitLabel({ hit }: { hit: QuoteMatch }) {
   );
 }
 
-export function SuggestionEvidencePanel({
-  messageIds,
-  quote,
-  notes,
-  defaultOpen = false,
-  requireSource = false,
-}: {
-  messageIds?: string[] | null;
-  quote?: string;
-  /** Set when the quote is from the pass notes typed on a deal, not an email:
-   *  the emails are then the partner's thread about that deal. */
-  notes?: string | null;
-  defaultOpen?: boolean;
-  /** Say so when there is nothing to review against, rather than showing nothing. */
-  requireSource?: boolean;
-}) {
-  const ids = (messageIds || []).filter(Boolean);
-  const [open, setOpen] = useState(defaultOpen);
-  const { data, isLoading, isError } = useSuggestionEvidence(ids, open);
-  const fromNotes = notes != null;
+function fmtDay(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isFinite(d.getTime())
+    ? d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+    : null;
+}
 
-  const notesBlock = fromNotes && (
+/** A pass reason typed in Capital Raise: the source when an edit quotes it. */
+export type PassNoteSource = {
+  notes: string;
+  typed_by?: string | null;
+  typed_at?: string | null;
+  deal_id?: string | null;
+};
+
+/** The pass reason a suggestion's or field's evidence cites, if any. */
+export function passNoteFrom(ev: any): PassNoteSource | null {
+  if (ev?.quote_from !== "pass_notes") return null;
+  return { notes: ev.notes ?? "", typed_by: ev.typed_by ?? null, typed_at: ev.typed_at ?? null, deal_id: ev.deal_id ?? null };
+}
+
+function PassNoteBlock({ note, quote }: { note: PassNoteSource; quote?: string }) {
+  const day = fmtDay(note.typed_at);
+  return (
     <div className="rounded border bg-muted/20 p-2 space-y-1">
-      <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-        Quote is from the pass notes typed on the deal
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="inline-flex items-center gap-1 text-xs">
+          <NotebookPen className="h-3 w-3 text-muted-foreground" />
+          <span className="font-medium">Pass reason typed in Capital Raise</span>
+        </div>
+        {note.deal_id && (
+          <Link to={`/deals/${note.deal_id}`} className="shrink-0 text-[11px] text-primary hover:underline">
+            Open deal
+          </Link>
+        )}
       </div>
-      <MessageBody text={notes} hit={matchQuote(notes, quote)} />
+      <div className="text-[11px] text-muted-foreground">
+        {note.typed_by ? `By ${note.typed_by}` : "Author not recorded"}
+        {day ? ` · ${day}` : " · date not recorded"}
+      </div>
+      <MessageBody text={note.notes} hit={matchQuote(note.notes, quote)} />
     </div>
   );
+}
 
-  if (ids.length === 0) {
-    if (fromNotes) {
-      return (
-        <div className="space-y-2">
-          {notesBlock}
-          <div className="text-xs text-amber-700">
-            No email about this deal is synced for this partner. The pass notes are the only source.
-          </div>
-        </div>
-      );
-    }
-    return requireSource ? (
-      <div className="text-xs text-amber-700">No source email is attached to this suggestion.</div>
-    ) : null;
-  }
+/** A collapsible list of synced emails, with the quote highlighted in each. */
+function EmailList({
+  ids,
+  quote,
+  label,
+  defaultOpen,
+  context = false,
+  messages,
+}: {
+  ids: string[];
+  quote?: string;
+  label: string;
+  defaultOpen: boolean;
+  /** Context only: the emails are shown without claiming they hold the quote. */
+  context?: boolean;
+  /** Already loaded by the caller; skips the fetch. */
+  messages?: EvidenceMessage[];
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const fetched = useSuggestionEvidence(ids, open && !messages);
+  const { data, isLoading, isError } = messages ? { data: messages, isLoading: false, isError: false } : fetched;
 
   return (
     <div className="space-y-2">
-      {notesBlock}
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="inline-flex items-center gap-1 text-[11px] uppercase tracking-[0.12em] text-muted-foreground hover:text-foreground"
       >
         <ChevronRight className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} />
-        {fromNotes
-          ? `${ids.length} email${ids.length > 1 ? "s" : ""} about this deal`
-          : `${ids.length} source email${ids.length > 1 ? "s" : ""}`}
+        {label}
       </button>
 
       {open && (
@@ -162,17 +182,12 @@ export function SuggestionEvidencePanel({
           )}
           {!isLoading && (isError || (data && data.length < ids.length)) && (
             <div className="text-[11px] text-muted-foreground">
-              {(data?.length ?? 0)} of {ids.length} source emails no longer available
-            </div>
-          )}
-          {fromNotes && data && data.length > 0 && !data.some((m) => matchQuote(toPlainText(m), quote)) && (
-            <div className="text-xs text-amber-700">
-              None of these emails contains the quote. The pass notes are the only source for it.
+              {(data?.length ?? 0)} of {ids.length} emails no longer available
             </div>
           )}
           {(data || []).map((m) => {
             const body = toPlainText(m);
-            const hit = matchQuote(body, quote);
+            const hit = context ? null : matchQuote(body, quote);
             const link = safeExternalUrl(m.web_link);
             return (
               <div key={m.id} className="rounded border bg-muted/20 p-2 space-y-1">
@@ -195,7 +210,7 @@ export function SuggestionEvidencePanel({
                 </div>
                 <div className="text-xs font-medium">{m.subject || "(no subject)"}</div>
                 {hit && <HitLabel hit={hit} />}
-                {quote && !hit && !fromNotes && (
+                {quote && !hit && !context && (
                   <div className="border-l-2 border-primary/40 pl-2 text-xs text-muted-foreground">
                     "{quote}"
                     <div className="text-[10px] italic">Quote not found in the stored body</div>
@@ -206,6 +221,106 @@ export function SuggestionEvidencePanel({
             );
           })}
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The source behind a suggestion or field value: the email(s) that hold the
+ * quote, or the pass reason a person typed. Emails that only share a thread
+ * with the deal are shown as context, never as the source.
+ */
+export function SuggestionEvidencePanel({
+  messageIds,
+  quote,
+  passNote,
+  relatedIds,
+  defaultOpen = false,
+  requireSource = false,
+}: {
+  messageIds?: string[] | null;
+  quote?: string;
+  /** Set when the quote is from a pass reason typed in Capital Raise. */
+  passNote?: PassNoteSource | null;
+  /** The partner's thread about the deal, when no email holds the quote. */
+  relatedIds?: string[] | null;
+  defaultOpen?: boolean;
+  /** Say so when there is nothing to review against, rather than showing nothing. */
+  requireSource?: boolean;
+}) {
+  const ids = (messageIds || []).filter(Boolean);
+  const related = (relatedIds || []).filter(Boolean);
+
+  if (!passNote && ids.length === 0) {
+    return requireSource ? (
+      <div className="text-xs text-amber-700">No source is attached to this suggestion. Do not approve it unchecked.</div>
+    ) : null;
+  }
+
+  return (
+    <div className="space-y-2">
+      {passNote && <PassNoteBlock note={passNote} quote={quote} />}
+      {passNote ? (
+        <PassNoteEmails ids={[...ids, ...related]} quote={quote} note={passNote} defaultOpen={defaultOpen} />
+      ) : (
+        <EmailList
+          ids={ids}
+          quote={quote}
+          defaultOpen={defaultOpen}
+          label={`${ids.length} source email${ids.length > 1 ? "s" : ""}`}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Emails around a pass reason, checked here rather than trusted: one counts
+ * as backing the reason only if it holds the quote (exactly or as the closest
+ * sentence). The rest are the related thread, shown collapsed as context.
+ */
+function PassNoteEmails({
+  ids,
+  quote,
+  note,
+  defaultOpen,
+}: {
+  ids: string[];
+  quote?: string;
+  note: PassNoteSource;
+  defaultOpen: boolean;
+}) {
+  const unique = [...new Set(ids)];
+  const { data, isLoading } = useSuggestionEvidence(unique, unique.length > 0);
+  if (unique.length > 0 && isLoading) return <Skeleton className="h-4 w-2/3" />;
+  const all = data ?? [];
+  const backing = all.filter((m) => matchQuote(toPlainText(m), quote));
+  const related = all.filter((m) => !backing.includes(m));
+
+  return (
+    <div className="space-y-2">
+      {backing.length > 0 ? (
+        <EmailList
+          ids={backing.map((m) => m.message_id)}
+          messages={backing}
+          quote={quote}
+          defaultOpen={defaultOpen}
+          label={`${backing.length} email${backing.length > 1 ? "s" : ""} backing the pass reason`}
+        />
+      ) : (
+        <div className="text-xs text-amber-700">
+          No synced email says this. The pass reason {note.typed_by ? `${note.typed_by} typed` : "typed in Capital Raise"} is the only source.
+        </div>
+      )}
+      {related.length > 0 && (
+        <EmailList
+          ids={related.map((m) => m.message_id)}
+          messages={related}
+          defaultOpen={false}
+          context
+          label={`Related thread (${related.length}) · does not contain the quote`}
+        />
       )}
     </div>
   );
