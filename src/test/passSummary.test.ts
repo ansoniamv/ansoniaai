@@ -137,6 +137,20 @@ describe("planUpdates", () => {
     });
   });
 
+  it("attaches the email whose quoted thread holds what the notes paraphrase", () => {
+    const threadEmail: Email = {
+      ...ourEmail,
+      id: "m-thread",
+      message_id: "AAMk-thread",
+      body: "Following up on the model.",
+      full: "Following up on the model.\nFrom: Partner\nWe are risk off on Denver at the moment due to new supply concerns.",
+    };
+    const t = sourceTexts('Partner went "risk off" on Denver over new supply', [partnerEmail, threadEmail]);
+    const p = { ...basePartner, geography: [], manual_fields: ["geography_avoid"] };
+    const plan = planUpdates(p, [up({ market: "Denver", quote: 'went "risk off" on Denver over new supply', source: "feedback" })], t, PASS_AT, ctx);
+    expect(plan.suggestions[0].evidence.message_ids).toEqual(["AAMk-thread"]);
+  });
+
   it("falls back to the latest email when the partner sent none", () => {
     const only = sourceTexts("too small, $50M minimum investment", [ourEmail]);
     const p = { ...basePartner, min_equity_m: 10 };

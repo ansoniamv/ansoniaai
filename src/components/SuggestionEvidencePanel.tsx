@@ -3,6 +3,7 @@ import { ChevronRight, ExternalLink } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { safeExternalUrl } from "@/lib/safeUrl";
 import { useSuggestionEvidence, type EvidenceMessage } from "@/hooks/usePartnerSuggestions";
+import { matchQuote, type QuoteMatch } from "../../supabase/functions/_shared/quoteMatch";
 
 const BODY_CAP = 1200;
 
@@ -19,34 +20,9 @@ function toPlainText(m: EvidenceMessage): string {
     .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
     .replace(/[ \t]+/g, " ")
+    .replace(/ ?\n ?/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-}
-
-const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
-
-/** Locate the quote in the body ignoring whitespace differences. Returns char indices or null. */
-function findQuote(body: string, quote: string): [number, number] | null {
-  const q = norm(quote);
-  if (q.length < 8) return null;
-  // Build a map from normalized index -> original index.
-  const map: number[] = [];
-  let normalized = "";
-  let prevSpace = false;
-  for (let i = 0; i < body.length; i++) {
-    const ch = body[i];
-    if (/\s/.test(ch)) {
-      if (prevSpace || normalized.length === 0) continue;
-      normalized += " "; map.push(i); prevSpace = true;
-    } else {
-      normalized += ch.toLowerCase(); map.push(i); prevSpace = false;
-    }
-  }
-  const at = normalized.indexOf(q);
-  if (at < 0) return null;
-  const start = map[at];
-  const end = (map[at + q.length - 1] ?? body.length - 1) + 1;
-  return [start, end];
 }
 
 function fmtDate(iso: string | null): string {
@@ -56,29 +32,46 @@ function fmtDate(iso: string | null): string {
   });
 }
 
-function MessageBody({ text, quote }: { text: string; quote?: string }) {
+/** Characters of context kept before and after the highlight in a long email. */
+const CONTEXT_BEFORE = 250;
+const CONTEXT_AFTER = 500;
+
+function MessageBody({ text, hit }: { text: string; hit: QuoteMatch | null }) {
   const [full, setFull] = useState(false);
-  const hit = quote ? findQuote(text, quote) : null;
-  const needsCap = text.length > BODY_CAP && !(hit && hit[1] > BODY_CAP);
-  const shown = full || !needsCap ? text : text.slice(0, BODY_CAP) + "…";
-  const localHit = quote ? findQuote(shown, quote) : null;
+  const long = text.length > BODY_CAP;
+  // A long email opens on the highlighted passage, which in a reply is often
+  // deep in the quoted thread; otherwise on its first BODY_CAP characters.
+  let from = 0;
+  let to = text.length;
+  if (long && !full) {
+    if (hit) {
+      from = Math.max(0, hit.start - CONTEXT_BEFORE);
+      to = Math.min(text.length, hit.end + CONTEXT_AFTER);
+    } else {
+      to = BODY_CAP;
+    }
+  }
+  const head = from > 0 ? "…" : "";
+  const tail = to < text.length ? "…" : "";
 
   return (
     <div>
       <div className="whitespace-pre-wrap text-xs leading-relaxed">
-        {localHit ? (
+        {hit && hit.start >= from && hit.end <= to ? (
           <>
-            <span>{shown.slice(0, localHit[0])}</span>
-            <mark className="bg-primary/15 text-foreground rounded-sm px-0.5">
-              {shown.slice(localHit[0], localHit[1])}
+            {head}
+            <span>{text.slice(from, hit.start)}</span>
+            <mark className="bg-amber-200/70 text-foreground rounded-sm px-0.5 dark:bg-amber-500/30">
+              {text.slice(hit.start, hit.end)}
             </mark>
-            <span>{shown.slice(localHit[1])}</span>
+            <span>{text.slice(hit.end, to)}</span>
+            {tail}
           </>
         ) : (
-          shown
+          head + text.slice(from, to) + tail
         )}
       </div>
-      {needsCap && (
+      {long && (
         <button
           type="button"
           onClick={() => setFull((f) => !f)}
@@ -87,6 +80,14 @@ function MessageBody({ text, quote }: { text: string; quote?: string }) {
           {full ? "Show less" : "Show full email"}
         </button>
       )}
+    </div>
+  );
+}
+
+function HitLabel({ hit }: { hit: QuoteMatch }) {
+  return (
+    <div className="text-[11px] uppercase tracking-[0.12em] text-amber-700">
+      {hit.exact ? "Highlighted: the quoted words" : "Highlighted: closest sentence to the quote (not word for word)"}
     </div>
   );
 }
@@ -117,7 +118,7 @@ export function SuggestionEvidencePanel({
       <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
         Quote is from the pass notes typed on the deal
       </div>
-      <MessageBody text={notes} quote={quote && findQuote(notes, quote) ? quote : undefined} />
+      <MessageBody text={notes} hit={matchQuote(notes, quote)} />
     </div>
   );
 
@@ -164,9 +165,14 @@ export function SuggestionEvidencePanel({
               {(data?.length ?? 0)} of {ids.length} source emails no longer available
             </div>
           )}
+          {fromNotes && data && data.length > 0 && !data.some((m) => matchQuote(toPlainText(m), quote)) && (
+            <div className="text-xs text-amber-700">
+              None of these emails contains the quote. The pass notes are the only source for it.
+            </div>
+          )}
           {(data || []).map((m) => {
             const body = toPlainText(m);
-            const found = quote ? !!findQuote(body, quote) : true;
+            const hit = matchQuote(body, quote);
             const link = safeExternalUrl(m.web_link);
             return (
               <div key={m.id} className="rounded border bg-muted/20 p-2 space-y-1">
@@ -188,13 +194,14 @@ export function SuggestionEvidencePanel({
                   )}
                 </div>
                 <div className="text-xs font-medium">{m.subject || "(no subject)"}</div>
-                {quote && !found && !fromNotes && (
+                {hit && <HitLabel hit={hit} />}
+                {quote && !hit && !fromNotes && (
                   <div className="border-l-2 border-primary/40 pl-2 text-xs text-muted-foreground">
                     "{quote}"
-                    <div className="text-[10px] italic">Quote not found verbatim in the stored body</div>
+                    <div className="text-[10px] italic">Quote not found in the stored body</div>
                   </div>
                 )}
-                <MessageBody text={body} quote={found ? quote : undefined} />
+                <MessageBody text={body} hit={hit} />
               </div>
             );
           })}
