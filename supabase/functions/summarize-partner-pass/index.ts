@@ -76,6 +76,7 @@ async function loadEmails(sb: any, partnerId: string, deal: any): Promise<Email[
       partner_sent: partner,
       subject: String(m.subject ?? "").slice(0, 200),
       body: emailText(m).slice(0, EMAIL_CHARS),
+      full: m.body_html ? stripHtml(m.body_html) : String(m.preview ?? ""),
     }))
     .sort((a, b) => String(a.date ?? "").localeCompare(String(b.date ?? "")));
 }

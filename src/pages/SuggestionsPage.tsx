@@ -331,7 +331,14 @@ function SuggestionCard({ s, partnerName, manualFields }: { s: PartnerSuggestion
           </div>
         )}
 
-        <SuggestionEvidencePanel messageIds={s.evidence?.message_ids} quote={s.evidence?.quote} />
+        {/* Open by default: a reviewer approves against the email itself. */}
+        <SuggestionEvidencePanel
+          messageIds={s.evidence?.message_ids}
+          quote={s.evidence?.quote}
+          notes={s.evidence?.quote_from === "pass_notes" ? s.evidence.notes ?? "" : null}
+          defaultOpen
+          requireSource={!(s.type === "partner_add" || s.type === "deal_add" || s.type === "attach_email")}
+        />
 
         <div className="flex items-center gap-2">
           <Button size="sm" onClick={() => submitApprove(isLocked)} disabled={apply.isPending || nameMissing}>
@@ -532,7 +539,11 @@ export default function SuggestionsPage() {
                   <div className="text-[10px] text-muted-foreground">
                     {s.reviewed_by || "—"} • {s.reviewed_at ? new Date(s.reviewed_at).toLocaleString() : ""}
                   </div>
-                  <SuggestionEvidencePanel messageIds={s.evidence?.message_ids} quote={s.evidence?.quote} />
+                  <SuggestionEvidencePanel
+                    messageIds={s.evidence?.message_ids}
+                    quote={s.evidence?.quote}
+                    notes={s.evidence?.quote_from === "pass_notes" ? s.evidence.notes ?? "" : null}
+                  />
                 </CardContent>
               </Card>
             );

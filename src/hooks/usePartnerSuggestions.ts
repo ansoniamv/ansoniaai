@@ -50,7 +50,7 @@ export type PartnerSuggestion = {
   proposed_value: any;
   summary: string;
   rationale: string | null;
-  evidence: { message_ids?: string[]; quote?: string; email_date?: string } | null;
+  evidence: { message_ids?: string[]; quote?: string; email_date?: string; quote_from?: "pass_notes"; notes?: string } | null;
   signals: any;
   confidence: number | null;
   deal_confidence: number | null;

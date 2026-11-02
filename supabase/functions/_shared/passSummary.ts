@@ -2,6 +2,8 @@
 // the rules that turn what a partner said when passing into criteria writes
 // and suggestions. Kept free of Deno and network calls so vitest covers them.
 
+import { matchQuote } from "./quoteMatch.ts";
+
 export const ANSONIA_DOMAIN = "@ansoniaproperties.com";
 
 export const CAPITAL_STATUS_VALUES = ["Actively Deploying", "Selective", "Constrained", "Out of Capital"];
@@ -64,8 +66,10 @@ export type ModelOut = {
 /**
  * id is the outlook_messages row id, short enough for the model to copy back
  * exactly; message_id is the Outlook id the evidence panel looks emails up by.
+ * body is the new part the model reads; full keeps the quoted thread, where a
+ * partner's earlier reply often survives only as a quote.
  */
-export type Email = { id: string; message_id: string; date: string | null; from: string | null; partner_sent: boolean; subject: string; body: string };
+export type Email = { id: string; message_id: string; date: string | null; from: string | null; partner_sent: boolean; subject: string; body: string; full?: string };
 export type UpdateRecord = {
   field: string;
   value: unknown;
@@ -236,10 +240,14 @@ Skip an update that matches what is already on file.`;
 }
 
 /** The text a quote is checked against, keyed by the source the model cites. */
-export function sourceTexts(notes: string, emails: Email[]): Map<string, { text: string; date: string | null; partner: boolean; message_id: string | null }> {
-  const m = new Map<string, { text: string; date: string | null; partner: boolean; message_id: string | null }>();
-  if (notes) m.set("feedback", { text: notes, date: null, partner: true, message_id: null });
-  for (const e of emails) m.set(e.id, { text: `${e.subject}\n${e.body}`, date: e.date, partner: e.partner_sent, message_id: e.message_id });
+type SourceText = { text: string; full: string; date: string | null; partner: boolean; message_id: string | null };
+export function sourceTexts(notes: string, emails: Email[]): Map<string, SourceText> {
+  const m = new Map<string, SourceText>();
+  if (notes) m.set("feedback", { text: notes, full: notes, date: null, partner: true, message_id: null });
+  for (const e of emails) {
+    const text = `${e.subject}\n${e.body}`;
+    m.set(e.id, { text, full: e.full ? `${e.subject}\n${e.full}` : text, date: e.date, partner: e.partner_sent, message_id: e.message_id });
+  }
   return m;
 }
 
@@ -250,6 +258,25 @@ export function quoteHolds(quote: string | null | undefined, source: string | nu
   if (!src || !src.partner) return false;
   const q = squash(quote);
   return q.length >= 8 && squash(src.text).includes(q);
+}
+
+/**
+ * The emails a reviewer should read for a quote taken from the pass notes.
+ * Notes are typed by a person, usually from the partner's emails about the
+ * deal: attach the email whose thread holds the passage the notes paraphrase
+ * (nearest the top when several quote it). Failing that, the partner's own
+ * emails, or the latest one (it quotes the thread below it). Empty when
+ * nothing about the deal was synced.
+ */
+export function notesEmailIds(texts: ReturnType<typeof sourceTexts>, quote: string): string[] {
+  const emails = [...texts.entries()].filter(([k, v]) => k !== "feedback" && v.message_id).map(([, v]) => v);
+  const best = emails
+    .map((e) => ({ e, m: matchQuote(e.full, quote) }))
+    .filter((x) => x.m)
+    .sort((a, b) => b.m!.score - a.m!.score || a.m!.start - b.m!.start)[0];
+  if (best) return [best.e.message_id!];
+  const partner = emails.filter((e) => e.partner).slice(-3);
+  return (partner.length ? partner : emails.slice(-1)).map((e) => e.message_id!);
 }
 
 /**
@@ -276,7 +303,7 @@ export function planUpdates(partner: any, ups: CriteriaUpdate[], texts: ReturnTy
       as_of: asOf,
       written_at: now,
       quote: u.quote.slice(0, 500),
-      message_ids: src.message_id ? [src.message_id] : [],
+      message_ids: src.message_id ? [src.message_id] : notesEmailIds(texts, u.quote),
       deal_id: ctx.deal_id,
       engagement_id: ctx.engagement_id,
     };
@@ -284,7 +311,12 @@ export function planUpdates(partner: any, ups: CriteriaUpdate[], texts: ReturnTy
       records.push({ field: u.field, value, outcome, quote: stamp.quote, source: u.source });
     const meta = enriched[u.field];
     const newerOnFile = (meta?.as_of && new Date(meta.as_of).getTime() >= new Date(asOf).getTime());
-    const evidence = { message_ids: stamp.message_ids, quote: stamp.quote, email_date: asOf, source: "deal_pass", deal_id: ctx.deal_id };
+    // quote_from tells the reviewer the quote is from the pass notes, so the
+    // emails are the thread about the deal, not where it was copied from.
+    const evidence = {
+      message_ids: stamp.message_ids, quote: stamp.quote, email_date: asOf, source: "deal_pass", deal_id: ctx.deal_id,
+      ...(src.message_id ? {} : { quote_from: "pass_notes", notes: src.text.slice(0, 2000) }),
+    };
 
     if (u.field === "geography_avoid") {
       const market = u.market?.trim();
