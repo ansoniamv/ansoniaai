@@ -183,6 +183,23 @@ export const LOCKABLE_FIELDS = [
 
 const CAPITAL_FIELDS = ["capital_status", "capital_available_from", "capital_status_detail"] as const;
 
+/**
+ * Provenance for the values a person typed when adding a partner, so each is
+ * cited as set by hand instead of showing "source unknown". Yes/no flags are
+ * left out: every partner gets them by default, so they say nothing. Stamping
+ * does not lock: an unstamped value was already treated as a person's.
+ */
+export function manualStamps(fields: Partial<PartnerFields>, setBy: string | null, now = new Date().toISOString()) {
+  const stamps: Record<string, unknown> = {};
+  for (const k of [...LOCKABLE_FIELDS, "capital_status"] as string[]) {
+    const v = (fields as any)[k];
+    if (v === null || v === undefined || typeof v === "boolean") continue;
+    if (Array.isArray(v) ? v.length === 0 : String(v).trim() === "") continue;
+    stamps[k] = { source: "manual", as_of: now, written_at: now, set_by: setBy };
+  }
+  return stamps;
+}
+
 function sameValue(before: unknown, after: unknown): boolean {
   if (Array.isArray(before) || Array.isArray(after)) {
     const a = (before as unknown[] | null) ?? [];

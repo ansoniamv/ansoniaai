@@ -50,7 +50,18 @@ export type PartnerSuggestion = {
   proposed_value: any;
   summary: string;
   rationale: string | null;
-  evidence: { message_ids?: string[]; quote?: string; email_date?: string; quote_from?: "pass_notes"; notes?: string } | null;
+  evidence: {
+    message_ids?: string[];
+    quote?: string;
+    email_date?: string;
+    deal_id?: string | null;
+    engagement_id?: string | null;
+    quote_from?: "pass_notes";
+    notes?: string;
+    typed_by?: string | null;
+    typed_at?: string | null;
+    related_message_ids?: string[];
+  } | null;
   signals: any;
   confidence: number | null;
   deal_confidence: number | null;
@@ -384,14 +395,7 @@ export function useApplySuggestion() {
         const nextManual = manualFields.includes(field) ? manualFields : [...manualFields, field];
         const nextEnriched = {
           ...enriched,
-          [field]: {
-            source: "email",
-            as_of: (suggestion.evidence as any)?.email_date ?? suggestion.created_at,
-            written_at: new Date().toISOString(),
-            set_by: reviewer,
-            message_ids: suggestion.evidence?.message_ids || [],
-            approved_by: reviewer, approved_at: new Date().toISOString(),
-          },
+          [field]: approvalStamp(suggestion, reviewer),
         };
         const { error } = await (supabase as any)
           .from("partners")
@@ -405,14 +409,7 @@ export function useApplySuggestion() {
         const nextManual = manualFields.includes("geography_avoid") ? manualFields : [...manualFields, "geography_avoid"];
         const nextEnriched = {
           ...enriched,
-          geography_avoid: {
-            source: "email",
-            as_of: (suggestion.evidence as any)?.email_date ?? suggestion.created_at,
-            written_at: new Date().toISOString(),
-            set_by: reviewer,
-            message_ids: suggestion.evidence?.message_ids || [],
-            approved_by: reviewer, approved_at: new Date().toISOString(),
-          },
+          geography_avoid: approvalStamp(suggestion, reviewer),
         };
         const { error } = await (supabase as any)
           .from("partners")
@@ -487,14 +484,7 @@ export function useApplySuggestion() {
           ? manualFields : [...manualFields, "capital_status"];
         const nextEnriched = {
           ...enriched,
-          capital_status: {
-            source: "email",
-            as_of: (suggestion.evidence as any)?.email_date ?? suggestion.created_at,
-            written_at: new Date().toISOString(),
-            set_by: reviewer,
-            message_ids: suggestion.evidence?.message_ids || [],
-            approved_by: reviewer, approved_at: new Date().toISOString(),
-          },
+          capital_status: approvalStamp(suggestion, reviewer),
         };
         const { error } = await (supabase as any).from("partners").update({
           capital_status: pv.status,
@@ -654,14 +644,7 @@ async function applyOne(suggestion: PartnerSuggestion, reviewer: string | null):
     const nextManual = manualFields.includes(field) ? manualFields : [...manualFields, field];
     const nextEnriched = {
       ...enriched,
-      [field]: {
-        source: "email",
-        as_of: (suggestion.evidence as any)?.email_date ?? suggestion.created_at,
-        written_at: new Date().toISOString(),
-        set_by: reviewer,
-        message_ids: suggestion.evidence?.message_ids || [],
-        approved_by: reviewer, approved_at: new Date().toISOString(),
-      },
+      [field]: approvalStamp(suggestion, reviewer),
     };
     const { error } = await (supabase as any).from("partners").update({ [field]: proposedValue, manual_fields: nextManual, enriched_fields: nextEnriched }).eq("id", suggestion.partner_id);
     if (error) return { ok: false, message: error.message };
@@ -797,6 +780,35 @@ export type EvidenceMessage = {
  * Fetch the source emails behind a suggestion. Lazy — only enabled when the
  * reviewer actually expands the evidence panel, so the queue stays cheap to render.
  */
+/**
+ * The provenance stamp for a field a reviewer approved: who approved it and
+ * when, plus the suggestion's own source, so the field still cites the email
+ * or pass reason it came from after approval.
+ */
+export function approvalStamp(suggestion: PartnerSuggestion, reviewer: string | null) {
+  const ev: any = suggestion.evidence ?? {};
+  const now = new Date().toISOString();
+  const passNote = ev.quote_from === "pass_notes";
+  return {
+    source: passNote ? "deal_pass" : "email",
+    as_of: ev.email_date ?? suggestion.created_at,
+    written_at: now,
+    set_by: reviewer,
+    message_ids: ev.message_ids || [],
+    ...(ev.quote ? { quote: ev.quote } : {}),
+    ...(ev.deal_id ? { deal_id: ev.deal_id } : {}),
+    ...(passNote ? {
+      quote_from: "pass_notes",
+      notes: ev.notes ?? "",
+      typed_by: ev.typed_by ?? null,
+      typed_at: ev.typed_at ?? null,
+      engagement_id: ev.engagement_id ?? null,
+      ...(ev.related_message_ids ? { related_message_ids: ev.related_message_ids } : {}),
+    } : {}),
+    approved_by: reviewer, approved_at: now,
+  };
+}
+
 export function useSuggestionEvidence(messageIds: string[] | undefined, enabled: boolean) {
   const ids = (messageIds || []).filter(Boolean);
   return useQuery({

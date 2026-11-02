@@ -6,6 +6,7 @@ import { isAnthropicConfigured } from "../_shared/anthropic.ts";
 import { ATLAS_MODEL } from "../_shared/featureModels.ts";
 import { requireUserOrService } from "../_shared/auth.ts";
 import { normalizeNameToken, resolveContact, splitFullName } from "../_shared/contactMatch.ts";
+import { hasCitation } from "../_shared/citation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1044,6 +1045,21 @@ Notes on noise reduction:
             continue;
           }
         }
+
+        // Cite the message that holds the quote, not the whole thread: when
+        // the model's ids are mangled the evidence falls back to every id in
+        // the thread, and a reviewer should not have to hunt for the line.
+        if (quote && typeof quote === "string") {
+          const q = normalizeForMatch(quote);
+          const probe = q.length > 60 ? q.slice(0, 60) : q;
+          const cited: string[] = (s.evidence as any)?.message_ids ?? [];
+          const holding = (msgs as any[])
+            .filter((m: any) => cited.includes(m.message_id))
+            .filter((m: any) => normalizeForMatch(stripHtml(m.body_html) || m.body_text || m.preview || "").includes(probe))
+            .map((m: any) => m.message_id);
+          if (holding.length) (s.evidence as any).message_ids = holding;
+        }
+        if (!hasCitation(s.evidence)) continue;
 
 
         // Skip no-op suggestions that merely restate the current value

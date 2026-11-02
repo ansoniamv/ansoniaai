@@ -21,7 +21,21 @@ const HIGHLIGHT_TO_CARD: Record<string, "investment" | "geography"> = {
   strategy: "geography",
 };
 
-type NoteLite = { id: string; content: string; content_format: string; created_at: string };
+type NoteLite = {
+  id: string;
+  content: string;
+  content_format: string;
+  created_at: string;
+  author?: string | null;
+  team_members?: { full_name?: string | null } | null;
+};
+
+/** A real value, not a blank or a yes/no flag every partner gets by default. */
+function hasRealValue(v: unknown): boolean {
+  if (v === null || v === undefined || typeof v === "boolean") return false;
+  if (Array.isArray(v)) return v.length > 0;
+  return String(v).trim() !== "";
+}
 
 export function PartnerSummaryCards({
   partner,
@@ -38,7 +52,14 @@ export function PartnerSummaryCards({
     const isManual = manualSet.has(fieldKey);
     const meta = enriched[fieldKey];
     const hasSuggestion = !!meta?.suggested;
-    const chip = <ProvenanceChip enrichedFields={partner.enriched_fields} fieldKey={fieldKey} notes={notes} />;
+    const chip = (
+      <ProvenanceChip
+        enrichedFields={partner.enriched_fields}
+        fieldKey={fieldKey}
+        notes={notes}
+        hasValue={hasRealValue((partner as any)[fieldKey])}
+      />
+    );
 
     // Manually-locked field with an AI conflict: show manual lock + review popover.
     if (isManual && hasSuggestion) {

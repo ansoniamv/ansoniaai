@@ -18,6 +18,7 @@ import { completeText } from "../_shared/ai.ts";
 import { BudgetExceededError } from "../_shared/aiBudget.ts";
 import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 import { PARTNER_MODEL } from "../_shared/featureModels.ts";
+import { hasCitation } from "../_shared/citation.ts";
 import { logAiFailure, logAiUsage } from "../_shared/logUsage.ts";
 import {
   buildPrompt, dealFacts, emailText, planUpdates, quoteHolds, sourceTexts, stripHtml, mentionsDeal,
@@ -107,7 +108,7 @@ async function summarizeOne(sb: any, engagementId: string, opts: RunOpts): Promi
   };
   const { data: e, error } = await sb
     .from("capital_raise_engagements")
-    .select("id, partner_id, deal_id, stage, removed_at, pass_feedback, pass_category, pass_price_surmountable, created_at, updated_at, deal:deals(id, property_name, city, state, msa, unit_count, asking_price, estimated_equity, in_place_cap_rate)" + (opts.dry ? "" : ", pass_summary_hash"))
+    .select("id, partner_id, deal_id, stage, removed_at, pass_feedback, pass_feedback_by, pass_feedback_at, pass_category, pass_price_surmountable, created_at, updated_at, deal:deals(id, property_name, city, state, msa, unit_count, asking_price, estimated_equity, in_place_cap_rate)" + (opts.dry ? "" : ", pass_summary_hash"))
     .eq("id", engagementId)
     .maybeSingle();
   if (error) throw error;
@@ -173,7 +174,9 @@ async function summarizeOne(sb: any, engagementId: string, opts: RunOpts): Promi
   if (basis === "inferred" && !/^likely\b/i.test(summary)) summary = `Likely: ${summary}`;
   if (basis === "unknown" || !summary) summary = "No reason recorded.";
 
-  const plan = planUpdates(partner, out.criteria_updates ?? [], texts, passAt, { deal_id: e.deal_id, engagement_id: e.id });
+  const plan = planUpdates(partner, out.criteria_updates ?? [], texts, passAt, {
+    deal_id: e.deal_id, engagement_id: e.id, typed_by: e.pass_feedback_by ?? null, typed_at: e.pass_feedback_at ?? null,
+  });
 
   if (opts.dry) {
     return {
@@ -202,7 +205,8 @@ async function summarizeOne(sb: any, engagementId: string, opts: RunOpts): Promi
       `${s.type}|${s.field}|${s.type === "capital_status_change" ? s.proposed_value?.status : JSON.stringify(s.proposed_value).toLowerCase()}`;
     const seen = new Set((existing ?? []).map(key));
     const rows = plan.suggestions
-      .filter((s) => !seen.has(key(s)) && seen.add(key(s)))
+      // Nothing reaches the inbox without a source a person can check.
+      .filter((s) => hasCitation(s.evidence) && !seen.has(key(s)) && seen.add(key(s)))
       .map((s) => ({
         ...s,
         partner_id: partner.id,

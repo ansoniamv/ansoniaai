@@ -11,7 +11,7 @@ import { useCreateNote } from "@/hooks/useNotes";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentTeamMember } from "@/hooks/useTeamMembers";
 import { supabase } from "@/integrations/supabase/client";
-import { emptyPartnerForm, formToPartnerFields, diffContacts, type PartnerFormState } from "@/lib/partnerForm";
+import { emptyPartnerForm, formToPartnerFields, diffContacts, manualStamps, type PartnerFormState } from "@/lib/partnerForm";
 
 export default function NewPartner() {
   const navigate = useNavigate();
@@ -51,6 +51,8 @@ export default function NewPartner() {
           ...(fields.capital_status ? ["capital_status"] : []),
         ],
         ...(fields.capital_status ? { capital_status_as_of: new Date().toISOString() } : {}),
+        // Every typed value is cited as set by hand, by whom.
+        enriched_fields: manualStamps(fields, currentMember?.full_name ?? user?.email ?? null),
       });
 
       if (form.initial_note.trim()) {
