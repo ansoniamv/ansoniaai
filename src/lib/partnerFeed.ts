@@ -29,8 +29,19 @@ export type ChangeRef = {
   quote_note_id?: string;
   quote_note_date?: string | null;
   note_ids?: string[];
+  /** Older stamps name the notes here instead of note_ids. */
+  source_note_ids?: string[];
   message_ids?: string[];
   deal_id?: string | null;
+  /** Who set it by hand, or approved it. */
+  set_by?: string | null;
+  written_at?: string | null;
+  /** A value from a pass reason typed in Capital Raise. */
+  quote_from?: "pass_notes";
+  notes?: string;
+  typed_by?: string | null;
+  typed_at?: string | null;
+  related_message_ids?: string[];
 };
 
 export type FieldChange = { field: string; label: string; from: string; to: string; ref?: ChangeRef | null };

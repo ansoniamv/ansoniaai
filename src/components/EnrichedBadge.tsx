@@ -91,10 +91,21 @@ export function EnrichedBadge({
     const { data: p, error: rErr } = await supabase.from("partners").select("enriched_fields").eq("id", partnerId).single();
     if (rErr) return toast.error(userMessage(rErr, "Could not load this field."));
     const current = (p?.enriched_fields ?? {}) as EnrichedFieldsMap;
+    // Keep the whole stamp (note ids, the verbatim quote, its date) and who
+    // accepted it, so the change still cites its note in the Capital Feed.
+    const { data: auth } = await supabase.auth.getUser();
+    const { value: _value, ...stamp } = suggested as EnrichmentSuggestion & Record<string, unknown>;
+    const now = new Date().toISOString();
     current[fieldKey] = {
+      ...stamp,
+      source: "notes",
       source_note_ids: suggested.source_note_ids ?? [],
       extracted_at: suggested.extracted_at,
-    };
+      written_at: now,
+      set_by: auth.user?.email ?? null,
+      approved_by: auth.user?.email ?? null,
+      approved_at: now,
+    } as EnrichmentMeta;
     const { data: rows, error } = await supabase
       .from("partners")
       .update({ [fieldKey]: suggested.value, enriched_fields: current } as any)
