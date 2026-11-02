@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NoteContent } from "@/components/NoteContent";
-import { ChangeSourceRef } from "@/components/ChangeSourceRef";
+import { ChangeSourceSheet } from "@/components/capital-feed/ChangeSourceSheet";
 import { cn } from "@/lib/utils";
 import { CATEGORY_LABEL, type Story } from "@/lib/capitalFeed";
 import { CATEGORY_TONE } from "@/components/capital-feed/tone";
@@ -90,7 +90,6 @@ export function StoryCard({ story: s, partnerName, isNew, comments, reactions, s
                   ) : (
                     <span className="font-medium">{c.to}</span>
                   )}
-                  <ChangeSourceRef refInfo={c.ref} />
                 </td>
               </tr>
             ))}
@@ -114,15 +113,29 @@ export function StoryCard({ story: s, partnerName, isNew, comments, reactions, s
             </button>
           )}
         </div>
-        {socialAvailable && (
-          <SocialBar
-            itemKey={s.key}
-            reactions={reactions}
-            commentCount={comments.length}
-            userId={userId}
-            onToggleComments={() => setShowComments((v) => !v)}
-          />
-        )}
+        <div className="flex items-center gap-1">
+          {!!s.changes?.length && (
+            <ChangeSourceSheet
+              partnerId={s.partnerId}
+              partnerName={partnerName}
+              headline={s.headline}
+              changes={s.changes}
+              byline={s.byline}
+              at={s.at}
+              changedBy={s.changedBy}
+              changeSource={s.changeSource}
+            />
+          )}
+          {socialAvailable && (
+            <SocialBar
+              itemKey={s.key}
+              reactions={reactions}
+              commentCount={comments.length}
+              userId={userId}
+              onToggleComments={() => setShowComments((v) => !v)}
+            />
+          )}
+        </div>
       </div>
 
       {socialAvailable && showComments && <CommentThread itemKey={s.key} comments={comments} userId={userId} />}

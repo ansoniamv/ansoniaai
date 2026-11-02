@@ -55,7 +55,13 @@ export type Story = {
   note?: { content: string; format: string };
   changes?: FieldChange[];
   byline?: string | null;
+  /** Who made a criteria change, and how: by hand, or by approving an Atlas suggestion. */
+  changedBy?: string | null;
+  changeSource?: "user" | "suggestion";
 };
+
+/** Saved in the same write as capital_status, so they share its source. */
+const CAPITAL_COMPANIONS = new Set(["capital_status_detail", "capital_available_from"]);
 
 export const htmlToText = (s: string) =>
   s.replace(/<(br|\/p|\/li|\/div)[^>]*>/gi, " ").replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ")
@@ -250,6 +256,10 @@ export function storiesFromChanges(rows: ChangeRow[], nameOf: (id: string) => st
       const prev = byField.get(r.field);
       byField.set(r.field, { field: r.field, from: prev ? prev.from : r.old_value, to: r.new_value, ref: r.source_ref });
     }
+    const statusRef = byField.get("capital_status")?.ref;
+    if (statusRef) {
+      for (const c of byField.values()) if (CAPITAL_COMPANIONS.has(c.field) && !c.ref) c.ref = statusRef;
+    }
     let detail: string | null = null;
     const raw = [...byField.values()]
       .map((c) => {
@@ -271,6 +281,8 @@ export function storiesFromChanges(rows: ChangeRow[], nameOf: (id: string) => st
       changes: raw.map((c) => ({ ...describeChange({ field: c.field, old_value: c.from, new_value: c.to }), ref: c.ref ?? undefined })),
       byline: latest.source === "suggestion" ? `Atlas suggestion approved${who ? ` by ${who}` : ""}`
         : who ? `Updated by ${who}` : "Updated",
+      changedBy: who ?? null,
+      changeSource: latest.source === "suggestion" ? "suggestion" : "user",
     });
   }
   return out;
