@@ -22,6 +22,8 @@ export function DealMultiLink({
   fallbackDealId,
   deals,
   chipTo,
+  value,
+  onChange,
 }: {
   messageId: string;
   fallbackDealId: string | null | undefined;
@@ -32,14 +34,22 @@ export function DealMultiLink({
    * than a way out of the page.
    */
   chipTo?: (dealId: string) => string;
+  /**
+   * Staged mode: pass both to hold the selection in the caller instead of
+   * saving each pick immediately (the Atlas Inbox saves on an explicit button).
+   */
+  value?: string[];
+  onChange?: (dealIds: string[]) => void;
 }) {
   const { data: linked } = useMessageDeals(messageId);
   const setDeals = useSetMessageDeals();
   const [open, setOpen] = useState(false);
 
   // Fall back to legacy single deal_id if link table hasn't been populated yet
-  const effective =
-    linked && linked.length > 0
+  const staged = !!onChange;
+  const effective = staged
+    ? value ?? []
+    : linked && linked.length > 0
       ? linked
       : fallbackDealId
       ? [fallbackDealId]
@@ -53,6 +63,10 @@ export function DealMultiLink({
     const next = effective.includes(id)
       ? effective.filter((x) => x !== id)
       : [...effective, id];
+    if (staged) {
+      onChange!(next);
+      return;
+    }
     setDeals.mutate(
       { id: messageId, dealIds: next },
       {
@@ -67,6 +81,10 @@ export function DealMultiLink({
   };
 
   const clearOne = (id: string) => {
+    if (staged) {
+      onChange!(effective.filter((x) => x !== id));
+      return;
+    }
     setDeals.mutate({ id: messageId, dealIds: effective.filter((x) => x !== id) });
   };
 
