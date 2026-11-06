@@ -1,4 +1,4 @@
-import { Inbox, Mail, List, Plus, Target, BarChart3, LayoutDashboard, Users, Columns3, StickyNote, MessageSquare, ShieldCheck, LogOut, Map, Activity, Plug, Sparkles, FileText, Building2, LineChart, Brain, Newspaper } from "lucide-react";
+import { Inbox, Mail, List, Plus, Target, BarChart3, LayoutDashboard, Users, Columns3, StickyNote, MessageSquare, ShieldCheck, LogOut, Map, Activity, Plug, Sparkles, FileText, Building2, LineChart, Brain, Newspaper, Radar } from "lucide-react";
 import logoWideLight from "@/assets/ansonia-ai-logo-wide-light.png";
 import markLight from "@/assets/ansonia-ai-mark-light.png";
 import { NavLink } from "@/components/NavLink";
@@ -33,6 +33,7 @@ const pipelineNav = [
 
 const capitalNav = [
   { title: "Capital Partners", url: "/partners", icon: Users },
+  { title: "Capital Intelligence", url: "/capital-intelligence", icon: Radar },
   { title: "Capital Raise", url: "/capital-raise", icon: Columns3 },
   { title: "Capital Feed", url: "/capital-feed", icon: Newspaper },
   { title: "Atlas Inbox", url: "/suggestions", icon: Sparkles },

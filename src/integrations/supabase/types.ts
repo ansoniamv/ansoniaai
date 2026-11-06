@@ -2336,6 +2336,38 @@ export type Database = {
         }
         Relationships: []
       }
+      partner_strategy_reads: {
+        Row: {
+          model: string | null
+          notes_hash: string
+          partner_id: string
+          read_at: string
+          reads: Json
+        }
+        Insert: {
+          model?: string | null
+          notes_hash: string
+          partner_id: string
+          read_at?: string
+          reads?: Json
+        }
+        Update: {
+          model?: string | null
+          notes_hash?: string
+          partner_id?: string
+          read_at?: string
+          reads?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "partner_strategy_reads_partner_id_fkey"
+            columns: ["partner_id"]
+            isOneToOne: true
+            referencedRelation: "partners"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       partners: {
         Row: {
           additional_notes: string | null
