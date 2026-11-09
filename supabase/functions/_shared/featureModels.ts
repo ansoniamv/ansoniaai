@@ -33,6 +33,12 @@ export const CHAT_MODEL = Deno.env.get("CHAT_MODEL") ?? "claude-opus-5-5";
 export const DENY_REASON_MODEL = Deno.env.get("DENY_REASON_MODEL") ?? "claude-haiku-4-5";
 
 /**
+ * Ask Atlas conversation titles: two to five words from the opening message.
+ * One small call per new conversation, run alongside the answer at effort low.
+ */
+export const TITLE_MODEL = Deno.env.get("TITLE_MODEL") ?? "claude-opus-5-5";
+
+/**
  * Deal documents: stated figures out of an OM, rent roll or T12.
  *
  * Sonnet, not Haiku, despite this being extraction: the figures sit in wide
