@@ -400,6 +400,24 @@ Deno.serve(async (req) => {
         .eq("id", id);
     }
 
+    // New mail on a deal that is already in the pipeline (brokers send the OM,
+    // rent roll and T12 after the CA): copy its underwriting attachments onto
+    // the deal. deal-agents skips files it already has.
+    if (touchedDealIds.size > 0) {
+      const { data: accepted } = await supabase
+        .from("inbox_deals")
+        .select("accepted_deal_id")
+        .in("id", Array.from(touchedDealIds))
+        .not("accepted_deal_id", "is", null);
+      const pipelineIds = new Set((accepted ?? []).map((r: { accepted_deal_id: string }) => r.accepted_deal_id));
+      for (const dealId of pipelineIds) {
+        const { error } = await supabase.functions.invoke("deal-agents", {
+          body: { action: "import_attachments", deal_id: dealId },
+        });
+        if (error) console.error("deal-agents import_attachments failed", dealId, error.message ?? error);
+      }
+    }
+
     // Fire summarization async (don't block response) — which means a failing
     // batch never reaches this caller. Watch ai_usage_log and the function logs,
     // not this function's response. Batch size is owned by summarize-emails
