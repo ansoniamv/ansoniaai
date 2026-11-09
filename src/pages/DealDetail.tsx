@@ -46,6 +46,7 @@ import { DealNotes } from "@/components/DealNotes";
 import { DealStatusHistory } from "@/components/DealStatusHistory";
 import { ComposeEmailDialog } from "@/components/ComposeEmailDialog";
 import { DealDocumentsPanel } from "@/components/DealDocumentsPanel";
+import { DealCaAgentPanel } from "@/components/DealCaAgentPanel";
 import { SubmarketSignalsPanel } from "@/components/SubmarketSignalsPanel";
 import { AiScoreTab } from "@/components/AiScoreTab";
 import { NoteComposerDialog } from "@/components/NoteComposerDialog";
@@ -1093,7 +1094,10 @@ export default function DealDetail() {
       {/* ============ Deal Documents ============ */}
       <section>
         <SectionHeader title="Deal Documents" />
-        <DealDocumentsPanel deal={deal} />
+        <div className="space-y-4">
+          <DealCaAgentPanel dealId={deal.id} />
+          <DealDocumentsPanel deal={deal} />
+        </div>
       </section>
 
       {/* ============ Financial Underwriting ============ */}

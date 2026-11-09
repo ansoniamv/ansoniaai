@@ -22,7 +22,7 @@ import { extractText, getDocumentProxy } from "https://esm.sh/unpdf@0.12.1";
 // Copied verbatim from https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs
 // (sha256 8fd6cb925d6f890f17a52902e50c501702bb1da5e7a5d1f606cb2fd0c005fa20).
 import * as XLSX from "../_shared/vendor/xlsx-0.20.3.mjs";
-import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
+import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 import { callClaudeRaw, deleteClaudeFile, uploadClaudeFile } from "../_shared/anthropic.ts";
 import { assertWithinBudget, BudgetExceededError } from "../_shared/aiBudget.ts";
 import { logAiUsage } from "../_shared/logUsage.ts";
@@ -76,8 +76,9 @@ Deno.serve(async (req) => {
   const cors = corsFor(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: cors });
 
-  const authz = await requireApprovedUser(req);
-  if (!authz.ok) return authz.response;
+  // deal-agents calls this with the service key for files it copies onto a deal.
+  const authz = await requireUserOrService(req);
+  if (authz && !authz.ok) return authz.response;
 
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });

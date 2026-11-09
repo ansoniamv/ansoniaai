@@ -39,6 +39,7 @@ import { useAuth } from "@/hooks/useAuth";
 import DOMPurify from "dompurify";
 import { budgetPause } from "@/lib/aiBudgetPause";
 import { autoAssignSubmarket } from "@/lib/autoAssignSubmarket";
+import { startDealAgents } from "@/hooks/useDealAgents";
 import { DUPLICATE_CATEGORY } from "../../supabase/functions/_shared/feedbackLearning";
 
 const DENIAL_CATEGORIES = [
@@ -398,6 +399,15 @@ export default function DealPipelinePage() {
           if (scoreErr) console.error("deal-score error:", scoreErr);
         });
       autoAssignSubmarket(newDealId, queryClient);
+      // Sign the CA and bring the OM / rent roll / T12 onto the deal. The run
+      // shows on the deal page; a CA with unusual terms waits there for approval.
+      startDealAgents(newDealId as string)
+        .then((run) => {
+          if (run?.status === "running" || run?.status === "starting") {
+            toast.message("CA agent started", { description: "Follow it on the deal page." });
+          }
+        })
+        .catch((e) => console.error("deal-agents start error:", e));
     }
 
     queryClient.invalidateQueries({ queryKey: ["deals"] });
