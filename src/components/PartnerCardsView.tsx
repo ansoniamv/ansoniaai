@@ -418,7 +418,7 @@ export function PartnerCardsView({
                 <div className="flex-1 h-px bg-hairline ml-2" />
               </CollapsibleTrigger>
               <CollapsibleContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-stretch pt-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 min-[1700px]:grid-cols-4 gap-4 items-stretch pt-3">
                   {items.map((p) => (
                     <PartnerCard
                       key={p.id}

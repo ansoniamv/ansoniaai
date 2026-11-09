@@ -75,7 +75,7 @@ export default function DataRoomPage() {
   const { data: sources = [], isLoading, error } = useDataRoomSources();
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8">
+    <div className="w-full space-y-8">
       <header>
         <h1 className="text-2xl font-serif-display">Brain</h1>
         <p className="text-sm text-muted-foreground mt-1 max-w-3xl">

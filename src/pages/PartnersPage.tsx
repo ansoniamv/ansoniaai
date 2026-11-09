@@ -712,7 +712,7 @@ export default function PartnersPage() {
 
   const containerClass = isFullscreen
     ? "fixed inset-0 z-50 bg-background p-6 overflow-auto flex flex-col"
-    : "mx-auto w-full max-w-6xl px-6 py-6 space-y-6";
+    : "w-full space-y-6";
 
 
   return (

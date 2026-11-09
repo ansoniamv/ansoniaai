@@ -137,7 +137,7 @@ export default function AdminUsersPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-6xl">
+    <div className="space-y-6 w-full">
       <div>
         <h1 className="text-2xl font-semibold">User Management</h1>
         <p className="text-muted-foreground">Accounts are invite-only. Invite teammates and manage their access.</p>
