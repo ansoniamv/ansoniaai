@@ -407,10 +407,10 @@ export default function SuggestionsPage() {
   };
 
   return (
-    <div className={`${statusTab === "unattributed" ? "max-w-7xl" : "max-w-5xl"} mx-auto p-6 space-y-4`}>
+    <div className="w-full space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Atlas Inbox</h1>
+          <h1 className="text-2xl font-semibold">Capital Inbox</h1>
           <p className="text-sm text-muted-foreground">
             AI-proposed updates from Atlas emails. Nothing is applied until you approve.
           </p>
