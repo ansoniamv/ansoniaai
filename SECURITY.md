@@ -197,6 +197,41 @@ here.
 `https://ansoniaai.vercel.app`. Edge functions read secrets at boot, so after
 changing `ALLOWED_ORIGINS` the functions must be redeployed to observe it.
 
+### Fathom: per-user meeting sync
+
+Each user can connect their own Fathom account (OAuth, or a personal API key
+until Fathom approves our OAuth app). The `fathom` function keeps a rolling 30
+days of their **external** calls in `fathom_meetings` /
+`fathom_transcript_chunks`, which every approved user can read and Atlas
+searches.
+
+- **Credentials** live in `fathom_credentials`: RLS on, no policies, no grant to
+  `authenticated`, so only the service role reads them. Tokens, keys and the
+  webhook secret are AES-GCM encrypted by the function with `FATHOM_TOKEN_KEY`
+  (32 random bytes, base64) before they are stored. Rotating that secret makes
+  every stored credential unreadable: users reconnect.
+- **OAuth** redirects only to URIs in `FATHOM_REDIRECT_URIS`. The `state` is a
+  random one-time value bound to the signed-in user, valid 10 minutes, and the
+  code is exchanged by the `fathom` function under that user's session.
+- **`fathom-webhook` is the one public function** (`verify_jwt = false` in
+  `supabase/config.toml`; deploy with `--no-verify-jwt`). Its only gate is
+  Fathom's signature: HMAC-SHA256 over `id.timestamp.body` with the
+  per-connection webhook secret, a constant-time compare, and a 5-minute
+  timestamp window. Unsigned, stale or unknown-user requests get a 401 and
+  write nothing. The `?u=` in its URL only says which secret to check.
+- **Visibility.** Every approved user can read every synced call. Internal-only
+  calls (no external attendee) are never synced. Disconnecting deletes the
+  meetings that user brought in; the nightly `fathom-retention` job deletes
+  anything older than 30 days.
+- **Transcripts are untrusted text.** Atlas is told they are what people said,
+  not instructions.
+
+```bash
+supabase secrets set --project-ref pyndxntvoixxndbwiawd FATHOM_TOKEN_KEY=$(openssl rand -base64 32)
+supabase secrets set --project-ref pyndxntvoixxndbwiawd FATHOM_CLIENT_ID=... FATHOM_CLIENT_SECRET=... \
+  FATHOM_REDIRECT_URIS=https://ansoniaai.vercel.app/integrations/fathom/callback,http://localhost:8080/integrations/fathom/callback
+```
+
 ## Still worth doing
 
 1. **Enforce the CSP.** `vercel.json` ships
