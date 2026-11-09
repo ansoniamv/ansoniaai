@@ -8,12 +8,14 @@
 // longer matches.
 //
 // POST body: {limit?: number}  (default 40, max 100 per call; call again for more)
+//            {mode: "recase"}  Title Case for every existing title, no AI call:
+//                              only capitalization changes, never the words.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsFor, requireCronSecret, requireRole } from "../_shared/auth.ts";
 import { errorResponse } from "../_shared/errors.ts";
 import { generateChatTitle } from "../_shared/chatTitle.ts";
-import { legacyTitle, NEW_THREAD_TITLE } from "../_shared/chatTitleText.ts";
+import { legacyTitle, NEW_THREAD_TITLE, toTitleCase } from "../_shared/chatTitleText.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -45,6 +47,20 @@ Deno.serve(async (req) => {
       .order("updated_at", { ascending: false })
       .limit(1000);
     if (error) throw new Error(`chat_threads: ${error.message}`);
+
+    if (body?.mode === "recase") {
+      let recased = 0;
+      const examples: { before: string; after: string }[] = [];
+      for (const t of threads ?? []) {
+        const next = toTitleCase(t.title);
+        if (next === t.title) continue;
+        const { error: upErr } = await admin.from("chat_threads").update({ title: next }).eq("id", t.id).eq("title", t.title);
+        if (upErr) throw new Error(`chat_threads update: ${upErr.message}`);
+        recased++;
+        if (examples.length < 15) examples.push({ before: t.title, after: next });
+      }
+      return json({ mode: "recase", total: threads?.length ?? 0, recased, examples });
+    }
 
     let checked = 0;
     let retitled = 0;
