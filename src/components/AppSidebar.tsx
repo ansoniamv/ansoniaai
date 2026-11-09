@@ -19,6 +19,10 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
+const atlasNav = [
+  { title: "Ask Atlas", url: "/chat", icon: MessageSquare },
+];
+
 const inboxNav = [
   { title: "Suggested Deals", url: "/pipeline", icon: Inbox },
   { title: "Acquisitions Inbox", url: "/outlook", icon: Mail },
@@ -41,7 +45,6 @@ const capitalNav = [
 
 const workspaceNav = [
   { title: "Dashboard", url: "/", icon: BarChart3 },
-  { title: "Ask Atlas", url: "/chat", icon: MessageSquare },
   { title: "Market Data", url: "/market-data", icon: LineChart },
   { title: "Ansonia Brain", url: "/brain", icon: Brain },
   { title: "Buy Box", url: "/buy-box", icon: Target },
@@ -110,6 +113,15 @@ export function AppSidebar() {
 
       <SidebarContent className="px-2">
         <SidebarGroup>
+          {!collapsed && <SidebarGroupLabel className={groupLabelCls}>Atlas</SidebarGroupLabel>}
+          <SidebarGroupContent>
+            <SidebarMenu className="gap-0.5">
+              {atlasNav.map((i) => navItem(i, collapsed))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup className="border-t border-sidebar-border pt-2">
           {!collapsed && <SidebarGroupLabel className={groupLabelCls}>Inbox</SidebarGroupLabel>}
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.5">
