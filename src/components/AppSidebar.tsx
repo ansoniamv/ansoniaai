@@ -40,7 +40,7 @@ const capitalNav = [
 ];
 
 const workspaceNav = [
-  { title: "General Dashboard", url: "/", icon: BarChart3 },
+  { title: "Dashboard", url: "/", icon: BarChart3 },
   { title: "Ask Atlas", url: "/chat", icon: MessageSquare },
   { title: "Market Data", url: "/market-data", icon: LineChart },
   { title: "Ansonia Brain", url: "/brain", icon: Brain },
