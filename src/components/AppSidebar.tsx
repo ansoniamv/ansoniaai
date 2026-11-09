@@ -104,7 +104,7 @@ export function AppSidebar() {
         {collapsed ? (
           <img src={markLight} alt="Ansonia.AI" className="h-7 w-auto mx-auto" />
         ) : (
-          <img src={logoWideLight} alt="Ansonia.AI" className="h-6 w-auto self-start" />
+          <img src={logoWideLight} alt="Ansonia.AI" className="h-6 w-auto self-center" />
         )}
       </SidebarHeader>
 
