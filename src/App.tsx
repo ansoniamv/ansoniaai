@@ -41,6 +41,8 @@ const ConnectorsPage = lazy(() => import("./pages/ConnectorsPage"));
 const PartnerImportPage = lazy(() => import("./pages/PartnerImportPage"));
 const SuggestionsPage = lazy(() => import("./pages/SuggestionsPage"));
 const PartnerTearsheetPage = lazy(() => import("./pages/PartnerTearsheetPage"));
+const FathomPage = lazy(() => import("./pages/FathomPage"));
+const FathomCallbackPage = lazy(() => import("./pages/FathomCallbackPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -98,6 +100,8 @@ const App = () => (
               <Route path="/data-room" element={<Navigate to="/brain" replace />} />
               <Route path="/buy-box" element={<Protected><BuyBoxPage /></Protected>} />
               <Route path="/market-data" element={<Protected><MarketDataPage /></Protected>} />
+              <Route path="/fathom" element={<Protected><FathomPage /></Protected>} />
+              <Route path="/integrations/fathom/callback" element={<Protected><FathomCallbackPage /></Protected>} />
               <Route path="/admin/users" element={<Protected admin><AdminUsersPage /></Protected>} />
               <Route path="/api-status" element={<Protected admin><ApiStatusPage /></Protected>} />
               <Route path="/admin/connectors" element={<Protected admin><ConnectorsPage /></Protected>} />

@@ -1,1 +1,6 @@
 project_id = "pyndxntvoixxndbwiawd"
+
+# Fathom delivers finished meetings here. It cannot send a Supabase JWT, so the
+# function checks Fathom's webhook signature instead (see SECURITY.md).
+[functions.fathom-webhook]
+verify_jwt = false

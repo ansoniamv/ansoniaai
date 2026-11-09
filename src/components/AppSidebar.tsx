@@ -1,4 +1,4 @@
-import { Inbox, Mail, List, Plus, Target, BarChart3, LayoutDashboard, Users, Columns3, StickyNote, MessageSquare, ShieldCheck, LogOut, Map, Activity, Plug, Sparkles, FileText, Building2, LineChart, Brain, Newspaper, Radar } from "lucide-react";
+import { Inbox, Mail, List, Plus, Target, BarChart3, LayoutDashboard, Users, Columns3, StickyNote, MessageSquare, ShieldCheck, LogOut, Map, Activity, Plug, Sparkles, FileText, Building2, LineChart, Brain, Newspaper, Radar, Video } from "lucide-react";
 import logoWideLight from "@/assets/ansonia-ai-logo-wide-light.png";
 import markLight from "@/assets/ansonia-ai-mark-light.png";
 import { NavLink } from "@/components/NavLink";
@@ -41,11 +41,12 @@ const capitalNav = [
 
 const workspaceNav = [
   { title: "General Dashboard", url: "/", icon: BarChart3 },
-  { title: "Brain", url: "/brain", icon: Brain },
-  { title: "Buy Box", url: "/buy-box", icon: Target },
-  { title: "Market Data", url: "/market-data", icon: LineChart },
-  { title: "Notes & Tags", url: "/notes", icon: StickyNote },
   { title: "Ask Atlas", url: "/chat", icon: MessageSquare },
+  { title: "Market Data", url: "/market-data", icon: LineChart },
+  { title: "Ansonia Brain", url: "/brain", icon: Brain },
+  { title: "Buy Box", url: "/buy-box", icon: Target },
+  { title: "Notes & Tags", url: "/notes", icon: StickyNote },
+  { title: "Fathom", url: "/fathom", icon: Video },
 ];
 
 const navItem = (item: { title: string; url: string; icon: React.ComponentType<{ className?: string }> }, collapsed: boolean) => (
