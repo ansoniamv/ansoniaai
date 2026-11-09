@@ -49,13 +49,14 @@ function SourceRow({ r, rank, bucket }: { r: RankedSource; rank: number; bucket:
   const level = r.read?.level ?? "none";
   const band = bandLabel(r.partner);
   return (
-    <div className="grid grid-cols-[28px_minmax(0,1fr)_auto] sm:grid-cols-[28px_minmax(0,1.4fr)_minmax(0,2fr)_110px_90px_44px] gap-x-3 gap-y-1 items-start py-3 border-b border-hairline last:border-0">
+    <div className="grid grid-cols-[28px_minmax(0,1fr)_auto] xl:grid-cols-[28px_minmax(0,1.4fr)_minmax(0,2fr)_110px_60px_44px] gap-x-3 gap-y-1 items-start py-3 border-b border-hairline last:border-0">
       <div className="text-xs tabular-nums text-muted-foreground pt-0.5">{rank}</div>
       <div className="min-w-0">
         <Link to={`/partners/${r.partner.id}`} className="text-sm font-medium text-foreground hover:underline">
           {r.partner.name}
         </Link>
-        <div className="mt-0.5 flex flex-wrap gap-x-2 text-[11px] text-muted-foreground">
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+          <span className="xl:hidden"><WarmthBadge strength={r.partner.relationship_strength} /></span>
           {band && <span>{band}</span>}
           {r.partner.capital_status && (
             <span className={cn(r.capitalPoints < 0 && "text-amber-700 dark:text-amber-400")}>
@@ -65,7 +66,7 @@ function SourceRow({ r, rank, bucket }: { r: RankedSource; rank: number; bucket:
           )}
         </div>
       </div>
-      <div className="min-w-0 col-span-2 sm:col-span-1 col-start-2 sm:col-start-auto row-start-2 sm:row-start-auto">
+      <div className="min-w-0 col-span-2 xl:col-span-1 col-start-2 xl:col-start-auto row-start-2 xl:row-start-auto">
         <div className="flex flex-wrap items-center gap-1.5">
           <EvidenceBadge level={level} unread={r.unread} />
           {BUCKET_BOX_FIELD[bucket] && (
@@ -93,11 +94,11 @@ function SourceRow({ r, rank, bucket }: { r: RankedSource; rank: number; bucket:
           </blockquote>
         )}
       </div>
-      <div className="hidden sm:block"><WarmthBadge strength={r.partner.relationship_strength} /></div>
-      <div className="hidden sm:block text-[11px] text-muted-foreground tabular-nums" title="Capital status points">
+      <div className="hidden xl:block"><WarmthBadge strength={r.partner.relationship_strength} /></div>
+      <div className="hidden xl:block text-[11px] text-muted-foreground tabular-nums" title="Capital status points">
         {r.capitalPoints > 0 ? `+${r.capitalPoints}` : r.capitalPoints < 0 ? r.capitalPoints : ""}
       </div>
-      <div className="text-sm font-semibold tabular-nums text-right row-start-1 col-start-3 sm:row-start-auto sm:col-start-auto">{r.score}</div>
+      <div className="text-sm font-semibold tabular-nums text-right row-start-1 col-start-3 xl:row-start-auto xl:col-start-auto">{r.score}</div>
     </div>
   );
 }
@@ -190,7 +191,7 @@ export default function CapitalIntelligencePage() {
         })}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_280px]">
         <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center gap-3">
             <div className="relative flex-1 min-w-[200px] max-w-sm">
@@ -206,7 +207,7 @@ export default function CapitalIntelligencePage() {
           </div>
 
           <div className="rounded-lg border border-hairline bg-card px-4">
-            <div className="hidden sm:grid grid-cols-[28px_minmax(0,1.4fr)_minmax(0,2fr)_110px_90px_44px] gap-x-3 py-2 border-b border-hairline text-[10px] uppercase tracking-[0.12em] text-muted-foreground font-semibold">
+            <div className="hidden xl:grid grid-cols-[28px_minmax(0,1.4fr)_minmax(0,2fr)_110px_90px_44px] gap-x-3 py-2 border-b border-hairline text-[10px] uppercase tracking-[0.12em] text-muted-foreground font-semibold">
               <div>#</div><div>Partner</div><div>What we know</div><div>Warmth</div><div>Capital</div><div className="text-right">Score</div>
             </div>
             {pLoading || rLoading ? (
