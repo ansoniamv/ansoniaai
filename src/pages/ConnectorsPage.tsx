@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { userMessage } from "@/lib/errors";
+import { DealAgentsSettingsCard } from "@/components/DealAgentsSettingsCard";
 
 interface Connector {
   id: string;
@@ -102,6 +103,8 @@ export default function ConnectorsPage() {
           )}
         </CardContent>
       </Card>
+
+      <DealAgentsSettingsCard />
     </div>
   );
 }
