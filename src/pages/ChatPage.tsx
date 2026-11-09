@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { Plus, Trash2, PanelLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
@@ -158,7 +157,11 @@ export default function ChatPage() {
           <Plus className="h-4 w-4" /> New chat
         </Button>
       </div>
-      <ScrollArea className="flex-1 min-h-0">
+      {/* A plain scroller, not ScrollArea: Radix's viewport wraps children in a
+          display:table div that grows to fit the widest title, so `truncate`
+          never sees an overflow and long titles were chopped at the panel edge
+          with no ellipsis. */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="px-2 pb-2">
           {grouped.map(({ bucket, items }) => (
             <div key={bucket}>
@@ -209,7 +212,7 @@ export default function ChatPage() {
             <p className="text-xs text-muted-foreground px-2 py-4 text-center">No chats yet.</p>
           )}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 

@@ -3,6 +3,8 @@ import { logAiUsage } from "../_shared/logUsage.ts";
 import { requireApprovedUser } from "../_shared/auth.ts";
 import { runQueryTable } from "../_shared/chatQueryTable.ts";
 import { loadCompanyBrief } from "../_shared/companyBrief.ts";
+import { generateChatTitle } from "../_shared/chatTitle.ts";
+import { NEW_THREAD_TITLE } from "../_shared/chatTitleText.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -530,6 +532,15 @@ Deno.serve(async (req) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
 
       let fullText = "";
+      // A new conversation's title is made from its opening message alongside
+      // the answer, so it costs no extra wait. Never rejects (generateChatTitle
+      // falls back to the message cut at a word boundary).
+      const openingUser = [...incoming].reverse().find((m: any) => m.role === "user");
+      const titlePromise: Promise<string | null> = (async () => {
+        const { data: t } = await supabase.from("chat_threads").select("title").eq("id", thread_id).maybeSingle();
+        if (t?.title !== NEW_THREAD_TITLE || !openingUser?.content) return null;
+        return await generateChatTitle(supabase, String(openingUser.content));
+      })().catch(() => null);
       try {
         const messages = [...toAnthropicMessages(incoming)];
         const brief = await loadCompanyBrief(supabase);
@@ -652,10 +663,10 @@ Deno.serve(async (req) => {
         });
         await supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", thread_id);
 
-        const { data: thread } = await supabase.from("chat_threads").select("title").eq("id", thread_id).maybeSingle();
-        if (thread?.title === "New conversation" && lastUser?.content) {
-          const title = String(lastUser.content).slice(0, 60).replace(/\n/g, " ");
-          await supabase.from("chat_threads").update({ title }).eq("id", thread_id);
+        const title = await titlePromise;
+        if (title) {
+          // Only replace the placeholder: never overwrite a title set meanwhile.
+          await supabase.from("chat_threads").update({ title }).eq("id", thread_id).eq("title", NEW_THREAD_TITLE);
         }
 
         emit({ type: "done", model: ANTHROPIC_MODEL, usage });
