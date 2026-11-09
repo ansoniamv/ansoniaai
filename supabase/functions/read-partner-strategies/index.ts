@@ -20,9 +20,11 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const CONCURRENCY = 4;
 const MAX_IDS_PER_CALL = 300;
-// Edge functions are cut off at ~150s; stop taking new work well before that and
-// report how many are left, so the page can call again.
-const TIME_BUDGET_MS = 110_000;
+// Edge functions are cut off at ~150s. A call already in flight can take up to
+// its 60s timeout, so stop taking new work at 80s: the last call still finishes
+// and the reply (with how many are left) gets back before the cutoff. At 110s
+// the first full read was killed mid-reply and the page stopped at 153 of 236.
+const TIME_BUDGET_MS = 80_000;
 
 type PartnerRow = {
   id: string;
