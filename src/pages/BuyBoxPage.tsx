@@ -381,7 +381,7 @@ export default function BuyBoxPage() {
 
 
   return (
-    <div className="max-w-5xl mx-auto pb-12">
+    <div className="w-full pb-12">
       {/* ───── Page header ───── */}
       <div className="flex items-end justify-between gap-6 pt-2">
         <div>

@@ -31,7 +31,7 @@ export default function MarketDataPage() {
   const { data: current } = useCurrentImport();
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8">
+    <div className="w-full space-y-8">
       <header>
         <h1 className="text-2xl font-serif-display">Market Data</h1>
         <p className="text-sm text-muted-foreground mt-1 max-w-3xl">

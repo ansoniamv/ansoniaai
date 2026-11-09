@@ -40,7 +40,7 @@ const capitalNav = [
   { title: "Capital Intelligence", url: "/capital-intelligence", icon: Radar },
   { title: "Capital Raise", url: "/capital-raise", icon: Columns3 },
   { title: "Capital Feed", url: "/capital-feed", icon: Newspaper },
-  { title: "Atlas Inbox", url: "/suggestions", icon: Sparkles },
+  { title: "Capital Inbox", url: "/suggestions", icon: Sparkles },
 ];
 
 const workspaceNav = [
