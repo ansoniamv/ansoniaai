@@ -16,6 +16,28 @@ interface FloatingPanelProps {
 type Pos = { x: number; y: number };
 type Size = { w: number; h: number };
 
+const EDGE = 8;
+
+/**
+ * Keep the whole panel inside the viewport. The position is saved per storage key
+ * (one per partner on the partner page), so a spot saved on a bigger window or
+ * another monitor would otherwise open the panel off-screen, and the button that
+ * opened it would look like it did nothing.
+ */
+export function clampToViewport(pos: Pos, size: Size, viewport: { w: number; h: number }): Pos {
+  // The panel renders at most 95% of the viewport (maxWidth/maxHeight below).
+  const w = Math.min(Number.isFinite(size.w) ? size.w : 0, viewport.w * 0.95);
+  const h = Math.min(Number.isFinite(size.h) ? size.h : 0, viewport.h * 0.95);
+  const maxX = Math.max(EDGE, viewport.w - w - EDGE);
+  const maxY = Math.max(EDGE, viewport.h - h - EDGE);
+  const x = Number.isFinite(pos.x) ? pos.x : maxX;
+  const y = Number.isFinite(pos.y) ? pos.y : maxY;
+  return {
+    x: Math.min(Math.max(EDGE, x), maxX),
+    y: Math.min(Math.max(EDGE, y), maxY),
+  };
+}
+
 function loadState<T>(key: string | undefined, fallback: T): T {
   if (!key || typeof window === "undefined") return fallback;
   try {
@@ -71,6 +93,23 @@ export function FloatingPanel({
   useEffect(() => {
     if (minKey) localStorage.setItem(minKey, minimized ? "1" : "0");
   }, [minimized, minKey]);
+
+  // Opening always shows the full panel on screen: restore it if it was left
+  // minimized, and pull it back inside the viewport.
+  useEffect(() => {
+    if (open) setMinimized(false);
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const fit = () =>
+      setPos((prev) => {
+        const next = clampToViewport(prev, size, { w: window.innerWidth, h: window.innerHeight });
+        return next.x === prev.x && next.y === prev.y ? prev : next;
+      });
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [open, size]);
 
   // Track resize (ResizeObserver on the panel)
   useEffect(() => {
