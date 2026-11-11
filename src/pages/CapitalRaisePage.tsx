@@ -567,7 +567,7 @@ export default function CapitalRaisePage() {
                         <tr
                           key={r.id}
                           className="border-b border-hairline last:border-b-0 hover:bg-muted/20 transition-colors cursor-pointer"
-                          onClick={() => navigate(`/deals/${r.id}`)}
+                          onClick={() => navigate(`/deals/${r.id}?tab=capital-raise`)}
                         >
                           <td className="px-5 py-4 align-middle text-center">
                             <div className="font-semibold text-muted-foreground truncate">{r.property_name}</div>
@@ -677,7 +677,7 @@ export default function CapitalRaisePage() {
                       <td className="px-5 py-3 text-center">
                         <button
                           className="hover:text-primary font-medium"
-                          onClick={() => navigate(`/deals/${e.deal_id}`)}
+                          onClick={() => navigate(`/deals/${e.deal_id}?tab=capital-raise`)}
                         >
                           {e.deals?.property_name || "—"}
                         </button>
@@ -753,7 +753,7 @@ export default function CapitalRaisePage() {
                         <tr
                           key={r.id}
                           className="border-b border-hairline last:border-b-0 hover:bg-muted/30 transition-colors cursor-pointer"
-                          onClick={() => navigate(`/deals/${r.id}`)}
+                          onClick={() => navigate(`/deals/${r.id}?tab=capital-raise`)}
                         >
                           <td className="px-5 py-4 align-middle text-center">
                             <div className="font-semibold text-foreground truncate">{r.property_name}</div>

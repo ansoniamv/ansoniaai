@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { safeExternalUrl } from "@/lib/safeUrl";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -488,8 +488,15 @@ function QuickUnderwriteCard({ deal }: { deal: Deal }) {
 }
 
 /* ===================================================================== */
+const DEAL_TABS = ["overview", "capital-raise", "ai-score"];
+
 export default function DealDetail() {
   const { id } = useParams();
+  // ?tab= opens a specific tab (Capital Raise page links land on Capital Raise).
+  // Kept in the URL so Back from a partner page returns to the same tab.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab") ?? "";
+  const tab = DEAL_TABS.includes(tabParam) ? tabParam : "overview";
   const navigate = useNavigate();
   const { data: deal, isLoading } = useDeal(id);
   const deleteDeal = useDeleteDeal();
@@ -925,7 +932,21 @@ export default function DealDetail() {
 
       <Separator />
 
-      <Tabs defaultValue="overview" className="w-full">
+      <Tabs
+        value={tab}
+        onValueChange={(v) =>
+          setSearchParams(
+            (prev) => {
+              const next = new URLSearchParams(prev);
+              if (v === "overview") next.delete("tab");
+              else next.set("tab", v);
+              return next;
+            },
+            { replace: true },
+          )
+        }
+        className="w-full"
+      >
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="capital-raise">Capital Raise</TabsTrigger>
