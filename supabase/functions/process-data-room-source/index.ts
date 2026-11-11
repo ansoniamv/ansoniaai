@@ -21,6 +21,15 @@ import { DATA_ROOM_MODEL } from "../_shared/featureModels.ts";
 import { errorResponse } from "../_shared/errors.ts";
 import { clampDocumentText, SCANNED_CHARS_PER_PAGE } from "../_shared/dealDocuments.ts";
 import { trimToData } from "../_shared/sheetRange.ts";
+import { getGraphToken } from "../_shared/graphToken.ts";
+import {
+  downloadItem,
+  getItem,
+  isItemId,
+  isSharePointSite,
+  SHAREPOINT_MAX_FILE_BYTES,
+  SharePointError,
+} from "../_shared/sharePoint.ts";
 import {
   chunkSections,
   dataRoomFileKind,
@@ -113,13 +122,6 @@ type Read = {
 };
 
 async function processSource(admin: any, src: any): Promise<void> {
-  const read: Read =
-    src.kind === "file"
-      ? await readFile(admin, src)
-      : src.kind === "website"
-      ? await readWebsite(src.url)
-      : { sections: [{ locator: null, text: String(src.body ?? "") }], warnings: [] };
-
   // Only the run that claimed the row may write to it.
   const writeSource = async (fields: Record<string, unknown>) => {
     const { error } = await admin
@@ -129,6 +131,15 @@ async function processSource(admin: any, src: any): Promise<void> {
       .eq("process_started_at", src.process_started_at);
     if (error) throw error;
   };
+
+  const read: Read =
+    src.kind === "file"
+      ? await readFile(admin, src)
+      : src.kind === "sharepoint"
+      ? await readSharePoint(src, writeSource)
+      : src.kind === "website"
+      ? await readWebsite(src.url)
+      : { sections: [{ locator: null, text: String(src.body ?? "") }], warnings: [] };
 
   // A note is the team's own words: stored and searched as written, and passed
   // to the brief whole. Summarising it would only paraphrase guidance.
@@ -186,7 +197,66 @@ async function readFile(admin: any, src: any): Promise<Read> {
   }
   const { data: blob, error } = await admin.storage.from(BUCKET).download(src.storage_path);
   if (error || !blob) throw new Error(`download failed: ${error?.message}`);
-  const bytes = new Uint8Array(await blob.arrayBuffer());
+  return readBytes(new Uint8Array(await blob.arrayBuffer()), src.file_name ?? "", src.content_type);
+}
+
+/**
+ * A pinned SharePoint file: look it up again (it may have been renamed, moved or
+ * edited since it was pinned), download the current version through Graph, and
+ * record which version was read so the page can tell when SharePoint is ahead.
+ */
+async function readSharePoint(src: any, writeSource: (f: Record<string, unknown>) => Promise<void>): Promise<Read> {
+  if (!isSharePointSite(src.sp_site) || !isItemId(src.sp_item_id)) {
+    throw new UserFacingError("This SharePoint source has no valid file reference.");
+  }
+  const fetcher = (u: string, i?: RequestInit) => fetch(u, i);
+  const { token } = await getGraphToken();
+  let item;
+  try {
+    item = await getItem(fetcher, token, src.sp_site, { item_id: src.sp_item_id });
+  } catch (e) {
+    if (e instanceof SharePointError && e.status === 404) {
+      await writeSource({ sp_missing: true, sp_checked_at: new Date().toISOString() });
+      throw new UserFacingError(
+        "This file is no longer in SharePoint (deleted, or moved out of the Acquisitions / Asset Management sites).",
+      );
+    }
+    throw e instanceof SharePointError ? new UserFacingError(e.message) : e;
+  }
+  if (item.kind === "folder") throw new UserFacingError("This is a SharePoint folder, not a file.");
+  if (dataRoomFileKind(item.name, item.content_type) === "unsupported") {
+    throw new UserFacingError("Unsupported file type. The Brain reads PDF, Word, PowerPoint, Excel, CSV and text files.");
+  }
+  if (item.size_bytes !== null && item.size_bytes > SHAREPOINT_MAX_FILE_BYTES) {
+    throw new UserFacingError(
+      `This file is ${Math.round(item.size_bytes / 1048576)}MB; the Brain reads files up to ${SHAREPOINT_MAX_FILE_BYTES / 1048576}MB.`,
+    );
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = await downloadItem(fetcher, token, src.sp_site, item.item_id);
+  } catch (e) {
+    throw e instanceof SharePointError ? new UserFacingError(e.message) : e;
+  }
+  await writeSource({
+    file_name: item.name,
+    file_size: item.size_bytes,
+    content_type: item.content_type,
+    sp_web_url: item.web_url,
+    sp_folder: item.folder,
+    sp_modified: item.modified,
+    sp_current_modified: item.modified,
+    sp_checked_at: new Date().toISOString(),
+    sp_missing: false,
+  });
+  return readBytes(bytes, item.name, item.content_type);
+}
+
+async function readBytes(bytes: Uint8Array, fileName: string, contentType: string | null): Promise<Read> {
+  const kind = dataRoomFileKind(fileName, contentType);
+  if (kind === "unsupported") {
+    throw new UserFacingError("Unsupported file type. Upload a PDF, Word, PowerPoint, Excel, CSV or text file.");
+  }
   const warnings: string[] = [];
 
   if (kind === "pdf") {

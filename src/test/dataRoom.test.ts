@@ -10,7 +10,7 @@ import {
   slidePaths,
 } from "../../supabase/functions/_shared/dataRoom";
 import { companyBriefBlock } from "../../supabase/functions/_shared/companyBrief";
-import { briefIsStale, type DataRoomSource } from "@/lib/dataRoom";
+import { brainCanRead, briefIsStale, categoryLabel, changedInSharePoint, type DataRoomSource } from "@/lib/dataRoom";
 
 describe("dataRoomFileKind", () => {
   it("recognises the formats the reader handles", () => {
@@ -175,5 +175,34 @@ describe("briefIsStale", () => {
   it("needs a brief once anything is ready", () => {
     expect(briefIsStale(null, [])).toBe(false);
     expect(briefIsStale(null, [src("a")])).toBe(true);
+  });
+});
+
+describe("changedInSharePoint", () => {
+  const sp = (over: Partial<DataRoomSource>) =>
+    ({ kind: "sharepoint", sp_missing: false, sp_modified: "2026-11-01T10:00:00Z", sp_current_modified: "2026-11-01T10:00:00Z", ...over }) as DataRoomSource;
+  it("is false for the version that was read", () => {
+    expect(changedInSharePoint(sp({}))).toBe(false);
+  });
+  it("is true once SharePoint has a later version", () => {
+    expect(changedInSharePoint(sp({ sp_current_modified: "2026-11-02T09:00:00Z" }))).toBe(true);
+  });
+  it("is false when never read, missing, or not a SharePoint source", () => {
+    expect(changedInSharePoint(sp({ sp_modified: null }))).toBe(false);
+    expect(changedInSharePoint(sp({ sp_missing: true, sp_current_modified: "2026-11-02T09:00:00Z" }))).toBe(false);
+    expect(changedInSharePoint(sp({ kind: "file", sp_current_modified: "2026-11-02T09:00:00Z" }))).toBe(false);
+  });
+});
+
+describe("brainCanRead and categories", () => {
+  it("accepts the file types the reader handles", () => {
+    expect(brainCanRead("00. Pro Forma - 1900 Canterfield vCURRENT.xlsx")).toBe(true);
+    expect(brainCanRead("OM.PDF")).toBe(true);
+    expect(brainCanRead("photo.jpg")).toBe(false);
+    expect(brainCanRead("legacy.doc")).toBe(false);
+  });
+  it("labels the categories added to the live database by hand", () => {
+    expect(categoryLabel("model_template")).toBe("Model template");
+    expect(categoryLabel("affordability")).toBe("Affordability");
   });
 });

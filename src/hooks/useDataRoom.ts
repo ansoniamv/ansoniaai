@@ -1,6 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { keptOutOfBrief, sourceState, type DataRoomBrief, type DataRoomCategory, type DataRoomHit, type DataRoomSource } from "@/lib/dataRoom";
+import {
+  keptOutOfBrief,
+  sourceState,
+  type DataRoomBrief,
+  type DataRoomCategory,
+  type DataRoomHit,
+  type DataRoomSource,
+  type SharePointEntry,
+  type SharePointSiteKey,
+} from "@/lib/dataRoom";
 
 export * from "@/lib/dataRoom";
 
@@ -247,5 +256,86 @@ export function useSearchDataRoom(query: string) {
       if (error) throw error;
       return (data ?? []) as unknown as DataRoomHit[];
     },
+  });
+}
+
+// ------------------------------------------------------------------ SharePoint
+
+type SharePointResult<T> = T & { error?: string; errors?: string[]; note?: string };
+
+/** Call the read-only sharepoint function (Acquisitions + Asset Management sites). */
+async function sharePoint<T>(tool: string, args: Record<string, unknown>): Promise<SharePointResult<T>> {
+  const { data, error } = await supabase.functions.invoke("sharepoint", { body: { tool, args } });
+  if (error) throw await invokeError(error);
+  const result = data as SharePointResult<T>;
+  if (result?.error) throw new Error(result.error);
+  return result;
+}
+
+export function useSharePointFolder(site: SharePointSiteKey, path: string) {
+  return useQuery({
+    queryKey: ["sharepoint_folder", site, path],
+    queryFn: () => sharePoint<{ entries: SharePointEntry[] }>("sharepoint_list_folder", { site, path }),
+    staleTime: 60_000,
+  });
+}
+
+export function useSharePointSearch(query: string, site: SharePointSiteKey | null) {
+  const q = query.trim();
+  return useQuery({
+    queryKey: ["sharepoint_search", site, q],
+    enabled: q.length >= 2,
+    queryFn: () =>
+      sharePoint<{ results: SharePointEntry[] }>("sharepoint_search", { query: q, limit: 50, ...(site ? { site } : {}) }),
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * Pin a SharePoint file into the Brain: one source row pointing at the file
+ * (the reader looks it up again by id, so a rename or move is harmless), then
+ * read it. Pinning the same file twice is refused by a unique index.
+ */
+export function useAddSharePointSource() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ entry, category }: { entry: SharePointEntry; category: DataRoomCategory }) => {
+      let id: string;
+      try {
+        id = await insertSource({
+          kind: "sharepoint",
+          title: entry.name,
+          category,
+          file_name: entry.name,
+          file_size: entry.size_kb != null ? entry.size_kb * 1024 : null,
+          sp_site: entry.site,
+          sp_item_id: entry.item_id,
+          sp_web_url: entry.link,
+          sp_folder: entry.folder === "(top level)" ? "" : entry.folder,
+        });
+      } catch (e) {
+        if ((e as { code?: string })?.code === "23505") throw new Error(`"${entry.name}" is already in the Brain.`);
+        throw e;
+      }
+      qc.invalidateQueries({ queryKey: SOURCES_KEY });
+      await startProcessing(id);
+      return id;
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: SOURCES_KEY }),
+  });
+}
+
+/** Ask SharePoint whether any pinned file changed or disappeared since it was read. */
+export function useCheckBrainSources() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("sharepoint", { body: { action: "check_brain_sources" } });
+      if (error) throw await invokeError(error);
+      const r = data as { checked?: number; missing?: number; failed?: number; error?: string };
+      if (r?.error) throw new Error(r.error);
+      return r;
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: SOURCES_KEY }),
   });
 }

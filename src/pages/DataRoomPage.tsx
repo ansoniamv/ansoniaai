@@ -1,44 +1,53 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertTriangle,
   Brain,
+  Check,
   ChevronDown,
   ChevronRight,
   ExternalLink,
   FileText,
+  FileUp,
+  Folder,
   Globe,
   Loader2,
   MoreHorizontal,
   Pencil,
+  Plus,
   RefreshCw,
   Search,
   StickyNote,
   Trash2,
-  Upload,
+  X,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import {
+  brainCanRead,
   briefIsStale,
   categoryLabel,
-  DATA_ROOM_ACCEPT,
+  changedInSharePoint,
   DATA_ROOM_CATEGORIES,
   getDataRoomFileUrl,
-  MAX_DATA_ROOM_FILE_BYTES,
+  SHAREPOINT_SITE_LABELS,
   sourceState,
-  useAddDataRoomFile,
   useAddDataRoomWebsite,
+  useAddSharePointSource,
   useBuildDataRoomBrief,
+  useCheckBrainSources,
   useDataRoomBrief,
   useDataRoomSources,
   useDeleteDataRoomSource,
   useReprocessDataRoomSource,
   useSaveDataRoomBrief,
   useSaveDataRoomNote,
-  useSearchDataRoom,
+  useSharePointFolder,
+  useSharePointSearch,
   useUpdateDataRoomSource,
   type DataRoomCategory,
   type DataRoomSource,
+  type SharePointEntry,
+  type SharePointSiteKey,
 } from "@/hooks/useDataRoom";
 import { AtlasMarkdown } from "@/components/atlas/AtlasMarkdown";
 import { Badge } from "@/components/ui/badge";
@@ -79,10 +88,11 @@ export default function DataRoomPage() {
       <header>
         <h1 className="text-2xl font-serif-display">Brain</h1>
         <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
-          What the platform knows about Ansonia: the website, investor deck, pro formas, strategy memos and team
-          notes. Each source is read and summarised, and the summaries compile into the Company Brief that Ask Atlas,
-          deal scoring and the inbox screen read before they judge anything.
-          {!isAdmin && " Only admins can add or change sources."}
+          Ansonia's SharePoint is the Brain. Ask Atlas searches and reads the Acquisitions and Asset Management sites
+          directly, so every deal file, model and report there is already within reach. Add the documents that define
+          the firm (strategy, the investor deck, underwriting templates) to the Company Brief, which Ask Atlas, deal
+          scoring and the inbox screen read before they judge anything.
+          {!isAdmin && " Only admins can change what goes into the brief."}
         </p>
       </header>
 
@@ -91,10 +101,226 @@ export default function DataRoomPage() {
           Could not load the Brain: {error instanceof Error ? error.message : String(error)}
         </p>
       )}
+      <SharePointCard sources={sources} />
       <BriefCard sources={sources} />
       <SourcesCard sources={sources} loading={isLoading} />
-      <SearchCard />
     </div>
+  );
+}
+
+// ------------------------------------------------------------------ SharePoint
+
+const SITES = Object.keys(SHAREPOINT_SITE_LABELS) as SharePointSiteKey[];
+const pinKey = (site: string | null, itemId: string | null) => `${site}:${itemId}`;
+
+function SharePointCard({ sources }: { sources: DataRoomSource[] }) {
+  const [site, setSite] = useState<SharePointSiteKey>("acquisitions");
+  const [path, setPath] = useState("");
+  const [input, setInput] = useState("");
+  const [query, setQuery] = useState("");
+  const searching = query.trim().length >= 2;
+
+  const folder = useSharePointFolder(site, path);
+  const search = useSharePointSearch(query, null);
+  const pinned = useMemo(
+    () => new Map(sources.filter((s) => s.kind === "sharepoint").map((s) => [pinKey(s.sp_site, s.sp_item_id), s])),
+    [sources],
+  );
+
+  const openFolder = (s: SharePointSiteKey, p: string) => {
+    setSite(s);
+    setPath(p);
+    setQuery("");
+    setInput("");
+  };
+  const crumbs = path ? path.split("/") : [];
+  const active = searching ? search : folder;
+  const entries = (searching ? search.data?.results : folder.data?.entries) ?? [];
+
+  return (
+    <Card>
+      <CardHeader className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Folder className="h-4 w-4" /> SharePoint
+          </CardTitle>
+          <div className="inline-flex rounded-md border p-0.5" role="tablist" aria-label="SharePoint site">
+            {SITES.map((s) => (
+              <button
+                key={s}
+                type="button"
+                role="tab"
+                aria-selected={!searching && site === s}
+                onClick={() => openFolder(s, "")}
+                className={cn(
+                  "rounded px-3 py-1 text-xs transition-colors",
+                  !searching && site === s ? "bg-primary text-primary-foreground" : "hover:bg-muted",
+                )}
+              >
+                {SHAREPOINT_SITE_LABELS[s]}
+              </button>
+            ))}
+          </div>
+        </div>
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setQuery(input);
+          }}
+        >
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Search both sites: a property, “rent roll”, “investor deck”…"
+              className="pl-8"
+            />
+          </div>
+          <Button type="submit" variant="outline" disabled={input.trim().length < 2}>
+            {search.isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : "Search"}
+          </Button>
+          {searching && (
+            <Button type="button" variant="ghost" onClick={() => { setQuery(""); setInput(""); }} aria-label="Clear search">
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </form>
+        {!searching && (
+          <nav className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground" aria-label="Folder path">
+            <button type="button" className="hover:text-foreground hover:underline" onClick={() => setPath("")}>
+              {SHAREPOINT_SITE_LABELS[site]}
+            </button>
+            {crumbs.map((c, i) => (
+              <span key={i} className="flex items-center gap-1">
+                <ChevronRight className="h-3 w-3" />
+                <button
+                  type="button"
+                  className={cn("hover:text-foreground hover:underline", i === crumbs.length - 1 && "text-foreground font-medium")}
+                  onClick={() => setPath(crumbs.slice(0, i + 1).join("/"))}
+                >
+                  {c}
+                </button>
+              </span>
+            ))}
+          </nav>
+        )}
+      </CardHeader>
+      <CardContent>
+        {active.error ? (
+          <p className="text-sm text-destructive">
+            {active.error instanceof Error ? active.error.message : "Could not reach SharePoint"}
+          </p>
+        ) : active.isLoading ? (
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        ) : entries.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {searching ? `Nothing in SharePoint matches “${query}”.` : "This folder is empty."}
+          </p>
+        ) : (
+          <ul className="max-h-[480px] divide-y overflow-auto rounded-md border">
+            {entries.map((e) => (
+              <SharePointRow
+                key={`${e.site}:${e.item_id}`}
+                entry={e}
+                showLocation={searching}
+                pinned={pinned.get(pinKey(e.site, e.item_id)) ?? null}
+                onOpenFolder={() =>
+                  openFolder(e.site, [e.folder === "(top level)" ? "" : e.folder, e.name].filter(Boolean).join("/"))
+                }
+              />
+            ))}
+          </ul>
+        )}
+        {searching && !search.isLoading && (search.data?.errors?.length ?? 0) > 0 && (
+          <p className="mt-2 text-xs text-amber-600">{search.data?.errors?.join(" · ")}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SharePointRow({
+  entry: e,
+  showLocation,
+  pinned,
+  onOpenFolder,
+}: {
+  entry: SharePointEntry;
+  showLocation: boolean;
+  pinned: DataRoomSource | null;
+  onOpenFolder: () => void;
+}) {
+  const { isAdmin } = useAuth();
+  const add = useAddSharePointSource();
+  const isFolder = e.kind === "folder";
+  const readable = !isFolder && brainCanRead(e.name);
+  const location = `${SHAREPOINT_SITE_LABELS[e.site]}${e.folder && e.folder !== "(top level)" ? ` / ${e.folder}` : ""}`;
+
+  const addToBrain = () =>
+    add.mutate(
+      { entry: e, category: "other" },
+      {
+        onSuccess: () => toast.success(`Added “${e.name}”. Reading it now.`),
+        onError: (err) => toast.error(err instanceof Error ? err.message : "Could not add the file"),
+      },
+    );
+
+  return (
+    <li className="flex items-center gap-3 px-3 py-2">
+      <button
+        type="button"
+        disabled={!isFolder}
+        onClick={onOpenFolder}
+        className={cn("flex min-w-0 flex-1 items-start gap-2.5 text-left", isFolder && "hover:text-primary")}
+      >
+        {isFolder ? (
+          <Folder className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+        ) : (
+          <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        )}
+        <span className="min-w-0">
+          <span className="block truncate text-sm">{e.name}</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {showLocation && `${location} · `}
+            {e.modified && `Modified ${new Date(e.modified).toLocaleDateString()}`}
+            {e.modified_by && ` by ${e.modified_by}`}
+            {isFolder && e.items != null && ` · ${e.items} item${e.items === 1 ? "" : "s"}`}
+            {!isFolder && e.size_kb != null && ` · ${e.size_kb >= 1024 ? `${(e.size_kb / 1024).toFixed(1)} MB` : `${e.size_kb} KB`}`}
+          </span>
+          {e.snippet && <span className="mt-0.5 block truncate text-xs text-muted-foreground/80">{e.snippet}</span>}
+        </span>
+      </button>
+      {pinned ? (
+        <Badge variant="secondary" className="shrink-0 gap-1 font-normal">
+          <Check className="h-3 w-3" /> In the Brain
+        </Badge>
+      ) : (
+        isAdmin && readable && (
+          <Button size="sm" variant="outline" className="h-7 shrink-0" onClick={addToBrain} disabled={add.isPending}>
+            {add.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5 mr-1" />}
+            {!add.isPending && "Add to Brain"}
+          </Button>
+        )
+      )}
+      {e.link && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <a
+              href={e.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label={`Open ${e.name} in SharePoint`}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          </TooltipTrigger>
+          <TooltipContent>Open in SharePoint</TooltipContent>
+        </Tooltip>
+      )}
+    </li>
   );
 }
 
@@ -208,12 +434,39 @@ function BriefCard({ sources }: { sources: DataRoomSource[] }) {
 
 // ------------------------------------------------------------------ sources
 
-const KIND_ICON = { file: FileText, website: Globe, note: StickyNote } as const;
+const KIND_ICON = { sharepoint: FileText, file: FileUp, website: Globe, note: StickyNote } as const;
+
+/** Re-check SharePoint on open when the last check is older than this. */
+const SHAREPOINT_RECHECK_MS = 15 * 60_000;
 
 function SourcesCard({ sources, loading }: { sources: DataRoomSource[]; loading: boolean }) {
   const { isAdmin } = useAuth();
   const [filter, setFilter] = useState<DataRoomCategory | "all">("all");
-  const [dialog, setDialog] = useState<null | "upload" | "website" | { note: DataRoomSource | null }>(null);
+  const [dialog, setDialog] = useState<null | "website" | { note: DataRoomSource | null }>(null);
+  const check = useCheckBrainSources();
+  const checkedOnce = useRef(false);
+
+  // Look for SharePoint edits when the page opens, at most every 15 minutes:
+  // the check is one Graph lookup per pinned file, and it only flags changes.
+  useEffect(() => {
+    if (checkedOnce.current || loading) return;
+    const pinned = sources.filter((s) => s.kind === "sharepoint");
+    if (!pinned.length) return;
+    checkedOnce.current = true;
+    const oldest = Math.min(...pinned.map((s) => (s.sp_checked_at ? new Date(s.sp_checked_at).getTime() : 0)));
+    if (Date.now() - oldest > SHAREPOINT_RECHECK_MS) check.mutate();
+  }, [sources, loading, check]);
+
+  const changed = sources.filter(changedInSharePoint).length;
+  const runCheck = () =>
+    check.mutate(undefined, {
+      onSuccess: (r) =>
+        toast.success(
+          `Checked ${r.checked ?? 0} SharePoint file${r.checked === 1 ? "" : "s"}` +
+            (r.missing ? `; ${r.missing} no longer in SharePoint` : ""),
+        ),
+      onError: (e) => toast.error(e instanceof Error ? e.message : "Could not check SharePoint"),
+    });
 
   const counts = useMemo(() => {
     const m = new Map<string, number>();
@@ -225,11 +478,18 @@ function SourcesCard({ sources, loading }: { sources: DataRoomSource[]; loading:
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
-        <CardTitle className="text-base">Sources</CardTitle>
+        <div>
+          <CardTitle className="text-base">In the Company Brief</CardTitle>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Files added from SharePoint above, plus the website and the team's notes.
+            {changed > 0 && ` ${changed} changed in SharePoint since they were read.`}
+          </p>
+        </div>
         {isAdmin && (
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={() => setDialog("upload")}>
-              <Upload className="h-3.5 w-3.5 mr-1.5" /> Upload files
+            <Button size="sm" variant="outline" onClick={runCheck} disabled={check.isPending}>
+              {check.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
+              Check SharePoint
             </Button>
             <Button size="sm" variant="outline" onClick={() => setDialog("website")}>
               <Globe className="h-3.5 w-3.5 mr-1.5" /> Add website
@@ -262,8 +522,8 @@ function SourcesCard({ sources, loading }: { sources: DataRoomSource[]; loading:
           <div className="rounded-md border border-dashed px-6 py-10 text-center text-sm text-muted-foreground">
             Nothing here yet.{" "}
             {isAdmin
-              ? "Start with the company website and the investor deck, then add pro formas and anything else that explains how Ansonia invests."
-              : "An admin can add the firm's website, decks and pro formas."}
+              ? "Find the investor deck, strategy memos and underwriting templates in SharePoint above and add them, then add the company website."
+              : "An admin can add the firm's key SharePoint documents and website."}
           </div>
         ) : (
           <ul className="divide-y rounded-md border">
@@ -274,7 +534,6 @@ function SourcesCard({ sources, loading }: { sources: DataRoomSource[]; loading:
         )}
       </CardContent>
 
-      <UploadDialog open={dialog === "upload"} onClose={() => setDialog(null)} />
       <WebsiteDialog open={dialog === "website"} onClose={() => setDialog(null)} />
       <NoteDialog
         open={typeof dialog === "object" && dialog !== null}
@@ -310,9 +569,11 @@ function SourceRow({ source: s, onEditNote }: { source: DataRoomSource; onEditNo
   const state = sourceState(s);
   const Icon = KIND_ICON[s.kind];
 
+  const changed = changedInSharePoint(s);
   const openOriginal = async () => {
     try {
-      if (s.kind === "website" && s.url) window.open(s.url, "_blank", "noopener");
+      if (s.kind === "sharepoint" && s.sp_web_url) window.open(s.sp_web_url, "_blank", "noopener");
+      else if (s.kind === "website" && s.url) window.open(s.url, "_blank", "noopener");
       else if (s.storage_path) window.open(await getDataRoomFileUrl(s.storage_path), "_blank", "noopener");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not open the file");
@@ -327,8 +588,21 @@ function SourceRow({ source: s, onEditNote }: { source: DataRoomSource; onEditNo
         <button type="button" onClick={() => setOpen((v) => !v)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
           {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
           <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="truncate text-sm font-medium">{s.title}</span>
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-medium">{s.title}</span>
+            {s.kind === "sharepoint" && s.sp_site && (
+              <span className="block truncate text-xs text-muted-foreground">
+                {SHAREPOINT_SITE_LABELS[s.sp_site]}
+                {s.sp_folder && ` / ${s.sp_folder}`}
+              </span>
+            )}
+          </span>
           <Badge variant="secondary" className="shrink-0 font-normal">{categoryLabel(s.category)}</Badge>
+          {s.kind === "file" && (
+            <Badge variant="outline" className="shrink-0 font-normal text-muted-foreground">Uploaded</Badge>
+          )}
+          {s.sp_missing && <span className="shrink-0 text-xs text-destructive">Not in SharePoint</span>}
+          {changed && state !== "reading" && <span className="shrink-0 text-xs text-amber-600">Changed in SharePoint</span>}
           {state === "reading" && (
             <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" /> Reading…
@@ -363,7 +637,8 @@ function SourceRow({ source: s, onEditNote }: { source: DataRoomSource; onEditNo
           <DropdownMenuContent align="end">
             {s.kind !== "note" && (
               <DropdownMenuItem onClick={openOriginal}>
-                <ExternalLink className="h-3.5 w-3.5 mr-2" /> {s.kind === "website" ? "Visit site" : "Open file"}
+                <ExternalLink className="h-3.5 w-3.5 mr-2" />{" "}
+                {s.kind === "website" ? "Visit site" : s.kind === "sharepoint" ? "Open in SharePoint" : "Open file"}
               </DropdownMenuItem>
             )}
             {isAdmin && (
@@ -374,11 +649,11 @@ function SourceRow({ source: s, onEditNote }: { source: DataRoomSource; onEditNo
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem disabled={state === "reading"} onClick={reread}>
-                  <RefreshCw className="h-3.5 w-3.5 mr-2" /> Read again
+                  <RefreshCw className="h-3.5 w-3.5 mr-2" /> {changed ? "Read the new version" : "Read again"}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem className="text-destructive" onClick={() => setConfirmDelete(true)}>
-                  <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
+                  <Trash2 className="h-3.5 w-3.5 mr-2" /> {s.kind === "sharepoint" ? "Remove from Brain" : "Delete"}
                 </DropdownMenuItem>
               </>
             )}
@@ -391,10 +666,12 @@ function SourceRow({ source: s, onEditNote }: { source: DataRoomSource; onEditNo
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete “{s.title}”?</AlertDialogTitle>
+            <AlertDialogTitle>{s.kind === "sharepoint" ? "Remove" : "Delete"} “{s.title}”?</AlertDialogTitle>
             <AlertDialogDescription>
-              The {s.kind === "file" ? "file, its" : "source, its"} summary and its searchable text are removed. The
-              Company Brief keeps what it learned from it until you rebuild it.
+              {s.kind === "sharepoint"
+                ? "Its summary and searchable text are removed from the Brain. The file stays in SharePoint, where Atlas can still find it."
+                : `The ${s.kind === "file" ? "file, its" : "source, its"} summary and its searchable text are removed.`}{" "}
+              The Company Brief keeps what it learned from it until you rebuild it.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -403,7 +680,7 @@ function SourceRow({ source: s, onEditNote }: { source: DataRoomSource; onEditNo
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() =>
                 remove.mutate(s, {
-                  onSuccess: () => toast.success("Source deleted"),
+                  onSuccess: () => toast.success(s.kind === "sharepoint" ? "Removed from the Brain" : "Source deleted"),
                   onError: (e) => toast.error(e instanceof Error ? e.message : "Could not delete"),
                 })
               }
@@ -477,6 +754,8 @@ function SourceDetail({ source: s }: { source: DataRoomSource }) {
       <p className="text-xs text-muted-foreground">
         Added {new Date(s.created_at).toLocaleDateString()}
         {s.processed_at && ` · read ${new Date(s.processed_at).toLocaleString()}`}
+        {s.sp_modified && ` · SharePoint version of ${new Date(s.sp_modified).toLocaleString()}`}
+        {changedInSharePoint(s) && s.sp_current_modified && ` (edited ${new Date(s.sp_current_modified).toLocaleString()}; read it again to update)`}
         {s.char_count != null && ` · ${s.char_count.toLocaleString()} characters searchable`}
       </p>
     </div>
@@ -499,80 +778,6 @@ function CategorySelect({ value, onChange }: { value: DataRoomCategory; onChange
 }
 
 // ------------------------------------------------------------------ add dialogs
-
-function UploadDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [category, setCategory] = useState<DataRoomCategory>("other");
-  const [files, setFiles] = useState<File[]>([]);
-  const [busy, setBusy] = useState(false);
-  const add = useAddDataRoomFile();
-
-  const close = () => {
-    setFiles([]);
-    setCategory("other");
-    onClose();
-  };
-  const submit = async () => {
-    setBusy(true);
-    let ok = 0;
-    for (const file of files) {
-      try {
-        await add.mutateAsync({ file, category });
-        ok++;
-      } catch (e) {
-        toast.error(`${file.name}: ${e instanceof Error ? e.message : "upload failed"}`);
-      }
-    }
-    setBusy(false);
-    if (ok) toast.success(`${ok} file${ok === 1 ? "" : "s"} added. Reading now.`);
-    close();
-  };
-  const tooBig = files.filter((f) => f.size > MAX_DATA_ROOM_FILE_BYTES);
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && !busy && close()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Upload files</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <p className="text-xs text-muted-foreground">PDF, Word, PowerPoint, Excel, CSV or text, up to 50 MB each.</p>
-          <div>
-            <Label className="text-xs">Category</Label>
-            <CategorySelect value={category} onChange={setCategory} />
-            <p className="mt-1 text-xs text-muted-foreground">Leave as Other and the AI will pick one.</p>
-          </div>
-          <input
-            ref={inputRef}
-            type="file"
-            multiple
-            accept={DATA_ROOM_ACCEPT}
-            className="hidden"
-            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-          />
-          <Button variant="outline" className="w-full" onClick={() => inputRef.current?.click()}>
-            <Upload className="h-4 w-4 mr-2" /> {files.length ? `${files.length} file${files.length === 1 ? "" : "s"} chosen` : "Choose files"}
-          </Button>
-          {files.length > 0 && (
-            <ul className="max-h-40 overflow-auto text-xs text-muted-foreground">
-              {files.map((f) => (
-                <li key={f.name} className={cn(f.size > MAX_DATA_ROOM_FILE_BYTES && "text-destructive")}>
-                  {f.name} · {(f.size / 1024 / 1024).toFixed(1)} MB
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={close} disabled={busy}>Cancel</Button>
-          <Button onClick={submit} disabled={busy || files.length === 0 || tooBig.length > 0}>
-            {busy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Add to Brain
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 function WebsiteDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [url, setUrl] = useState("");
@@ -699,77 +904,6 @@ function NoteForm({ note, onClose }: { note: DataRoomSource | null; onClose: () 
           {save.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Save note
         </Button>
       </DialogFooter>
-    </>
-  );
-}
-
-// ------------------------------------------------------------------ search
-
-function SearchCard() {
-  const [input, setInput] = useState("");
-  const [query, setQuery] = useState("");
-  const { data: hits = [], isFetching, error } = useSearchDataRoom(query);
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Search className="h-4 w-4" /> Search the Brain
-        </CardTitle>
-        <p className="text-xs text-muted-foreground">
-          The same search Ask Atlas uses for detail beyond the brief. All words must match; use OR for alternatives and
-          "quotes" for phrases.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <form
-          className="flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setQuery(input);
-          }}
-        >
-          <Input value={input} onChange={(e) => setInput(e.target.value)} placeholder="exit cap OR reversion" />
-          <Button type="submit" variant="outline" disabled={input.trim().length < 2}>
-            {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : "Search"}
-          </Button>
-        </form>
-        {error && <p className="text-sm text-destructive">{error instanceof Error ? error.message : "Search failed"}</p>}
-        {query.trim().length >= 2 && !isFetching && !error && hits.length === 0 && (
-          <p className="text-sm text-muted-foreground">No passages match “{query}”.</p>
-        )}
-        {hits.length > 0 && (
-          <ul className="space-y-2">
-            {hits.map((h, i) => (
-              <li key={`${h.source_id}-${i}`} className="rounded-md border px-3 py-2">
-                <p className="text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground">{h.title}</span> · {categoryLabel(h.category)}
-                  {h.locator && ` · ${h.locator}`}
-                </p>
-                <p className="mt-1 text-sm">
-                  <Highlighted text={h.headline} />
-                </p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-/** ts_headline marks matches with <b>…</b>. Split on the markers; React escapes the rest. */
-function Highlighted({ text }: { text: string }) {
-  const parts = text.split(/(<b>.*?<\/b>)/g);
-  return (
-    <>
-      {parts.map((p, i) =>
-        p.startsWith("<b>") && p.endsWith("</b>") ? (
-          <mark key={i} className="rounded bg-amber-100 px-0.5 dark:bg-amber-900/50">{p.slice(3, -4)}</mark>
-        ) : (
-          <span key={i}>{p}</span>
-        ),
-      )}
     </>
   );
 }

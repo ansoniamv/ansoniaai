@@ -13,6 +13,9 @@ export const DATA_ROOM_CATEGORIES = [
   { value: "market", label: "Market research" },
   { value: "operations", label: "Operations" },
   { value: "partner_outreach", label: "Partner outreach template" },
+  // Added to the live category check by hand before this list knew them.
+  { value: "model_template", label: "Model template" },
+  { value: "affordability", label: "Affordability" },
   { value: "other", label: "Other" },
 ] as const;
 export type DataRoomCategory = (typeof DATA_ROOM_CATEGORIES)[number]["value"];
@@ -26,9 +29,27 @@ export const keptOutOfBrief = (c: string) => c === "partner_outreach";
 
 export const categoryLabel = (c: string) => DATA_ROOM_CATEGORIES.find((x) => x.value === c)?.label ?? c;
 
+export type SharePointSiteKey = "acquisitions" | "asset_management";
+
+export const SHAREPOINT_SITE_LABELS: Record<SharePointSiteKey, string> = {
+  acquisitions: "Acquisitions",
+  asset_management: "Asset Management",
+};
+
 export type DataRoomSource = {
   id: string;
-  kind: "file" | "website" | "note";
+  /** "file" = uploaded to the platform (legacy); "sharepoint" = a pinned SharePoint file. */
+  kind: "file" | "website" | "note" | "sharepoint";
+  sp_site: SharePointSiteKey | null;
+  sp_item_id: string | null;
+  sp_web_url: string | null;
+  sp_folder: string | null;
+  /** SharePoint's last-modified time of the version that was read. */
+  sp_modified: string | null;
+  /** Last-modified time seen at the latest check. */
+  sp_current_modified: string | null;
+  sp_checked_at: string | null;
+  sp_missing: boolean;
   title: string;
   category: DataRoomCategory;
   storage_path: string | null;
@@ -77,6 +98,35 @@ export function sourceState(s: DataRoomSource): "reading" | "stopped" | "ready" 
   if (s.status === "failed") return "failed";
   const started = s.process_started_at ? new Date(s.process_started_at).getTime() : 0;
   return s.status === "processing" && Date.now() - started > STALE_PROCESS_MS ? "stopped" : "reading";
+}
+
+/**
+ * A pinned SharePoint file that was edited in SharePoint after the Brain read
+ * it. Reading it again brings its summary and passages up to date.
+ */
+export function changedInSharePoint(s: Pick<DataRoomSource, "kind" | "sp_modified" | "sp_current_modified" | "sp_missing">): boolean {
+  if (s.kind !== "sharepoint" || s.sp_missing || !s.sp_modified || !s.sp_current_modified) return false;
+  return new Date(s.sp_current_modified).getTime() > new Date(s.sp_modified).getTime();
+}
+
+/** One entry from the sharepoint function's folder listing or search. */
+export type SharePointEntry = {
+  site: SharePointSiteKey;
+  item_id: string;
+  name: string;
+  kind: "folder" | "file";
+  folder: string;
+  size_kb?: number;
+  items?: number;
+  modified: string | null;
+  modified_by: string | null;
+  link: string | null;
+  snippet?: string;
+};
+
+/** File types the Brain can read (same rule as the reader: dataRoomFileKind). */
+export function brainCanRead(name: string): boolean {
+  return /\.(pdf|docx|pptx|xlsx|xlsm|xls|xlsb|ods|csv|tsv|txt|md|markdown)$/i.test(name);
 }
 
 /**
