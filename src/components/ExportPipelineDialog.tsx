@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Download, Printer, Search } from "lucide-react";
+import { Printer, Search } from "lucide-react";
 import { toast } from "sonner";
 import { MAX_TEARSHEET_DEALS, saveTearsheetPayload } from "@/lib/tearsheetPayload";
 
@@ -26,21 +26,18 @@ import { ACTIVE_STATUSES, getStatus } from "@/lib/dealStatus";
 import { marketLabel } from "@/lib/partnerPipelineFit";
 
 /**
- * Export the deals currently on screen — either as an internal Excel dump or
- * as a branded, client-facing tearsheet for one capital partner.
+ * Export the deals currently on screen as a branded tearsheet — either the
+ * client-facing one for a capital partner, or the internal one for the team.
  */
 export function ExportPipelineDialog({
   open,
   onOpenChange,
   deals,
-  onInternalExport,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   /** The caller's CURRENTLY FILTERED deal set — the export must match the screen. */
   deals: Deal[];
-  /** Today's internal Excel behaviour, if the caller has one. */
-  onInternalExport?: (deals: Deal[]) => void;
 }) {
   const [audience, setAudience] = useState<"partner" | "internal">("partner");
   const [partnerId, setPartnerId] = useState<string | null>(null);
@@ -56,11 +53,18 @@ export function ExportPipelineDialog({
   const isActive = (d: Deal) => (ACTIVE_STATUSES as readonly string[]).includes(getStatus(d));
   const isOffMarket = (d: Deal) => (d as { marketed?: boolean | null }).marketed === false;
 
-  // Default selection: active + on-market only.
+  // Default selection: active deals. Off-market deals may be under NDA, so the
+  // partner sheet leaves them out; the internal sheet never leaves the firm.
   useEffect(() => {
     if (!open) return;
-    setSelected(new Set(deals.filter((d) => isActive(d) && !isOffMarket(d)).map((d) => d.id)));
-  }, [open, deals]);
+    setSelected(
+      new Set(
+        deals
+          .filter((d) => isActive(d) && (audience === "internal" || !isOffMarket(d)))
+          .map((d) => d.id),
+      ),
+    );
+  }, [open, deals, audience]);
 
   const filteredPartners = useMemo(() => {
     const q = partnerQuery.trim().toLowerCase();
@@ -106,11 +110,17 @@ export function ExportPipelineDialog({
   };
 
 
-  const handleInternalExcel = () => {
-    if (!chosenDeals.length) return toast.error("Select at least one deal");
-    if (onInternalExport) onInternalExport(chosenDeals);
-    else toast.error("Internal export is not available on this view");
+  const handleInternal = () => {
+    if (!capped.length) return toast.error("Select at least one deal");
+    // Same localStorage token as the partner sheet; no partner, no fit options.
+    const token = saveTearsheetPayload({
+      partnerId: null,
+      dealIds: capped.map((d) => d.id),
+      showScore: true,
+      includeOutside: true,
+    });
     onOpenChange(false);
+    navigate(`/internal-tearsheet?s=${token}`);
   };
 
   return (
@@ -143,7 +153,7 @@ export function ExportPipelineDialog({
               <div className="flex items-center gap-2">
                 <RadioGroupItem value="internal" id="aud-internal" />
                 <Label htmlFor="aud-internal" className="font-normal">
-                  Internal export (Excel)
+                  Internal (branded tearsheet, marked internal)
                 </Label>
               </div>
             </RadioGroup>
@@ -252,6 +262,7 @@ export function ExportPipelineDialog({
                 (d) => (d as { marketed?: boolean | null }).marketed === false && selected.has(d.id),
               ).length;
               return (
+                audience === "partner" &&
                 offMarketSelected > 0 && (
                   <p className="mt-2 text-xs text-amber-600 dark:text-amber-500">
                     {offMarketSelected} off-market {offMarketSelected === 1 ? "deal is" : "deals are"}{" "}
@@ -280,7 +291,7 @@ export function ExportPipelineDialog({
             </div>
           )}
 
-          {audience === "partner" && isCapped && (
+          {isCapped && (
             <p className="text-[11px] text-muted-foreground">
               Showing the first {MAX_TEARSHEET_DEALS} — narrow the filters for a shorter list.
             </p>
@@ -295,9 +306,9 @@ export function ExportPipelineDialog({
 
             </Button>
           ) : (
-            <Button onClick={handleInternalExcel}>
-              <Download className="mr-1.5 h-4 w-4" />
-              Download Excel
+            <Button onClick={handleInternal} disabled={!chosenDeals.length} title={!chosenDeals.length ? "Select at least one deal" : undefined}>
+              <Printer className="mr-1.5 h-4 w-4" />
+              Open internal tearsheet (PDF)
             </Button>
           )}
         </DialogFooter>

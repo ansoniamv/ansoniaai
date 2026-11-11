@@ -70,15 +70,15 @@ Font.register({
  */
 Font.registerHyphenationCallback((word) => [word]);
 
-// Exactly the constants the HTML sheet uses.
-const NAVY = "#002752";
-const LIGHT = "#6AA3D8";
-const LIGHT_TINT = "#DCEAF7";
-const CALLOUT_TINT = "#F1F7FC";
-const INK = "#1A1F2B";
-const SLATE = "#5B6472";
-const HAIRLINE = "#E4E7EC";
-const GRIDLINE = "#EFF1F4";
+// Exactly the constants the HTML sheet uses. Exported for the internal sheet.
+export const NAVY = "#002752";
+export const LIGHT = "#6AA3D8";
+export const LIGHT_TINT = "#DCEAF7";
+export const CALLOUT_TINT = "#F1F7FC";
+export const INK = "#1A1F2B";
+export const SLATE = "#5B6472";
+export const HAIRLINE = "#E4E7EC";
+export const GRIDLINE = "#EFF1F4";
 
 /** Client-facing stage wording, mirroring the HTML sheet. */
 const STAGE_LABEL: Record<string, string> = {
@@ -106,7 +106,8 @@ const COLS = {
   why: "22%",
 } as const;
 
-const s = StyleSheet.create({
+/** Shared with internalTearsheetPdf so both PDFs stay one design. */
+export const s = StyleSheet.create({
   page: {
     paddingTop: "0.5in",
     paddingHorizontal: "0.45in",
@@ -241,7 +242,7 @@ function Footer({ partnerName }: { partnerName: string }) {
   );
 }
 
-function Masthead({
+export function Masthead({
   eyebrow,
   partnerName,
   meta,
