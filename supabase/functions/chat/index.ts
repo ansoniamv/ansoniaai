@@ -74,7 +74,9 @@ const tools = [
   {
     name: "search_data_room",
     description:
-      "Full-text search of the Brain: Ansonia's own documents, website, pro formas, investor deck and team notes. " +
+      "Full-text search of the documents in the Company Brief: the SharePoint files admins added to the Brain (investor deck, " +
+      "strategy, underwriting templates), the company website and the team's notes. For anything else in SharePoint " +
+      "(deal files, owned-asset reports) use sharepoint_search instead. " +
       "Use it for anything about the firm itself — strategy, underwriting assumptions, track record, fund terms, team, " +
       "partners — when the Company Brief does not already answer it or the user wants detail or the exact wording. " +
       "Returns matching passages with their source title and location. Use 2-4 distinctive keywords, not a whole " +
@@ -211,7 +213,7 @@ const TABLE_DESCRIPTIONS: Record<string, string> = {
   fathom_meetings:
     "Recorded calls (Fathom) from the last 30 days, external attendees only: title, started_at, recorded_by_name, invitees, summary_md, action_items, partner_ids (matched capital partners), share_url. Transcripts via search_meetings / get_meeting.",
   data_room_sources:
-    "Brain library: one row per source about the firm (file, website, note) with title, category, AI summary and key_facts. Full text via search_data_room.",
+    "Brain library: the sources compiled into the Company Brief, one row per pinned SharePoint file (kind sharepoint, with sp_site, sp_folder, sp_web_url), legacy upload (file), website or note, with title, category, AI summary and key_facts. Full text via search_data_room.",
 };
 
 /**
@@ -388,7 +390,7 @@ You have two jobs, and you should infer which one the user needs:
 
 - **Pipeline (\`/deals\`)** — the working deal table: inline edit, status, $/unit, equity, filters, saved column views. Open any deal for full detail.
 
-- **Brain (\`/brain\`)** — the platform's reference library about Ansonia itself: the company website, investor deck, pro formas, strategy memos and team notes. Each source gets an AI summary; together they compile into the **Company Brief**, which you and every scoring feature read. Admins add and remove sources and rebuild the brief there.
+- **Brain (\`/brain\`)** — Ansonia's SharePoint, centred: anyone can browse and search the Acquisitions and Asset Management sites there. Admins add the documents that define the firm (investor deck, strategy, underwriting templates) from SharePoint, plus the company website and team notes; each gets an AI summary, and together they compile into the **Company Brief**, which you and every scoring feature read. The page flags a file edited in SharePoint since it was read so it can be read again. Files are no longer uploaded to the platform.
 
 - **Buy Box (\`/buy-box\`)** — the investment thesis and scoring criteria the team screens against.
 
