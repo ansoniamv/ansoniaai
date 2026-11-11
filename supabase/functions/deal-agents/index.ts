@@ -38,9 +38,13 @@ import { errorResponse } from "../_shared/errors.ts";
 import { graphFetch, resolveMailbox } from "../_shared/graphMail.ts";
 import { findCaLinksInThread } from "../_shared/caLinks.ts";
 import {
+  ACCESS_RETRY_EVERY_MS,
+  ACCESS_RETRY_FOR_MS,
   documentFor,
+  isAccessEmail,
   isUnderwritingAttachment,
   parseCaResult,
+  portalDomain,
   runStatusFor,
   safeFileName,
 } from "../_shared/dealAgents.ts";
@@ -65,6 +69,8 @@ const MAX_EVENT_PAGES = 20;
 const CODE_WAIT_MS = 4 * 60_000;
 /** A run quiet this long while 'running' is checked by the sweep. */
 const SWEEP_AFTER_MS = 60_000;
+/** How often the sweep looks in the mailbox for a portal's access email on a waiting run. */
+const ACCESS_MAIL_CHECK_MS = 30 * 60_000;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENV_NAME_RE = /^[A-Z][A-Z0-9_]{2,40}$/;
@@ -318,7 +324,16 @@ async function saveLogin(admin: Admin, body: any, userId: string) {
     { platform, username, hosts, secret_name: secretName, credential_id: credentialId },
   ];
   await admin.from("ca_signer_profile").update({ portal_logins: next, updated_at: new Date().toISOString(), updated_by: userId }).eq("id", 1);
-  return { saved: platform };
+
+  // Runs that stopped for want of this login go again on the next sweep. The
+  // sweep skips any that a newer run on the same deal has replaced.
+  const now = Date.now();
+  const { data: retried } = await admin.from("deal_ca_runs").update({
+    retry_at: new Date(now).toISOString(),
+    retry_until: new Date(now + ACCESS_RETRY_FOR_MS).toISOString(),
+  }).eq("outcome", "needs_login").eq("platform", platform).is("retry_at", null)
+    .gt("created_at", new Date(now - 30 * 24 * 3600_000).toISOString()).select("id");
+  return { saved: platform, retrying: (retried ?? []).length };
 }
 
 async function deleteLogin(admin: Admin, body: any, userId: string) {
@@ -353,10 +368,34 @@ async function inboxIdsFor(admin: Admin, dealId: string): Promise<string[]> {
   return [...ids];
 }
 
-async function start(admin: Admin, dealId: string, userId: string | null) {
+/**
+ * Starts a CA run. `retryOf` is the run the sweep is retrying; it carries that
+ * run's week-long retry window. Either way, a CA an earlier run already signed
+ * is carried over, so the new run knows to go straight to the deal room.
+ */
+async function start(admin: Admin, dealId: string, userId: string | null, retryOf: any = null) {
   // An open run is the answer to a second click.
   const { data: open } = await admin.from("deal_ca_runs").select("*").eq("deal_id", dealId).in("status", OPEN).maybeSingle();
   if (open) return publicRow(open);
+
+  const { data: latest } = retryOf
+    ? { data: retryOf }
+    : await admin.from("deal_ca_runs").select("*").eq("deal_id", dealId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const prior = (latest as any)?.signed_at ? latest as any : null;
+  const carried = prior
+    ? {
+      signed_at: prior.signed_at,
+      signed_as: prior.signed_as,
+      ca_standard: prior.ca_standard,
+      ca_summary: prior.ca_summary,
+      ca_flags: prior.ca_flags ?? [],
+      ca_text_path: prior.ca_text_path,
+      signed_copy_path: prior.signed_copy_path,
+      approved_by: prior.approved_by,
+      approved_at: prior.approved_at,
+    }
+    : {};
+  const retry = retryOf ? { retry_of: retryOf.id, retry_until: retryOf.retry_until } : {};
 
   const inboxIds = await inboxIdsFor(admin, dealId);
   // The document mover runs whatever happens to the CA.
@@ -410,7 +449,8 @@ async function start(admin: Admin, dealId: string, userId: string | null) {
 
   await assertWithinBudget(admin, "interactive");
 
-  const { data: row, error } = await admin.from("deal_ca_runs").insert({ ...base, status: "starting" }).select("*").single() as { data: any; error: any };
+  const { data: row, error } = await admin.from("deal_ca_runs").insert({ ...base, ...carried, ...retry, status: "starting" })
+    .select("*").single() as { data: any; error: any };
   if (error) {
     // Lost a race with another start: return the run that won.
     const { data: winner } = await admin.from("deal_ca_runs").select("*").eq("deal_id", dealId).in("status", OPEN).maybeSingle();
@@ -425,6 +465,8 @@ async function start(admin: Admin, dealId: string, userId: string | null) {
       title: profile.title,
       company: profile.company,
       email: profile.email,
+      // The address broker invites go to, so the one portals have on file.
+      portal_email: resolveMailbox("acquisitions").upn,
       phone: profile.phone,
       address: [profile.address_line, profile.city, profile.state, profile.zip].filter(Boolean).join(", "),
       address_line: profile.address_line,
@@ -456,8 +498,15 @@ async function start(admin: Admin, dealId: string, userId: string | null) {
       logins.length
         ? `Portal logins:\n${logins.map((l) => `- ${l.platform}: username ${l.username}, password in $${l.secret_name} (hosts ${l.hosts.join(", ")})`).join("\n")}`
         : "Portal logins: none saved.",
-      "This CA is NOT pre-approved: if any clause is flagged, stop for approval.",
-    ].join("\n\n");
+      prior
+        ? `An earlier run signed this CA on ${String(prior.signed_at).slice(0, 10)} and then stopped (outcome: ${prior.outcome ?? prior.status}). ` +
+          "Don't sign it again unless the portal asks you to; open it to reach the deal room and collect the documents. " +
+          `That run's notes, for context only:\n${String(prior.agent_notes ?? "(none)").slice(0, 1500)}`
+        : null,
+      prior?.approved_at
+        ? "This CA's flagged clauses were approved by a person in the earlier run."
+        : "This CA is NOT pre-approved: if any clause is flagged, stop for approval.",
+    ].filter(Boolean).join("\n\n");
 
     const session = await ma<Session>("POST", "/sessions", {
       agent: cfg.agent_id,
@@ -704,12 +753,21 @@ async function collect(admin: Admin, row: any, dg: Digest) {
     }
   }
 
-  const signedNow = result.outcome === "signed" || result.outcome === "already_signed";
+  const signedNow = result.caSigned;
   const { status, attention } = runStatusFor(result, !!row.approved_at);
   const profile = signedNow ? await loadProfile(admin) : null;
   const closes = status !== "needs_approval";
+  // A run waiting on the broker tries again tomorrow, within a week of the first wait.
+  const now = Date.now();
+  const retryUntil = status === "awaiting_access"
+    ? (row.retry_until ?? new Date(now + ACCESS_RETRY_FOR_MS).toISOString())
+    : null;
+  const retryAt = retryUntil ? new Date(Math.min(now + ACCESS_RETRY_EVERY_MS, Date.parse(retryUntil))).toISOString() : null;
   const { data: updated } = await admin.from("deal_ca_runs").update({
     status,
+    outcome: result.outcome,
+    retry_at: retryAt,
+    retry_until: retryUntil ?? row.retry_until ?? null,
     attention: attention ?? (status === "done" && result.documents.length === 0 ? (result.notes ?? "Signed; no documents were downloadable yet.") : null),
     error: status === "failed" ? (result.notes ?? "The run ended without a result.") : null,
     agent_notes: result.notes,
@@ -829,7 +887,107 @@ async function sweep(admin: Admin) {
       out[(r as any).id] = "error";
     }
   }
-  return { checked: out };
+  let retried: Record<string, string> = {};
+  try {
+    retried = await retryWaiting(admin);
+  } catch (e) {
+    logErr("sweep_retry", "-", e);
+  }
+  return { checked: out, retried };
+}
+
+/**
+ * Starts a fresh run for CAs that are signed but waiting: on the daily retry,
+ * when the portal's access email has arrived, or when an admin saved the login
+ * the run lacked. A wait with nothing after a week becomes needs_attention.
+ */
+async function retryWaiting(admin: Admin): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  const { data: waiting } = await admin.from("deal_ca_runs").select("*")
+    .not("retry_at", "is", null).not("status", "in", `(${OPEN.join(",")})`)
+    .order("retry_at", { ascending: true }).limit(10);
+  const now = Date.now();
+  for (const w of (waiting ?? []) as any[]) {
+    try {
+      // A newer run on the deal (someone pressed Run again) replaces this one.
+      const { data: latest } = await admin.from("deal_ca_runs").select("id").eq("deal_id", w.deal_id)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if ((latest as any)?.id !== w.id) {
+        await admin.from("deal_ca_runs").update({ retry_at: null }).eq("id", w.id);
+        out[w.id] = "replaced";
+        continue;
+      }
+      if (w.retry_until && Date.parse(w.retry_until) <= now) {
+        await admin.from("deal_ca_runs").update({
+          retry_at: null,
+          status: w.status === "awaiting_access" ? "needs_attention" : w.status,
+          attention: "The CA is signed, but the deal room still wasn't open after a week of daily tries. " +
+            "Ask the broker for access, then press Run again.",
+        }).eq("id", w.id).not("retry_at", "is", null);
+        out[w.id] = "expired";
+        continue;
+      }
+      let due = Date.parse(w.retry_at) <= now;
+      if (!due && w.status === "awaiting_access") {
+        const lastLook = Date.parse(w.event_state?.accessMailCheckedAt ?? "") || 0;
+        if (now - lastLook >= ACCESS_MAIL_CHECK_MS) {
+          // Only mail since the last look (with overlap), so a busy inbox can't push it out of the page.
+          const ended = Date.parse(w.finished_at ?? w.created_at) || now;
+          due = await accessEmailArrived(admin, w, new Date(Math.max(ended, lastLook - 5 * 60_000)));
+          await admin.from("deal_ca_runs").update({
+            event_state: { ...(w.event_state ?? {}), accessMailCheckedAt: new Date(now).toISOString() },
+          }).eq("id", w.id);
+        }
+      }
+      if (!due) {
+        out[w.id] = "waiting";
+        continue;
+      }
+      // Claim it, so two sweeps don't both start a run.
+      const { data: claimed } = await admin.from("deal_ca_runs").update({ retry_at: null })
+        .eq("id", w.id).not("retry_at", "is", null).select("*").maybeSingle();
+      if (!claimed) continue;
+      try {
+        const started = await start(admin, w.deal_id, null, claimed);
+        out[w.id] = started?.status ?? "?";
+      } catch (e) {
+        // Over the AI budget or Anthropic down: keep the wait alive and try in an hour.
+        await admin.from("deal_ca_runs").update({ retry_at: new Date(now + 3600_000).toISOString() }).eq("id", w.id);
+        throw e;
+      }
+    } catch (e) {
+      logErr("retry", w.id, e);
+      out[w.id] = "error";
+    }
+  }
+  return out;
+}
+
+/** Whether the CA's portal has emailed the acquisitions inbox about this deal since the run ended. */
+async function accessEmailArrived(admin: Admin, run: any, since: Date): Promise<boolean> {
+  const domain = portalDomain(run.ca_url);
+  if (!domain) return false;
+  const { data: deal } = await admin.from("deals").select("property_name").eq("id", run.deal_id).maybeSingle();
+  const name = (deal as any)?.property_name ?? null;
+  const mb = resolveMailbox("acquisitions");
+  const path = `/messages?$top=50&$orderby=receivedDateTime desc` +
+    `&$filter=${encodeURIComponent(`receivedDateTime ge ${since.toISOString()}`)}` +
+    `&$select=id,subject,from,receivedDateTime,body`;
+  const res = await graphFetch(mb, path);
+  if (!res.ok) {
+    logErr("access_mail", run.id, `${res.status} ${(await res.text()).slice(0, 200)}`);
+    return false;
+  }
+  const msgs: any[] = (await res.json()).value ?? [];
+  return msgs.some((m) => {
+    const html = String(m.body?.content ?? "").replace(/<(head|style)[\s\S]*?<\/\1>/gi, " ");
+    return isAccessEmail({
+      from: String(m.from?.emailAddress?.address ?? ""),
+      subject: String(m.subject ?? ""),
+      // Links first: brokers' mail through a portal often names the portal's domain only in its links.
+      text: `${(html.match(/href="[^"]+"/g) ?? []).join(" ").slice(0, 2000)} ${html.replace(/<[^>]+>/g, " ")}`.replace(/&nbsp;/g, " "),
+    }, domain, name);
+  });
 }
 
 // ------------------------------------------------------------ documents

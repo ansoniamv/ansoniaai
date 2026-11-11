@@ -18,6 +18,7 @@ export type CaRun = {
     | "running"
     | "needs_approval"
     | "needs_attention"
+    | "awaiting_access"
     | "done"
     | "failed"
     | "cancelled"
@@ -42,6 +43,11 @@ export type CaRun = {
   cost_usd: number | null;
   approved_by: string | null;
   approved_at: string | null;
+  /** What the agent reported (signed, awaiting_access, needs_login, ...). */
+  outcome: string | null;
+  /** When the next automatic try starts; null when none is planned. */
+  retry_at: string | null;
+  retry_until: string | null;
   created_at: string;
   finished_at: string | null;
 };

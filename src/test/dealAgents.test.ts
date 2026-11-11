@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   documentFor,
+  isAccessEmail,
+  portalDomain,
   isUnderwritingAttachment,
   parseCaResult,
   runStatusFor,
@@ -79,5 +81,48 @@ describe("documentFor", () => {
     expect(documentFor("docs/Brighton Creek OM.pdf", docs)?.doc_type).toBe("om");
     expect(documentFor("Brighton Creek OM.pdf", docs)?.doc_type).toBe("om");
     expect(documentFor("docs/other.pdf", docs)).toBeNull();
+  });
+});
+
+describe("awaiting_access", () => {
+  const waiting = parseCaResult(JSON.stringify({ outcome: "awaiting_access", platform: "rcm", ca: { standard: true } }));
+  it("counts as signed and waits", () => {
+    expect(waiting.caSigned).toBe(true);
+    expect(runStatusFor(waiting, false).status).toBe("awaiting_access");
+  });
+  it("still surfaces flags on a waiting run", () => {
+    const flagged = { ...waiting, flags: [{ clause: "Non-solicit", quote: "shall not solicit", why: "3 years" }] };
+    expect(runStatusFor(flagged, false).status).toBe("needs_attention");
+  });
+  it("believes ca_signed only after signing outcomes", () => {
+    expect(parseCaResult(JSON.stringify({ outcome: "needs_login", ca_signed: true })).caSigned).toBe(true);
+    expect(parseCaResult(JSON.stringify({ outcome: "needs_login" })).caSigned).toBe(false);
+    expect(parseCaResult(JSON.stringify({ outcome: "needs_approval", ca_signed: true })).caSigned).toBe(false);
+    expect(parseCaResult("{bad").caSigned).toBe(false);
+  });
+});
+
+describe("portalDomain", () => {
+  it("keeps the registrable part", () => {
+    expect(portalDomain("https://my.rcm1.com/buyer/agreement?pv=x")).toBe("rcm1.com");
+    expect(portalDomain("not a url")).toBeNull();
+    expect(portalDomain(null)).toBeNull();
+  });
+});
+
+describe("isAccessEmail", () => {
+  const msg = (from: string, subject: string, text = "") => ({ from, subject, text });
+  it("matches the portal's access email for the deal", () => {
+    expect(isAccessEmail(msg("noreply@rcm1.com", "Access Granted: Sky55 & 1251 S Michigan"), "rcm1.com", "SKY55")).toBe(true);
+    expect(isAccessEmail(
+      msg("broker@nmrk.com", "Sky 55 deal room", 'href="https://my.rcm1.com/buyer/vault" documents are posted'),
+      "rcm1.com",
+      "Sky 55",
+    )).toBe(true);
+  });
+  it("ignores other deals, other senders and plain blasts", () => {
+    expect(isAccessEmail(msg("noreply@rcm1.com", "Access Granted: The Ivy"), "rcm1.com", "SKY55")).toBe(false);
+    expect(isAccessEmail(msg("someone@crexi.com", "Sky55 documents"), "rcm1.com", "SKY55")).toBe(false);
+    expect(isAccessEmail(msg("investmentsale@rcm1.com", "NOW TOURING: Sky55 | 502 Units"), "rcm1.com", "SKY55")).toBe(false);
   });
 });

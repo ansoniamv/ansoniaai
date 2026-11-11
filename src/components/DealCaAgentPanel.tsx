@@ -6,7 +6,7 @@
  */
 import { useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle2, ExternalLink, FileSignature, Loader2, ShieldAlert, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, ExternalLink, FileSignature, Loader2, ShieldAlert, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,6 +30,7 @@ const STATUS: Record<CaRun["status"], { label: string; tone: "muted" | "busy" | 
   running: { label: "Working", tone: "busy" },
   needs_approval: { label: "Needs approval", tone: "warn" },
   needs_attention: { label: "Needs attention", tone: "warn" },
+  awaiting_access: { label: "Waiting for access", tone: "busy" },
   done: { label: "Signed", tone: "ok" },
   failed: { label: "Failed", tone: "bad" },
   cancelled: { label: "Cancelled", tone: "muted" },
@@ -104,6 +105,24 @@ export function DealCaAgentPanel({ dealId }: { dealId: string }) {
           <div className="flex items-center gap-2 text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
             <span>{run.progress ?? "Working"}…</span>
+          </div>
+        )}
+
+        {run?.status === "awaiting_access" && (
+          <div className="flex gap-2 rounded-md bg-primary/5 p-2.5 text-muted-foreground">
+            <Clock className="h-4 w-4 shrink-0 mt-0.5" />
+            <span>
+              The CA is signed; the broker hasn't opened the deal room yet. The agent tries again as soon as the portal
+              emails the acquisitions inbox
+              {run.retry_at ? `, and otherwise on ${new Date(run.retry_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}` : ""}
+              {run.retry_until ? `, until ${new Date(run.retry_until).toLocaleDateString()}` : ""}.
+            </span>
+          </div>
+        )}
+        {run && run.status !== "awaiting_access" && run.retry_at && !OPEN_RUN_STATUSES.includes(run.status) && (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Clock className="h-4 w-4 shrink-0" />
+            <span>The login was just saved; the agent will try again within a few minutes.</span>
           </div>
         )}
 
