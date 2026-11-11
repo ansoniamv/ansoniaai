@@ -41,6 +41,7 @@ const ConnectorsPage = lazy(() => import("./pages/ConnectorsPage"));
 const PartnerImportPage = lazy(() => import("./pages/PartnerImportPage"));
 const SuggestionsPage = lazy(() => import("./pages/SuggestionsPage"));
 const PartnerTearsheetPage = lazy(() => import("./pages/PartnerTearsheetPage"));
+const InternalTearsheetPage = lazy(() => import("./pages/InternalTearsheetPage"));
 const FathomPage = lazy(() => import("./pages/FathomPage"));
 const FathomCallbackPage = lazy(() => import("./pages/FathomCallbackPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -106,6 +107,7 @@ const App = () => (
               <Route path="/api-status" element={<Protected admin><ApiStatusPage /></Protected>} />
               <Route path="/admin/connectors" element={<Protected admin><ConnectorsPage /></Protected>} />
               <Route path="/admin/warmth-import" element={<Navigate to="/partners/import" replace />} />
+              <Route path="/internal-tearsheet" element={<AuthGuard><InternalTearsheetPage /></AuthGuard>} />
               <Route
                 path="/pipeline-tearsheet/:partnerId"
                 element={<AuthGuard><PartnerTearsheetPage /></AuthGuard>}

@@ -3,7 +3,8 @@
  * The export dialog stashes the selection under a short token; the tearsheet reads it.
  */
 export type TearsheetPayload = {
-  partnerId: string;
+  /** null for the internal sheet, which has no partner. */
+  partnerId: string | null;
   dealIds: string[];
   showScore: boolean;
   includeOutside: boolean;
