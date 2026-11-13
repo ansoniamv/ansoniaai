@@ -58,7 +58,8 @@ import { DEFAULT_QUICK_CAP_RATE, quickUnderwrite } from "@/lib/quickUnderwrite";
 import { Input } from "@/components/ui/input";
 import { persistDealScore } from "@/lib/persistDealScore";
 import { capRateHint, equityCheck, grmHint, latestT3Noi, pricePerSqft } from "@/lib/dealRatios";
-import { useDealDocuments } from "@/hooks/useDealDocuments";
+import { getDealDocumentUrl, useDealDocuments } from "@/hooks/useDealDocuments";
+import { brokerProForma } from "@/lib/brokerProForma";
 import { useLatestCaRun } from "@/hooks/useDealAgents";
 import { useDealModels } from "@/hooks/useDealModels";
 import { STAGE_LABEL, useEngagementsByDeal } from "@/hooks/useCapitalRaiseEngagements";
@@ -599,6 +600,17 @@ export default function DealDetail() {
   const { data: models = [] } = useDealModels(id);
   const { data: engagements = [] } = useEngagementsByDeal(id);
   const t3 = latestT3Noi(docs);
+  // The broker's Year 1 pro forma from the newest parsed OM; shown beside the actuals, never written to the deal.
+  const brokerPf = brokerProForma(docs);
+  const pfPage = (f: { page: number | null } | null) => (f?.page != null ? `OM p. ${f.page}` : undefined);
+  const openOmPage = async (path: string, page: number | null) => {
+    try {
+      const url = await getDealDocumentUrl(path);
+      window.open(page != null ? `${url}#page=${page}` : url, "_blank", "noopener,noreferrer");
+    } catch (e) {
+      toast.error(`Could not open the OM: ${(e as Error).message}`);
+    }
+  };
   // Delinquency, RE taxes and the rent roll's in-place rent, each off the latest
   // parsed document of its type. Bad debt is net of recoveries, shown positive;
   // EGI is the T12's total income. The rent roll's rent, not the deal field,
@@ -967,7 +979,7 @@ export default function DealDetail() {
         </TabsContent>
         <TabsContent value="underwriting" className="mt-6 space-y-8">
       {/* ============ Financial Underwriting ============ */}
-      {(hasPricing || hasInPlace || hasProForma || hasReturns) && (
+      {(hasPricing || hasInPlace || !!brokerPf || hasProForma || hasReturns) && (
         <section>
           <SectionHeader title="Key Metrics" />
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1053,6 +1065,74 @@ export default function DealDetail() {
                             : "!bg-red-500/15 !border-red-500/50"
                     }
                   />
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Broker Pro Forma: the OM's Year 1, read from its parsed breakdown, never written to the deal */}
+            {brokerPf && (
+              <Card className="surface-card border-hairline">
+                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0 gap-2">
+                  <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground font-display">
+                    Broker Pro Forma · OM
+                  </CardTitle>
+                  <span className="text-[10px] text-muted-foreground">The broker's numbers, not actuals</span>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-3 gap-2">
+                    <Stat
+                      label="Year 1 NOI"
+                      value={fmtMoney(brokerPf.noi?.amount)}
+                      hint={
+                        brokerPf.noi && isNum(d.t12_noi)
+                          ? `${brokerPf.noi.amount >= d.t12_noi ? "+" : "−"}${fmtMoney(Math.abs(brokerPf.noi.amount - d.t12_noi))} vs T-12`
+                          : pfPage(brokerPf.noi)
+                      }
+                    />
+                    <Stat label="EGI" value={fmtMoney(brokerPf.egi?.amount)} hint={pfPage(brokerPf.egi)} />
+                    <Stat
+                      label="Total Expenses"
+                      value={fmtMoney(brokerPf.expenses?.amount)}
+                      hint={
+                        brokerPf.expenses && brokerPf.egi && brokerPf.egi.amount > 0
+                          ? `${((brokerPf.expenses.amount / brokerPf.egi.amount) * 100).toFixed(1)}% of EGI`
+                          : pfPage(brokerPf.expenses)
+                      }
+                    />
+                    <Stat label="Gross Potential Rent" value={fmtMoney(brokerPf.gpr?.amount)} hint={pfPage(brokerPf.gpr)} />
+                    <Stat label="Reno / Unit" value={fmtMoney(brokerPf.renoCost?.amount)} hint={pfPage(brokerPf.renoCost)} />
+                    <Stat
+                      label="Reno Premium"
+                      value={brokerPf.renoPremium ? `${fmtMoney(brokerPf.renoPremium.amount)}/mo` : null}
+                      hint={pfPage(brokerPf.renoPremium)}
+                    />
+                  </div>
+                  <details className="text-xs">
+                    <summary className="cursor-pointer text-muted-foreground">
+                      All {brokerPf.lines.length} pro forma lines in {brokerPf.document.file_name}
+                    </summary>
+                    <table className="mt-2 w-full">
+                      <tbody className="divide-y divide-hairline">
+                        {brokerPf.lines.map((l, i) => (
+                          <tr key={i} className="align-top">
+                            <td className="py-1 pr-2 text-muted-foreground">{l.label}</td>
+                            <td className="py-1 pr-2 tabular-nums">{l.value}</td>
+                            <td className="py-1 text-right whitespace-nowrap">
+                              {l.page !== null && (
+                                <button
+                                  type="button"
+                                  className="text-primary hover:underline"
+                                  onClick={() => openOmPage(brokerPf.document.storage_path, l.page)}
+                                >
+                                  p. {l.page}
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </details>
                 </CardContent>
               </Card>
             )}
