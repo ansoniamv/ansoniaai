@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
+import { corsFor, requireUserOrService } from "../_shared/auth.ts";
 
 // NCES ArcGIS Online services (free, public, no token required)
 const DISTRICTS_URL =
@@ -278,8 +278,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   // Cache misses cost a billed Firecrawl search + scrape.
-  const authz = await requireApprovedUser(req);
-  if (!authz.ok) return authz.response;
+  // An approved user, or onboard-deal running a new deal's steps as the service.
+  const authz = await requireUserOrService(req);
+  if (authz && !authz.ok) return authz.response;
 
   try {
     const { deal_id, force } = await req.json();

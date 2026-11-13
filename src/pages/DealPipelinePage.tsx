@@ -38,8 +38,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/useAuth";
 import DOMPurify from "dompurify";
 import { budgetPause } from "@/lib/aiBudgetPause";
-import { autoAssignSubmarket } from "@/lib/autoAssignSubmarket";
-import { startDealAgents } from "@/hooks/useDealAgents";
 import { DUPLICATE_CATEGORY } from "../../supabase/functions/_shared/feedbackLearning";
 
 const DENIAL_CATEGORIES = [
@@ -357,59 +355,19 @@ export default function DealPipelinePage() {
   };
 
   const acceptDeal = async (d: InboxDeal) => {
-    const { data: newDealId, error } = await supabase.rpc("accept_inbox_deal", {
+    const { error } = await supabase.rpc("accept_inbox_deal", {
       _inbox_deal_id: d.id,
     });
     if (error) {
       toast.error(error.message);
       return;
     }
-    toast.success("Added to Pipeline");
-
-    // Stage 2 enrichment for the newly accepted deal (inbox itself is never enriched)
-    if (newDealId) {
-      // Needs a street number, not just the town. esri-enrich rejects anything
-      // that is not an address-level match, and "Chicago, IL" resolves as
-      // Locality — the city centroid — so sending it would 422 every time and
-      // skip the chained schools lookup. geocode-deals still runs on the new
-      // deal and will place it from Census if it can.
-      const street = (d.address ?? "").trim();
-      const address = street
-        ? [street, d.location_city, d.location_state].filter(Boolean).join(", ")
-        : "";
-      if (address) {
-        supabase.functions.invoke("esri-enrich", { body: { deal_id: newDealId, address } })
-          .then(({ error: enrichErr }) => {
-            if (enrichErr) {
-              console.error("esri-enrich error:", enrichErr);
-              return;
-            }
-            // Schools need lat/lon from esri-enrich; fire-and-forget after it resolves.
-            supabase.functions.invoke("schools-enrich", { body: { deal_id: newDealId } })
-              .then(({ error: schErr }) => {
-                if (schErr) console.error("schools-enrich error:", schErr);
-              });
-          });
-      } else {
-        console.warn(`esri-enrich skipped for deal ${newDealId}: no city/state on inbox deal ${d.id}`);
-      }
-      // Kick an immediate score so the card surfaces with low-confidence number
-      supabase.functions.invoke("deal-score", { body: { deal_id: newDealId } })
-        .then(({ error: scoreErr }) => {
-          if (scoreErr) console.error("deal-score error:", scoreErr);
-        });
-      autoAssignSubmarket(newDealId, queryClient);
-      // Sign the CA and bring the OM / rent roll / T12 onto the deal. The run
-      // shows on the deal page; a CA with unusual terms waits there for approval.
-      startDealAgents(newDealId as string)
-        .then((run) => {
-          if (run?.status === "running" || run?.status === "starting") {
-            toast.message("CA agent started", { description: "Follow it on the deal page." });
-          }
-        })
-        .catch((e) => console.error("deal-agents start error:", e));
-    }
-
+    toast.success("Added to Pipeline", {
+      description: "HelloData, Esri, schools, submarket, CA agent and scoring are running on the server.",
+    });
+    // Everything after this runs from the server: the insert queues the deal
+    // for onboard-deal (see 20261114120000_deal_onboarding.sql), so it finishes
+    // even if this tab closes. Progress shows on the deal page.
     queryClient.invalidateQueries({ queryKey: ["deals"] });
     refetch();
   };

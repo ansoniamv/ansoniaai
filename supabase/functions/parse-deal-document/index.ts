@@ -39,6 +39,7 @@ import {
 import { errorResponse } from "../_shared/errors.ts";
 import { quoteChecker } from "../_shared/fieldSources.ts";
 import { trimToData } from "../_shared/sheetRange.ts";
+import { rescoreBuybox } from "../_shared/buyboxScore.ts";
 import {
   clampDocumentText,
   documentKind,
@@ -300,6 +301,21 @@ async function parseDocument(admin: any, doc: any, uploaded: string[]): Promise<
     summary: null,
     detail_status: detailType ? "reading" : "skipped",
   });
+
+  // Figures for fields the deal has no value for go straight onto it, cited to
+  // this document; a figure that would change a value stays a proposal for a
+  // person (fill_blank_fields_from_document). Then rescore, so the buybox score
+  // reflects the OM / rent roll / T12 without anyone opening the deal.
+  if (changes.length) {
+    try {
+      const { data: filled, error: fillErr } = await admin.rpc("fill_blank_fields_from_document", { _document_id: doc.id });
+      if (fillErr) throw fillErr;
+      if ((filled ?? 0) > 0) await rescoreBuybox(admin, doc.deal_id);
+    } catch (e: any) {
+      console.error(JSON.stringify({ fn: "parse-deal-document", document_id: doc.id, stage: "fill", detail: String(e?.message ?? e) }));
+    }
+  }
+
   if (!detailType) return;
 
   // ---- Stage 2: the full breakdown. Its failure costs the breakdown only ----

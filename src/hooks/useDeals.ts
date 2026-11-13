@@ -3,7 +3,6 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { DEAL_LIST_COLUMNS } from "@/lib/dealColumns";
 import { persistDealScore, rescoreAllDeals } from "@/lib/persistDealScore";
-import { autoAssignSubmarket } from "@/lib/autoAssignSubmarket";
 
 async function scoreAfterWrite<T extends { id: string }>(row: T): Promise<T> {
   try {
@@ -61,46 +60,10 @@ export function useCreateDeal() {
         .single();
       if (error) throw error;
 
-      // Fire-and-forget address enrichment + schools lookup so new deals get
-      // demographics and school data without a manual click. Schools need
-      // lat/lon written by esri-enrich, so chain them.
-      // A street number is required, not just the town. esri-enrich now rejects
-      // anything that is not an address-level match, and "Chicago, IL" resolves
-      // as Locality — the city centroid — so sending it would 422 every time,
-      // skip the chained schools lookup, and spend a geocode request to be told
-      // what we already knew. Deals without a street wait for one to be added.
-      const street = (data.address ?? data.property_address ?? "").trim();
-      const address = street
-        ? [street, data.city, data.state].filter(Boolean).join(", ")
-        : "";
-      if (address) {
-        supabase.functions
-          .invoke("esri-enrich", { body: { deal_id: data.id, address } })
-          .then(({ error: enrichErr }) => {
-            if (enrichErr) {
-              console.error("esri-enrich error:", enrichErr);
-              return;
-            }
-            supabase.functions
-              .invoke("schools-enrich", { body: { deal_id: data.id } })
-              .then(({ error: schErr }) => {
-                if (schErr) console.error("schools-enrich error:", schErr);
-              });
-          });
-      }
-
-      // Free coordinates, independent of the Esri chain above. esri-enrich only
-      // runs when someone pays for it, so without this a deal can exist with no
-      // position at all and simply never appear on a map. geocode-deals never
-      // overwrites an Esri result, so running both is safe in either order.
-      supabase.functions
-        .invoke("geocode-deals", { body: { deal_id: data.id } })
-        .then(({ error: geoErr }) => {
-          if (geoErr) console.error("geocode-deals error:", geoErr);
-        });
-
-      autoAssignSubmarket(data.id, queryClient);
-
+      // Esri, schools, coordinates, HelloData, the submarket pick, the deal
+      // agents and the AI score all run from the server: the insert queues the
+      // deal for onboard-deal (20261114120000_deal_onboarding.sql). The buybox
+      // score is computed here too so the card has a number straight away.
       return await scoreAfterWrite(data);
     },
     onSuccess: () => {
