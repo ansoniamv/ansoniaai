@@ -1,8 +1,9 @@
 /**
  * The CA agent's card on the deal page: whether the deal's confidentiality
  * agreement was signed, as whom, what the agent thought of its terms, and the
- * documents it brought back. A CA with flagged clauses waits here for a person
- * to approve it; nothing is signed past a flag without that click.
+ * documents it brought back. CAs are signed as they come; only one with a
+ * personal guarantee, money owed or a commitment to bid/buy waits here for a
+ * person to approve it.
  */
 import { useState } from "react";
 import { toast } from "sonner";
@@ -97,7 +98,8 @@ export function DealCaAgentPanel({ dealId }: { dealId: string }) {
         {!run && !isLoading && (
           <p className="text-muted-foreground">
             When a deal is added from the inbox, the CA agent signs its confidentiality agreement and brings the OM, rent
-            roll and T12 into the documents below. CAs with unusual terms wait here for approval.
+            roll and T12 into the documents below. Only a CA with a personal guarantee, money Ansonia would owe, or a
+            commitment to bid or buy waits here for approval.
           </p>
         )}
 
@@ -141,10 +143,11 @@ export function DealCaAgentPanel({ dealId }: { dealId: string }) {
 
         {run?.ca_summary && <p>{run.ca_summary}</p>}
 
-        {run && run.ca_flags.length > 0 && (
+        {/* Only a CA held for approval shows its clauses: the approver needs them. Signed CAs don't. */}
+        {run?.status === "needs_approval" && run.ca_flags.length > 0 && (
           <div className="space-y-2">
             <div className="flex items-center gap-1.5 font-medium">
-              <ShieldAlert className="h-4 w-4 text-amber-600" /> Flagged clauses
+              <ShieldAlert className="h-4 w-4 text-amber-600" /> Why it wasn't signed
             </div>
             {run.ca_flags.map((f, i) => (
               <div key={i} className="rounded-md border border-hairline p-2.5 space-y-1">
@@ -179,7 +182,7 @@ export function DealCaAgentPanel({ dealId }: { dealId: string }) {
               Signed as {run.signed_as.name}
               {run.signed_as.title ? `, ${run.signed_as.title}` : ""}, {run.signed_as.company} on{" "}
               {new Date(run.signed_at).toLocaleDateString()}
-              {run.approved_at ? " (flagged terms approved)" : ""}.
+              {run.approved_at ? " (approved by hand)" : ""}.
             </span>
           </div>
         )}
@@ -222,7 +225,7 @@ export function DealCaAgentPanel({ dealId }: { dealId: string }) {
       <AlertDialog open={confirmApprove} onOpenChange={setConfirmApprove}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Sign this CA with the flagged terms?</AlertDialogTitle>
+            <AlertDialogTitle>Sign this CA with these terms?</AlertDialogTitle>
             <AlertDialogDescription>
               The agent will sign as the firm's signer, accepting the clauses quoted on the card. This binds Ansonia to
               them.
