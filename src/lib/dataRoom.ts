@@ -22,10 +22,12 @@ export type DataRoomCategory = (typeof DATA_ROOM_CATEGORIES)[number]["value"];
 
 /**
  * Partner outreach templates teach the email drafter how Ansonia writes to
- * capital partners. They are not facts about the firm, so they stay out of the
- * Company Brief.
+ * capital partners, and the model template and Novogradac workbook are inputs
+ * to generated models (the newest file in each category is used). None of them
+ * is a fact about the firm, so they stay out of the Company Brief.
  */
-export const keptOutOfBrief = (c: string) => c === "partner_outreach";
+const OUT_OF_BRIEF = new Set(["partner_outreach", "model_template", "affordability"]);
+export const keptOutOfBrief = (c: string) => OUT_OF_BRIEF.has(c);
 
 export const categoryLabel = (c: string) => DATA_ROOM_CATEGORIES.find((x) => x.value === c)?.label ?? c;
 

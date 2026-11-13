@@ -1,0 +1,184 @@
+exp|admin|administrative corporate website/blog/portals
+exp|admin|administrative employee recruitment
+exp|admin|alarm monitoring expense
+exp|admin|ap and utility management
+exp|admin|clubhouse cleaning
+exp|admin|clubhouse expense
+exp|admin|compliance business
+exp|admin|compliance hud/housing
+exp|admin|contract fire protection monitoring
+exp|admin|contract key tracking system
+exp|admin|contract saas services
+exp|admin|contract security and access control systems
+exp|admin|copy machine contract
+exp|admin|credit builder expense
+exp|admin|credit bureau fees
+exp|admin|credit verification
+exp|admin|credit/criminal verification
+exp|admin|donations
+exp|admin|employee relations
+exp|admin|filing fees
+exp|admin|furnished unit furniture
+exp|admin|g and a employee incentives and gifts
+exp|admin|g and a hospitality
+exp|admin|g and a recruiting costs
+exp|admin|ga other
+exp|admin|ga pr other payroll fees
+exp|admin|ga tax personal property
+exp|admin|ga uniforms/logo
+exp|admin|genexp prof services
+exp|admin|hiring expenses
+exp|admin|information systems
+exp|admin|kitchen supplies
+exp|admin|model apartment expense
+exp|admin|other income related expenses
+exp|admin|professional fees real estate taxes
+exp|admin|property benefits refund
+exp|admin|property hardware
+exp|admin|recruiting
+exp|admin|resident portal/website/crm hosting
+exp|admin|security deposit interest expense
+exp|admin|security deposit refund
+exp|admin|security system
+exp|admin|supplies
+exp|admin|taa lease forms/membership
+exp|admin|tax credit monitoring fees
+exp|admin|team uniforms
+exp|admin|teammate relations
+exp|admin|uniform expense
+exp|admin|vehicle allowance
+exp|adv|clubhouse/amenity
+exp|adv|customer serv incentives/hospitality
+exp|adv|internet advertising
+exp|adv|internet marketing
+exp|adv|lease renewal fee
+exp|adv|marketing locator commissions
+exp|adv|mkt events
+exp|adv|mkt internet ads
+exp|adv|model expense
+exp|adv|mtk other
+exp|adv|referral fees and commissions
+exp|adv|signage
+exp|adv|signs
+exp|pers|contract security
+exp|pers|front desk/concierge salary
+exp|pers|group insurance
+exp|rexp|renter s liability insurance premium
+exp|pers|security contract labor
+exp|admin|professional fees corp
+exp|pers|benefits
+exp|pers|benefits allocated fringes
+exp|pers|benefits union
+exp|pers|benefits wd
+exp|pers|cell phone allowance
+exp|pers|education and training
+exp|pers|employee benefit cost
+exp|pers|employee benefits misc
+exp|pers|housekeeper
+exp|pers|hvac labor
+exp|pers|k contribution
+exp|pers|k contributions / costs
+exp|pers|k match
+exp|pers|mobile phone expense
+exp|pers|office team
+exp|pers|other benefits
+exp|pers|payroll asset management
+exp|pers|pr group medical
+exp|pers|retirement benefits
+exp|pers|shared services property professional services 58000
+exp|pers|team training and on boarding onsite
+exp|pers|team/cell/mileage reimbursement
+exp|pers|union benefits
+exp|pers|worker s comp insurance
+exp|pers|worker s comp insurance premium
+exp|pers|worker s compensation
+exp|rm|appliance replacement
+exp|rm|carpet replacement
+exp|rm|contract fire and safety monitoring and inspection
+exp|rm|credit reporting contract
+exp|rm|electrical
+exp|rm|garbage disposals
+exp|rm|heating and ac repair
+exp|rm|improvements electrical
+exp|rm|life safety inspections and permits
+exp|rm|mold inspection / removal
+exp|rm|parking and towing
+exp|rm|parking lot and sidewalk repairs
+exp|rm|property inspections
+exp|rm|r and m electrical
+exp|rm|r and m parking lot
+exp|rm|r and m parking lot and fences
+exp|rm|supplies electrical
+exp|rm|telephone monitor/answer service
+exp|rm|vinyl replacement
+exp|smartex|cable spectrum
+exp|smartex|internet property
+exp|turn|bathroom maintenance and supplies
+exp|turn|carpet and flooring cleaning and repair
+exp|turn|carpet/vinyl repair and clean
+exp|turn|cleaning supplies
+exp|turn|collection expense
+exp|turn|contract cleaning
+exp|turn|counter top/cabinet repair/replacement
+exp|turn|damage receipts
+exp|turn|flooring cleans and repairs
+exp|turn|flooring replacement
+exp|turn|general cleans
+exp|turn|hardware/locks/keys
+exp|turn|improvements cabinet repair and replacement
+exp|turn|improvements carpet cleaning
+exp|turn|improvements drywall
+exp|turn|improvements exterior painting
+exp|turn|improvements flooring
+exp|turn|improvements interior paint
+exp|turn|improvements labor
+exp|turn|improvements unit housekeeping
+exp|turn|kitchen maint and supplies
+exp|turn|mr carpet cleaning
+exp|turn|mr cleaning supplies
+exp|turn|mr drywall repairs
+exp|turn|mr fixtures
+exp|turn|mr housekeeper / cleaning service
+exp|turn|mr paint contractor
+exp|turn|mr painting supplies
+exp|turn|other unit cleaning and repair
+exp|turn|paint supplies
+exp|turn|painting contract labor
+exp|turn|paints
+exp|turn|punchouts / trashouts
+exp|turn|unit occupied blinds/drapes
+exp|turn|unit occupied carpet cleaning
+exp|turn|unit occupied cleaning services and supplies
+exp|turn|unit occupied drywall repairs
+exp|turn|unit occupied painting services
+exp|turn|vinyl repair replace/hard surfaces supplies
+exp|turn|window coverings
+exp|util|elec exp vac units
+exp|util|elect vacant units
+exp|wat|re tax sewer
+exp|wat|water treatment
+inc|conc|concessions amortization
+inc|mkt|plus prepaid rent
+inc|mkt|rent mtm
+inc|nr|loss to lease model units
+inc|oinc|ancillary telecom upfront
+inc|oinc|bad debt reserve other income
+inc|CAM|cam fees
+inc|oinc|clubhouse and amenity rental income
+inc|oinc|garage/parking income concession
+inc|oinc|housing utility reimbursements
+inc|oinc|past resident rent income
+inc|oinc|prepaid rent income
+inc|oinc|technology income
+inc|oinc|trash removal fee upon move out
+inc|oinc|utility billing fee
+inc|rubs|electric vacant recovery
+inc|rubs|late fee income util
+inc|rubs|other reimb
+inc|rubs|recoveries util/admin
+inc|rubs|utilities reimbursement
+inc|rubs|utility income bad debt reserve
+inc|rubs|utility income vacant
+inc|rubs|utility income write off
+inc|smart|cable income amortization
+inc|vac|vacancy loss down units
