@@ -48,6 +48,7 @@ import { DealStatusHistory } from "@/components/DealStatusHistory";
 import { ComposeEmailDialog } from "@/components/ComposeEmailDialog";
 import { DealDocumentsPanel } from "@/components/DealDocumentsPanel";
 import { DealCaAgentPanel } from "@/components/DealCaAgentPanel";
+import { DealOnboardingCard } from "@/components/DealOnboardingCard";
 import { DealModelPanel } from "@/components/DealModelPanel";
 import { SubmarketSignalsPanel } from "@/components/SubmarketSignalsPanel";
 import { AiScoreTab } from "@/components/AiScoreTab";
@@ -1154,6 +1155,8 @@ export default function DealDetail() {
       </section>
         </TabsContent>
         <TabsContent value="overview" className="mt-6 space-y-8">
+      {/* ============ New-deal data (server onboarding) ============ */}
+      <DealOnboardingCard dealId={deal.id} />
       {/* ============ At a Glance ============ */}
       <section>
         <SectionHeader title="At a Glance" />

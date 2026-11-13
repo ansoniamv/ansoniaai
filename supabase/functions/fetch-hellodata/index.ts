@@ -14,7 +14,7 @@ import {
   pickBestMatch,
   scoreCandidate,
 } from "../_shared/hellodataClient.ts";
-import { requireApprovedUser } from "../_shared/auth.ts";
+import { requireUserOrService } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,8 +31,10 @@ const HD_BASE = "https://api.hellodata.ai";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  const auth = await requireApprovedUser(req);
-  if (!auth.ok) return auth.response;
+  // An approved user (the deal page), or onboard-deal running a new deal's
+  // steps as the service. Same match gate and cache either way.
+  const auth = await requireUserOrService(req);
+  if (auth && !auth.ok) return auth.response;
 
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
   let dealId: string | null = null;
