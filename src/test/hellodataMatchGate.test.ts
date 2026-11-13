@@ -27,6 +27,10 @@ describe("buildAddressQuery — refuses to guess", () => {
 
   it("knows a street address from a city", () => {
     expect(hasStreetAddress("123 Main St")).toBe(true);
+    expect(hasStreetAddress("1649 E. 50th Street")).toBe(true);
+    expect(hasStreetAddress("1251 S Michigan Ave, Chicago, IL")).toBe(true);
+    expect(hasStreetAddress("Michigan Avenue")).toBe(false);
+    expect(hasStreetAddress("Chicago, IL 60615")).toBe(false);
     expect(hasStreetAddress("Columbus, OH 43026")).toBe(false);
     expect(hasStreetAddress("")).toBe(false);
   });

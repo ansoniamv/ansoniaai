@@ -40,6 +40,7 @@ import { errorResponse } from "../_shared/errors.ts";
 import { quoteChecker } from "../_shared/fieldSources.ts";
 import { trimToData } from "../_shared/sheetRange.ts";
 import { rescoreBuybox } from "../_shared/buyboxScore.ts";
+import { addressFromDocument, dealHasStreet } from "../_shared/documentAddress.ts";
 import {
   clampDocumentText,
   documentKind,
@@ -316,6 +317,15 @@ async function parseDocument(admin: any, doc: any, uploaded: string[]): Promise<
     }
   }
 
+  // A deal with no street address gets nothing from Census, Esri, schools or
+  // HelloData. When this document prints the street of the same property, put
+  // it on the deal and run onboarding again so those sources fill in.
+  try {
+    await fillAddressFromDocument(admin, doc, extraction);
+  } catch (e: any) {
+    console.error(JSON.stringify({ fn: "parse-deal-document", document_id: doc.id, stage: "address", detail: String(e?.message ?? e) }));
+  }
+
   if (!detailType) return;
 
   // ---- Stage 2: the full breakdown. Its failure costs the breakdown only ----
@@ -365,6 +375,58 @@ async function parseDocument(admin: any, doc: any, uploaded: string[]): Promise<
     parse_notes: notes(),
     extraction: { ...extraction, rejected },
   });
+}
+
+async function fillAddressFromDocument(admin: any, doc: any, extraction: any): Promise<void> {
+  const { data: deal, error } = await admin
+    .from("deals")
+    .select("property_name, address, property_address, state, zip, unit_count")
+    .eq("id", doc.deal_id)
+    .single();
+  if (error) throw error;
+  const fill = addressFromDocument({
+    property_name: extraction.property_name ?? null,
+    property_address: extraction.property_address ?? null,
+    unit_count: extraction.figures?.unit_count?.value ?? null,
+  }, deal);
+  if (!fill.ok) {
+    if (!dealHasStreet(deal)) console.log(JSON.stringify({ fn: "parse-deal-document", document_id: doc.id, stage: "address", skipped: fill.reason }));
+    return;
+  }
+
+  const label = { om: "Offering memorandum", rent_roll: "Rent roll", t12: "T12 operating statement" }[extraction.doc_type as string] ?? "Deal document";
+  const source = {
+    kind: "document",
+    provider: "Deal document",
+    label,
+    quote: String(extraction.property_address).slice(0, 300),
+    document_id: doc.id,
+    file_name: doc.file_name,
+    recorded_at: new Date().toISOString(),
+  };
+  const update: Record<string, unknown> = {
+    address: fill.address,
+    field_sources: { address: source, ...(fill.zip ? { zip: source } : {}) },
+  };
+  if (fill.zip) update.zip = fill.zip;
+  // Only while it is still what was read: a person may have typed one
+  // meanwhile. A non-street value ("Michigan Avenue") is replaced, since no
+  // lookup can use it.
+  let q = admin.from("deals").update(update).eq("id", doc.deal_id);
+  q = deal.address == null ? q.is("address", null) : q.eq("address", deal.address);
+  const { data: written, error: upErr } = await q.select("id");
+  if (upErr) throw upErr;
+  if (!written?.length) return;
+
+  console.log(JSON.stringify({ fn: "parse-deal-document", document_id: doc.id, stage: "address", filled: fill.address }));
+  // Everything keyed on the address runs again. Steps that already succeeded
+  // cache or fill only blanks, so this re-bills nothing.
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/onboard-deal`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}`, apikey: SERVICE_KEY },
+    body: JSON.stringify({ action: "run", deal_id: doc.deal_id, rerun: true, reason: "address" }),
+  });
+  if (!res.ok) console.error(JSON.stringify({ fn: "parse-deal-document", document_id: doc.id, stage: "address-rerun", status: res.status }));
 }
 
 function textBlock(fileName: string, body: string, warnings: string[]) {
