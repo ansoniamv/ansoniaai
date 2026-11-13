@@ -16,6 +16,7 @@ import {
   FileText,
   AlertTriangle,
   StickyNote,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { NoteContent } from "@/components/NoteContent";
@@ -57,6 +58,9 @@ import { Input } from "@/components/ui/input";
 import { persistDealScore } from "@/lib/persistDealScore";
 import { capRateHint, equityCheck, grmHint, latestT3Noi, pricePerSqft } from "@/lib/dealRatios";
 import { useDealDocuments } from "@/hooks/useDealDocuments";
+import { useLatestCaRun } from "@/hooks/useDealAgents";
+import { useDealModels } from "@/hooks/useDealModels";
+import { STAGE_LABEL, useEngagementsByDeal } from "@/hooks/useCapitalRaiseEngagements";
 import { cn } from "@/lib/utils";
 import {
   AlertDialog,
@@ -186,34 +190,6 @@ function KV({
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className={cn("text-sm tabular-nums", align === "right" && "text-right")}>{value}</span>
     </div>
-  );
-}
-
-function CriterionRow({
-  label,
-  pass,
-  actual,
-}: {
-  label: string;
-  pass: boolean | null;
-  actual: React.ReactNode;
-}) {
-  return (
-    <li className="flex items-center justify-between gap-3 py-2 border-b border-hairline last:border-0">
-      <div className="flex items-center gap-2 min-w-0">
-        {pass === true ? (
-          <Check className="h-4 w-4 text-emerald-600 shrink-0" />
-        ) : pass === false ? (
-          <X className="h-4 w-4 text-destructive shrink-0" />
-        ) : (
-          <span className="h-4 w-4 inline-block rounded-full border border-muted shrink-0" />
-        )}
-        <span className="text-sm">{label}</span>
-      </div>
-      <span className="text-sm tabular-nums text-muted-foreground">
-        {actual ?? "—"}
-      </span>
-    </li>
   );
 }
 
@@ -617,6 +593,10 @@ export default function DealDetail() {
   const equity = equityCheck(d?.asking_price);
   // Same query as the Deal Documents panel, so this costs no extra request.
   const { data: docs = [] } = useDealDocuments(id);
+  // For the Overview summary; each is the same query its own tab runs.
+  const { data: caRun } = useLatestCaRun(id);
+  const { data: models = [] } = useDealModels(id);
+  const { data: engagements = [] } = useEngagementsByDeal(id);
   const t3 = latestT3Noi(docs);
   // Delinquency, RE taxes and the rent roll's in-place rent, each off the latest
   // parsed document of its type. Bad debt is net of recoveries, shown positive;
@@ -681,6 +661,26 @@ export default function DealDetail() {
   
 
   /* buybox criteria evaluation */
+  const goTab = (v: string) =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (v === "overview") next.delete("tab");
+        else next.set("tab", v);
+        return next;
+      },
+      { replace: true },
+    );
+
+  // The saved Quick Underwrite, as its card shows it.
+  const quick = quickUnderwrite({
+    t12Noi: d.t12_noi,
+    adjustment: d.quick_noi_adjustment,
+    capRate: d.quick_cap_rate,
+    askingPriceM: deal.asking_price,
+    unitCount: deal.unit_count,
+  });
+
   const meetsUnits = isNum(deal.unit_count) ? deal.unit_count >= 150 : null;
   const meetsVintage = isNum(deal.vintage_year)
     ? deal.vintage_year >= 1990 && deal.vintage_year <= 2019
@@ -935,17 +935,7 @@ export default function DealDetail() {
 
       <Tabs
         value={tab}
-        onValueChange={(v) =>
-          setSearchParams(
-            (prev) => {
-              const next = new URLSearchParams(prev);
-              if (v === "overview") next.delete("tab");
-              else next.set("tab", v);
-              return next;
-            },
-            { replace: true },
-          )
-        }
+        onValueChange={goTab}
         className="w-full"
       >
         <TabsList>
@@ -975,45 +965,6 @@ export default function DealDetail() {
           <AiScoreTab deal={deal} />
         </TabsContent>
         <TabsContent value="underwriting" className="mt-6 space-y-8">
-      {/* ============ Confidentiality Agreement ============ */}
-      <section>
-        <DealCaAgentPanel dealId={deal.id} />
-      </section>
-
-      {/* ============ Deal Documents ============ */}
-      <section>
-        <SectionHeader title="Deal Documents" />
-        <DealDocumentsPanel deal={deal} />
-      </section>
-
-      {/* ============ Links the deal record carries (older deals) ============ */}
-      {documents.length > 0 && (
-        <section>
-          <SectionHeader title="Document Links" />
-          <Card className="surface-card border-hairline">
-            <CardContent className="pt-4 divide-y divide-hairline">
-              {documents.map((doc, i) => (
-                <a
-                  key={i}
-                  href={doc.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-3 py-2 text-sm hover:bg-muted/30 px-2 -mx-2 rounded"
-                >
-                  <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span className="flex-1 truncate">{doc.name || doc.url}</span>
-                  {doc.type && (
-                    <Badge variant="outline" className="text-[10px] uppercase">
-                      {doc.type}
-                    </Badge>
-                  )}
-                </a>
-              ))}
-            </CardContent>
-          </Card>
-        </section>
-      )}
-
       {/* ============ Financial Underwriting ============ */}
       {(hasPricing || hasInPlace || hasProForma || hasReturns) && (
         <section>
@@ -1157,26 +1108,294 @@ export default function DealDetail() {
         </section>
       )}
 
+      {/* ============ Deal Documents ============ */}
+      <section>
+        <SectionHeader title="Deal Documents" />
+        <DealDocumentsPanel deal={deal} />
+      </section>
+
+      {/* ============ Links the deal record carries (older deals) ============ */}
+      {documents.length > 0 && (
+        <section>
+          <SectionHeader title="Document Links" />
+          <Card className="surface-card border-hairline">
+            <CardContent className="pt-4 divide-y divide-hairline">
+              {documents.map((doc, i) => (
+                <a
+                  key={i}
+                  href={doc.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-3 py-2 text-sm hover:bg-muted/30 px-2 -mx-2 rounded"
+                >
+                  <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="flex-1 truncate">{doc.name || doc.url}</span>
+                  {doc.type && (
+                    <Badge variant="outline" className="text-[10px] uppercase">
+                      {doc.type}
+                    </Badge>
+                  )}
+                </a>
+              ))}
+            </CardContent>
+          </Card>
+        </section>
+      )}
+
       {/* ============ Generate Model ============ */}
       <section>
         <SectionHeader title="Generate Model" />
         <DealModelPanel dealId={deal.id} />
       </section>
+
+      {/* ============ Confidentiality Agreement ============ */}
+      <section>
+        <DealCaAgentPanel dealId={deal.id} />
+      </section>
         </TabsContent>
         <TabsContent value="overview" className="mt-6 space-y-8">
-      {/* ============ Key Stats Row ============ */}
+      {/* ============ At a Glance ============ */}
       <section>
-        <SectionHeader title="Key Stats" />
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
+        <SectionHeader title="At a Glance" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <Stat
+            label="Asking Price"
+            value={fmtMillions(deal.asking_price)}
+            hint={pricePerUnit ? `${fmtMoney(pricePerUnit)} / unit` : undefined}
+          />
           <Stat
             label="Units"
             value={fmtInt(deal.unit_count)}
+            meets={meetsUnits}
+            hint={deal.vintage_year ? `Built ${deal.vintage_year}` : undefined}
+          />
+          <Stat
+            label="T-12 NOI"
+            value={fmtMoney(d.t12_noi)}
+            hint={isNum(inPlaceCap.value) ? `${inPlaceCap.value.toFixed(2)}% cap on ask` : undefined}
+          />
+          <Stat label="Occupancy" value={fmtPct(d.occupancy_pct)} />
+          <Stat
+            label="Quick Value"
+            value={isNum(quick.value) ? fmtMillions(quick.value / 1_000_000) : null}
+            hint={
+              isNum(quick.vsAskPct)
+                ? `${quick.vsAskPct >= 0 ? "+" : ""}${quick.vsAskPct.toFixed(1)}% vs ask at ${quick.capRate}% cap`
+                : `T-12 NOI at ${quick.capRate}% cap`
+            }
+          />
+          <Stat
+            label="Rent vs Market"
+            meets={meetsRentLag}
+            value={
+              isNum(rentDeltaPct)
+                ? rentDeltaPct <= 0
+                  ? `${Math.abs(rentDeltaPct).toFixed(1)}% below`
+                  : `${rentDeltaPct.toFixed(1)}% above`
+                : null
+            }
+          />
+          <Stat label="New Supply" value={fmtPctPts(d.new_supply_pct_of_stock)} meets={meetsSupply} />
+          <Stat
+            label="Buybox Score"
+            value={isNum(d.total_score) ? Math.round(d.total_score) : d.deal_tier ?? null}
+            hint={isNum(d.total_score) && d.deal_tier ? `Tier: ${d.deal_tier}` : undefined}
+          />
+        </div>
+      </section>
+
+      {/* ============ Where It Stands (each row opens its tab) ============ */}
+      <section>
+        <SectionHeader title="Where It Stands" />
+        <Card className="surface-card border-hairline">
+          <CardContent className="pt-2 divide-y divide-hairline">
+            {(() => {
+              const gates = [meetsUnits, meetsVintage, meetsRentLag, meetsSupply, meetsPopGrowth, meetsJobGrowth, meetsIncome];
+              const known = gates.filter((g) => g !== null);
+              const failures: Array<{ rule: string; detail: string }> = d.hard_filter_failures ?? [];
+              const has = (t: string) => docs.some((x) => x.doc_type === t);
+              const model = models[0];
+              const live = engagements.filter((e) => e.stage !== "passed");
+              const order = Object.keys(STAGE_LABEL);
+              const furthest = [...live].sort((a, b) => order.indexOf(b.stage) - order.indexOf(a.stage))[0];
+              const caText = !caRun
+                ? "Not started"
+                : caRun.signed_at
+                ? `Signed ${new Date(caRun.signed_at).toLocaleDateString()}${caRun.status === "awaiting_access" ? ", waiting for deal room access" : ""}`
+                : {
+                    starting: "Starting",
+                    running: "Agent working",
+                    needs_approval: "Waiting for your approval",
+                    needs_attention: "Needs attention",
+                    awaiting_access: "Waiting for deal room access",
+                    done: "Done",
+                    failed: "Failed",
+                    cancelled: "Cancelled",
+                    disabled: "Signing is off",
+                    no_link: "No CA link found",
+                  }[caRun.status];
+              const rows: Array<{ label: string; value: React.ReactNode; tab: string; warn?: boolean }> = [
+                {
+                  label: "Buybox",
+                  value: failures.length
+                    ? `Fails ${failures.length} hard filter${failures.length === 1 ? "" : "s"}: ${failures.map((f) => f.detail || f.rule).join("; ")}`
+                    : d.deal_tier
+                    ? `Passes the hard filters · ${d.deal_tier}`
+                    : "Not scored yet",
+                  tab: "ai-score",
+                  warn: failures.length > 0,
+                },
+                {
+                  label: "Market",
+                  value: known.length
+                    ? `${known.filter(Boolean).length} of ${known.length} buy-box gates met`
+                    : "No market data yet",
+                  tab: "market",
+                },
+                {
+                  label: "Confidentiality agreement",
+                  value: caText,
+                  tab: "underwriting",
+                  warn: caRun?.status === "needs_approval" || caRun?.status === "needs_attention" || caRun?.status === "failed",
+                },
+                {
+                  label: "Documents",
+                  value: (
+                    <span className="inline-flex flex-wrap gap-x-3">
+                      {(
+                        [
+                          ["om", "OM"],
+                          ["rent_roll", "Rent roll"],
+                          ["t12", "T12"],
+                        ] as const
+                      ).map(([t, name]) => (
+                        <span key={t} className="inline-flex items-center gap-1">
+                          {has(t) ? <Check className="h-3 w-3 text-emerald-600" /> : <X className="h-3 w-3 text-muted-foreground" />}
+                          {name}
+                        </span>
+                      ))}
+                    </span>
+                  ),
+                  tab: "underwriting",
+                },
+                {
+                  label: "Pro forma model",
+                  value: !model
+                    ? "Not generated"
+                    : model.status === "done"
+                    ? `Generated ${new Date(model.finished_at ?? model.created_at).toLocaleDateString()}${model.complete === false ? " (partial)" : ""}`
+                    : model.status === "failed"
+                    ? "Last run failed"
+                    : "Generating now",
+                  tab: "underwriting",
+                  warn: model?.status === "failed",
+                },
+                {
+                  label: "Capital raise",
+                  value: furthest
+                    ? `${live.length} partner${live.length === 1 ? "" : "s"} · furthest: ${STAGE_LABEL[furthest.stage]}`
+                    : engagements.length
+                    ? `All ${engagements.length} partners passed`
+                    : "No partners yet",
+                  tab: "capital-raise",
+                },
+              ];
+              return rows.map((r) => (
+                <button
+                  key={r.label}
+                  type="button"
+                  onClick={() => goTab(r.tab)}
+                  className="w-full flex items-center justify-between gap-4 py-2.5 text-left text-sm hover:bg-muted/30 px-2 -mx-2 rounded"
+                >
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground w-28 sm:w-44 shrink-0">
+                    {r.label}
+                  </span>
+                  <span className={cn("flex-1 min-w-0", r.warn && "text-amber-700 dark:text-amber-400")}>{r.value}</span>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                </button>
+              ));
+            })()}
+          </CardContent>
+        </Card>
+      </section>
+
+      {/* ============ Notes & Details ============ */}
+
+      <section>
+        <SectionHeader title="Notes & Details" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card className="surface-card border-hairline">
+            <CardContent className="pt-4">
+              <KV label="Broker" value={deal.broker} />
+              <KV label="Source" value={deal.source} />
+              <KV label="Marketed" value={deal.marketed ? "Yes" : "No"} />
+              <KV label="Affordable" value={deal.affordable ? "Yes" : "No"} />
+              <KV label="Value-Add Potential" value={deal.value_add_potential} />
+              <KV label="Address" value={deal.property_address || deal.address} />
+              <KV label="ZIP" value={deal.zip} />
+              <KV
+                label="Phone"
+                value={deal.property_phone}
+              />
+              <KV
+                label="Website"
+                value={
+                  safeExternalUrl(deal.property_website) ? (
+                    <a
+                      href={safeExternalUrl(deal.property_website)!}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      {deal.property_website!.replace(/^https?:\/\//, "")}
+                    </a>
+                  ) : null
+                }
+              />
+              <KV label="Management Co." value={deal.management_company} />
+            </CardContent>
+          </Card>
+          <DealNotes dealId={deal.id} />
+        </div>
+        {deal.notes && (
+          <Card className="surface-card border-hairline mt-4">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground font-display">
+                Legacy Notes
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <NoteContent content={deal.notes} className="text-muted-foreground" />
+            </CardContent>
+          </Card>
+        )}
+      </section>
+
+      {/* ============ Status History ============ */}
+      <section>
+        <DealStatusHistory dealId={deal.id} />
+      </section>
+        </TabsContent>
+        <TabsContent value="market" className="mt-6 space-y-8">
+      {/* ============ Submarket Supply Cycle ============ */}
+      <section>
+        <SectionHeader title="Submarket Supply Cycle · CoStar" />
+        <SubmarketSignalsPanel deal={d} />
+      </section>
+
+      {/* ============ Buy-Box Gates ============ */}
+      <section>
+        <SectionHeader title="Buy-Box Gates" />
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
+          <Stat
+            label="Units"
+            value={withEstimateMark(fmtInt(deal.unit_count), d.unit_count_is_estimated)}
             meets={meetsUnits}
             source={sourcePanel("Units", [{ source: fieldSource("unit_count") }])}
           />
           <Stat
             label="Vintage"
-            value={deal.vintage_year}
+            value={withEstimateMark(deal.vintage_year, d.vintage_is_estimated)}
             meets={meetsVintage}
             source={sourcePanel("Vintage", [{ source: fieldSource("vintage_year") }])}
           />
@@ -1238,124 +1457,6 @@ export default function DealDetail() {
             ])}
           />
         </div>
-      </section>
-
-      {/* ============ Status History ============ */}
-      <section>
-        <SectionHeader title="Status History" />
-        <DealStatusHistory dealId={deal.id} />
-      </section>
-
-      {/* ============ Notes & Details ============ */}
-
-      <section>
-        <SectionHeader title="Notes & Details" />
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Card className="surface-card border-hairline">
-            <CardContent className="pt-4">
-              <KV label="Broker" value={deal.broker} />
-              <KV label="Source" value={deal.source} />
-              <KV label="Marketed" value={deal.marketed ? "Yes" : "No"} />
-              <KV label="Affordable" value={deal.affordable ? "Yes" : "No"} />
-              <KV label="Value-Add Potential" value={deal.value_add_potential} />
-              <KV label="Address" value={deal.property_address || deal.address} />
-              <KV label="ZIP" value={deal.zip} />
-              <KV
-                label="Phone"
-                value={deal.property_phone}
-              />
-              <KV
-                label="Website"
-                value={
-                  safeExternalUrl(deal.property_website) ? (
-                    <a
-                      href={safeExternalUrl(deal.property_website)!}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-primary hover:underline"
-                    >
-                      {deal.property_website!.replace(/^https?:\/\//, "")}
-                    </a>
-                  ) : null
-                }
-              />
-              <KV label="Management Co." value={deal.management_company} />
-            </CardContent>
-          </Card>
-          <DealNotes dealId={deal.id} />
-        </div>
-        {deal.notes && (
-          <Card className="surface-card border-hairline mt-4">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground font-display">
-                Legacy Notes
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <NoteContent content={deal.notes} className="text-muted-foreground" />
-            </CardContent>
-          </Card>
-        )}
-      </section>
-        </TabsContent>
-        <TabsContent value="market" className="mt-6 space-y-8">
-      {/* ============ Buybox Assessment ============ */}
-      <section>
-        <SectionHeader title="Buybox Assessment" />
-        <Card className="surface-card border-hairline">
-          <CardContent className="pt-4">
-            <ul>
-              {/* Both of these gates can be clearing on a HelloData model
-                  output rather than a filed number — say so where the gate is
-                  read, not three sections further down. */}
-              <CriterionRow
-                label="150+ units"
-                pass={meetsUnits}
-                actual={withEstimateMark(fmtInt(deal.unit_count), d.unit_count_is_estimated)}
-              />
-              <CriterionRow
-                label="1990s–2010s vintage"
-                pass={meetsVintage}
-                actual={withEstimateMark(deal.vintage_year, d.vintage_is_estimated)}
-              />
-              <CriterionRow
-                label="Rents 10%+ below market"
-                pass={meetsRentLag}
-                actual={
-                  isNum(rentDeltaPct)
-                    ? `${rentDeltaPct >= 0 ? "+" : ""}${rentDeltaPct.toFixed(1)}%`
-                    : null
-                }
-              />
-              <CriterionRow
-                label="<5% new supply"
-                pass={meetsSupply}
-                actual={fmtPctPts(d.new_supply_pct_of_stock)}
-              />
-              <CriterionRow
-                label="Population growth above nat'l avg"
-                pass={meetsPopGrowth}
-                actual={fmtPctPts(d.population_growth_pct)}
-              />
-              <CriterionRow
-                label="Job growth above nat'l avg"
-                pass={meetsJobGrowth}
-                actual={fmtPctPts(d.job_growth_pct)}
-              />
-              <CriterionRow
-                label="Median income ≥ $55K"
-                pass={meetsIncome}
-                actual={fmtMoney(incomeForCheck)}
-              />
-            </ul>
-          </CardContent>
-        </Card>
-      </section>
-
-      {/* ============ Submarket Supply Cycle ============ */}
-      <section>
-        <SectionHeader title="Submarket Supply Cycle · CoStar" />
-        <SubmarketSignalsPanel deal={d} />
       </section>
 
       {/* ============ Comps ============ */}
