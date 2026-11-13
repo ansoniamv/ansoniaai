@@ -249,3 +249,33 @@ export function modelFileName(propertyName: string): string {
   const clean = propertyName.replace(/[\\/:*?"<>|#%]+/g, " ").replace(/\s+/g, " ").trim() || "Deal";
   return `00. Pro Forma - ${clean} vCURRENT.xlsx`;
 }
+
+// ---------------------------------------------------------------- SharePoint inputs
+
+/** A file found on SharePoint, as searchSite returns it (only the fields used here). */
+export type SharePointFileHit = {
+  item_id: string;
+  name: string;
+  kind: "file" | "folder";
+  folder: string;
+  modified: string | null;
+};
+
+/**
+ * The pro forma template on SharePoint Acquisitions: "00. Pro Forma - Template....xlsx". Deal folders hold
+ * copies, so one in the "00. Models, Research, Tools, Other" folder wins; otherwise the newest match.
+ */
+export function pickTemplateHit<T extends SharePointFileHit>(hits: T[]): T | null {
+  const ok = hits.filter((h) => h.kind === "file" && /^00\.\s*Pro Forma\s*-\s*Template\b.*\.xlsx$/i.test(h.name.trim()));
+  const newest = (a: T, b: T) => String(b.modified ?? "").localeCompare(String(a.modified ?? ""));
+  const home = ok.filter((h) => /^00\.\s*Models\b/i.test(h.folder.split("/")[0] ?? ""));
+  return (home.length ? home : ok).sort(newest)[0] ?? null;
+}
+
+/** "<year> Affordability Novogradac.xlsx": the newest year wins, then the newest file. */
+export function pickNovogradacHit<T extends SharePointFileHit>(hits: T[]): T | null {
+  const year = (h: T) => Number(h.name.match(/\b(20\d\d)\b/)?.[1] ?? 0);
+  return hits
+    .filter((h) => h.kind === "file" && /affordability/i.test(h.name) && /novogradac/i.test(h.name) && /\.xlsx$/i.test(h.name))
+    .sort((a, b) => year(b) - year(a) || String(b.modified ?? "").localeCompare(String(a.modified ?? "")))[0] ?? null;
+}

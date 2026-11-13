@@ -7,7 +7,7 @@
 //
 //   {action: "start", deal_id, inputs?, options?}
 //     Picks the deal's files (or takes the user's picks), uploads them with the
-//     template and the Novogradac workbook from Brain, and starts the session.
+//     template and the Novogradac workbook (SharePoint, else Brain), and starts the session.
 //     Returns 202 with the deal_models id; the uploads finish in the background.
 //   {action: "check", model_id}
 //     Reads what the session did since the last check, denies any tool call it
@@ -25,7 +25,7 @@
 //     in model_agent_config. Only parts whose definition changed are touched.
 //   {action: "probe"} / {action: "probe_check"} (admin)
 //     A short, $2-capped session that checks the container can install
-//     LibreOffice and recalculate the template from Brain, and its report.
+//     LibreOffice and recalculate the template, and its report.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsFor, requireApprovedUser } from "../_shared/auth.ts";
@@ -44,7 +44,9 @@ import {
   type ModelInputRole,
   parseRunResult,
   pickModelInputs,
+  pickNovogradacHit,
   pickOutputs,
+  pickTemplateHit,
   RENOVATION_LEVELS,
   runIsOver,
   type SessionEvent,
@@ -61,6 +63,8 @@ import {
   type SessionResource,
   uploadSkill,
 } from "../_shared/managedAgents.ts";
+import { getGraphToken, graphConfigured } from "../_shared/graphToken.ts";
+import { downloadItem, searchSite } from "../_shared/sharePoint.ts";
 import { UNDERWRITER } from "./underwriterBundle.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
@@ -137,7 +141,57 @@ Deno.serve(async (req) => {
 
 // ---------------------------------------------------------------- start
 
-type Picked = { role: ModelInputRole | "template" | "affordability"; id: string; file_name: string; storage_path: string; bucket: string };
+/** Where an input's bytes come from: Supabase storage, or a file on SharePoint Acquisitions. */
+type Picked = { role: ModelInputRole | "template" | "affordability"; id: string; file_name: string } & (
+  | { from: "storage"; storage_path: string; bucket: string }
+  | { from: "sharepoint"; item_id: string; path: string }
+);
+
+/**
+ * The template and the Novogradac workbook, read from SharePoint Acquisitions (where the team keeps them, so an
+ * edited template is used on the next run). A Brain upload in the model categories is the fallback when Graph
+ * isn't configured or the search finds nothing.
+ */
+async function findModelFile(admin: any, role: "template" | "affordability"): Promise<Picked | null> {
+  if (graphConfigured()) {
+    try {
+      const { token } = await getGraphToken();
+      const query = role === "template" ? '"Pro Forma - Template"' : '"Affordability Novogradac"';
+      const hits = await searchSite(fetch, token, "acquisitions", query, "", 50);
+      const hit = role === "template" ? pickTemplateHit(hits) : pickNovogradacHit(hits);
+      if (hit) {
+        return {
+          role, id: `sharepoint:${hit.item_id}`, file_name: hit.name, from: "sharepoint", item_id: hit.item_id,
+          path: hit.folder ? `${hit.folder}/${hit.name}` : hit.name,
+        };
+      }
+    } catch (e) {
+      console.error(JSON.stringify({ fn: FN, stage: "sharepoint-lookup", role, detail: String((e as Error)?.message ?? e) }));
+    }
+  }
+  const { data: src, error } = await admin
+    .from("data_room_sources")
+    .select("id,file_name,storage_path")
+    .eq("category", role === "template" ? "model_template" : "affordability")
+    .eq("kind", "file")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return src ? { role, id: src.id, file_name: src.file_name, from: "storage", storage_path: src.storage_path, bucket: BRAIN_BUCKET } : null;
+}
+
+async function downloadPicked(p: Picked): Promise<Blob> {
+  if (p.from === "sharepoint") {
+    const { token } = await getGraphToken();
+    const bytes = await downloadItem(fetch, token, "acquisitions", p.item_id);
+    return new Blob([bytes as Uint8Array<ArrayBuffer>]);
+  }
+  const admin = createClient(SUPABASE_URL, SERVICE_KEY);
+  const { data: blob, error } = await admin.storage.from(p.bucket).download(p.storage_path);
+  if (error || !blob) throw new Error(`download of ${p.file_name} failed: ${error?.message}`);
+  return blob;
+}
 
 async function start(admin: any, body: any, userId: string) {
   const cfg = await loadConfig(admin);
@@ -184,7 +238,7 @@ async function start(admin: any, body: any, userId: string) {
     if (!id) continue;
     const d: any = byId.get(id);
     if (!d) throw new UserFacingError(`The ${role.replace("_", " ")} file is not one of this deal's documents.`);
-    picked.push({ role, id, file_name: d.file_name, storage_path: d.storage_path, bucket: DOCS_BUCKET });
+    picked.push({ role, id, file_name: d.file_name, from: "storage", storage_path: d.storage_path, bucket: DOCS_BUCKET });
   }
   for (const role of ["t12", "rent_roll"] as const) {
     if (!picked.some((p) => p.role === role)) {
@@ -192,27 +246,19 @@ async function start(admin: any, body: any, userId: string) {
     }
   }
 
-  // ---- Brain: the newest file in each model category
-  for (const [role, category, required] of [
-    ["template", "model_template", true],
-    ["affordability", "affordability", false],
-  ] as const) {
-    const { data: src, error } = await admin
-      .from("data_room_sources")
-      .select("id,file_name,storage_path")
-      .eq("category", category)
-      .eq("kind", "file")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (error) throw error;
-    if (!src && required) {
-      throw new UserFacingError('No pro forma template in Brain yet. Upload it there under "Pro forma template (model runs)".');
-    }
-    if (src) picked.push({ role, id: src.id, file_name: src.file_name, storage_path: src.storage_path, bucket: BRAIN_BUCKET });
+  // ---- the template and the Novogradac workbook (SharePoint, else Brain)
+  const template = await findModelFile(admin, "template");
+  if (!template) {
+    throw new UserFacingError('Couldn\'t find "00. Pro Forma - Template.xlsx" on SharePoint Acquisitions.');
   }
+  picked.push(template);
+  const novogradac = await findModelFile(admin, "affordability");
+  if (novogradac) picked.push(novogradac);
 
-  const inputs = Object.fromEntries(picked.map((p) => [p.role, { id: p.id, file_name: p.file_name }]));
+  const inputs = Object.fromEntries(picked.map((p) => [
+    p.role,
+    { id: p.id, file_name: p.file_name, ...(p.from === "sharepoint" ? { sharepoint_path: p.path } : {}) },
+  ]));
   const { data: row, error: insErr } = await admin
     .from("deal_models")
     .insert({ deal_id: dealId, status: "starting", inputs, options, created_by: userId, progress: "Uploading the files" })
@@ -254,8 +300,7 @@ async function launch(
   };
 
   for (const p of picked) {
-    const { data: blob, error } = await admin.storage.from(p.bucket).download(p.storage_path);
-    if (error || !blob) throw new Error(`download of ${p.file_name} failed: ${error?.message}`);
+    const blob = await downloadPicked(p);
     const ext = p.role === "template" || p.role === "affordability" ? ".xlsx" : fileExtension(p.file_name);
     const mountAs = `${p.role === "affordability" ? "novogradac" : p.role}${ext}`;
     const fileId = await uploadClaudeFile(blob, p.file_name);
@@ -562,22 +607,13 @@ const PROBE_MESSAGE = [
   "4. End with one line: RECALC: works | RECALC: no LibreOffice | RECALC: fails (<why>).",
 ].join("\n");
 
-/** Start the container check: the template from Brain, a $2 cap, no deal. */
+/** Start the container check: the template, a $2 cap, no deal. */
 async function probe(admin: any) {
   const cfg = await loadConfig(admin);
   if (!cfg?.agent_id || !cfg?.environment_id) throw new UserFacingError("Set up model generation first.");
-  const { data: src, error } = await admin
-    .from("data_room_sources")
-    .select("file_name,storage_path")
-    .eq("category", "model_template")
-    .eq("kind", "file")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  if (!src) throw new UserFacingError("No pro forma template in Brain yet.");
-  const { data: blob, error: dlErr } = await admin.storage.from(BRAIN_BUCKET).download(src.storage_path);
-  if (dlErr || !blob) throw new Error(`template download failed: ${dlErr?.message}`);
+  const template = await findModelFile(admin, "template");
+  if (!template) throw new UserFacingError('Couldn\'t find "00. Pro Forma - Template.xlsx" on SharePoint Acquisitions.');
+  const blob = await downloadPicked(template);
   const fileId = await uploadClaudeFile(blob, "template.xlsx");
   const session = await createSession({
     agentId: cfg.agent_id,

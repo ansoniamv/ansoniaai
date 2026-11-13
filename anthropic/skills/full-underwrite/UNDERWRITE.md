@@ -8,7 +8,7 @@ This skill underwrites an acquisition deal in a new copy of Ansonia's pro forma 
 - the property's raw rent roll and T12 (any PM system)
 - the OM, if there is one
 
-**Output:** a **new** copy of `00. Pro Forma - Template` (never edit the template or an existing deal model), saved as `00. Pro Forma - <Property> vCURRENT.xlsx`, with the T12, Floorplans, Units, Floor Plan Summary and Overview tabs filled in, plus a short QC summary.
+**Output:** a **new** copy of `00. Pro Forma - Template` (never edit the template or an existing deal model), saved as `00. Pro Forma - <Property> vCURRENT.xlsx`, with the T12, Floorplans, Units, Floor Plan Summary, Overview, Rent Analysis, county affordability, Value-Add, Payroll, Tax, AP Comps, Pro Forma Broker, debt and Q&As tabs filled in (plus a Commercial Analysis tab and commercial Pro Forma / Multi Yr rows whenever the property has commercial space), plus a short QC summary.
 
 **Web access:** Chase has given standing permission to use any website for this skill's research. Browse and search without asking first.
 
@@ -18,6 +18,7 @@ This skill is self-contained: everything it needs is in this file. No SharePoint
 1. **Get the files.** Chase usually attaches them. Otherwise use the deal folder on SharePoint Acquisitions2: `<Region>/<Property>/00. Broker Provided` (or `Broker Info`), which has `Financials/`, `Rent Roll/` and the OM. The template is in `00. Models, Research, Tools, Other/`, and Chase can attach it too.
    - Use the newest T12 and the rent roll closest to it.
    - If the raw file is a messy PDF export, use a cleaned `CK Edit - ...` copy if there is one.
+   - **No OM:** if Chase says there is no OM, still run everything. Get the address, year built, unit count, amenities and floor plans from the property's listing pages (apartments.com, HAR, the property site). Get the assessed value and rates from the appraisal district / county tax office (section C.9). Pick 5-7 nearby comps of similar vintage yourself for AP Comps (section C.10). Leave the Broker column (section C.13) blank. Treat every plan as classic unless Chase says otherwise. List all of these in the review list.
    - Also get the Novogradac affordability workbook, `2026 Affordability Novogradac.xlsx` (Acquisitions2 root; see section C.7).
 2. **Write the appendix code to disk:**
    - Appendix B -> `classifier.py`
@@ -30,6 +31,10 @@ This skill is self-contained: everything it needs is in this file. No SharePoint
    - Appendix I -> `lo_compat.py`
    - Appendix J -> `ap_comps.py`
    - Appendix K -> `t12_outliers.py`
+   - Appendix L -> `il_transfer_tax.py`
+   - Appendix M -> `value_add.py`
+   - Appendix N -> `affordability.py`
+   - Appendix O -> `commercial.py`
 3. **Read the raw T12.**
    - Find the month header row, the label column and the 12 month columns.
    - Classify every row as a header (no numbers), a line or a total.
@@ -55,11 +60,17 @@ This skill is self-contained: everything it needs is in this file. No SharePoint
    - After the first recalc, fill the AP Comps rent-comp tables and charts by bedroom (section C.12), then recalc again.
    - Fill the Pro Forma Broker column (I) from the OM's Year 1 pro forma (section C.13).
    - Set the Fixed 1 Treasury to the current 7-year Treasury yield from the web (section C.14).
+   - Illinois deals only: set the transfer tax rate in S&U D8 (section C.15).
+   - Fill the Value-Add hard levers from the OM's pitched value-add (section C.16).
+   - Fill the Rent Analysis Bathrooms column and the Affordability table: 80% AMI limits and a tenant-paid utility allowance table built on the county tab (section C.17).
+   - Log the few items of interest on the Q&As tab (mainly any T12 line driving a category well above normal; section C.18) after the first recalc.
+   - **Commercial space (retail, office, any non-residential lease in the RR, OM or T12):** add the Commercial Analysis tab and the commercial rows on Pro Forma / Multi Yr (section C.19). Do this as the **last structural step**, after payroll, the Broker column and value-add are written, because it inserts rows (every Pro Forma row from 28 down moves 2 rows; Multi Yr from 58 down).
+   - Finishing formatting: un-highlight the pink Overview cells that are no longer TBD (section C.5), draw the bed/bath separator lines on Floorplans (section C.2), and highlight renovated plan rows light gold on Rent Analysis (section C.11).
 7. **Recalculate and cache.**
    - `python3 lo_compat.py out.xlsx qc_in.xlsx && python3 recalc.py qc_in.xlsx qc.xlsx`. The QC copy swaps XLOOKUP for INDEX/MATCH, so LibreOffice can evaluate the Rent Analysis chain; the delivered file keeps its XLOOKUPs.
    - Staff the Payroll tab from qc.xlsx values (section C.8), save, and run `lo_compat.py` + `recalc.py` again.
    - Read qc.xlsx for QC.
-   - `python3 inject_cache.py out.xlsx qc.xlsx final.xlsx "T12|Floorplans|Units|Floor Plan Summary|Overview|Pro Forma|Dashboard|Rent Analysis|<county tab>|Payroll|Tax|AP Comps|Multi Yr|Fixed 1 - Rate Buy Down" <Floorplans G37>`
+   - `python3 inject_cache.py out.xlsx qc.xlsx final.xlsx "T12|Floorplans|Units|Floor Plan Summary|Overview|Pro Forma|Dashboard|Rent Analysis|<county tab>|Value-Add|Payroll|Tax|AP Comps|Multi Yr|Fixed 1 - Rate Buy Down|Q&As|S&U|Returns" <Floorplans G37>` (add `|Commercial Analysis` when the deal has commercial)
    - Deliver `final.xlsx`.
 8. **Run the QC (section D)** and report it. Keep the report short: the tie-outs, then a list of every judgment call and fallback-rule code for Chase to review.
 9. **Learning loop.** When Chase corrects a code or sets a new rule, propose an update to this skill. Add the line to Appendix A (format `side|code|normalized text`, normalized with `norm()`), or change the rule text. Chase saves it from the skill card.
@@ -71,9 +82,9 @@ This skill is self-contained: everything it needs is in this file. No SharePoint
    - Feature variants in the PM unit codes (e.g. "Y", "-D") stay as **separate plans**, e.g. "A1-D - P".
 2. **Bulk cable/internet** is always coded: income -> Bulk Internet Income (including cable commissions and revenue share); expense -> Bulk Internet Expense. A small office internet/phone line stays Administrative.
 3. **Parking, garage, carport and laundry income** -> Other Residential Income.
-4. **Model, employee, courtesy-officer and office units** are always Non-Revenue.
+4. **Model, courtesy-officer and office units** are Non-Revenue (employee units: see the RR bullet below).
    - On the T12, an expense-side "employee units" line gets FLIPPED into Non-Revenue Units.
-   - On the RR, model units and employee units that pay no rent are Non-Rev. An employee unit that still pays rent stays Occupied.
+   - On the RR, follow the rent roll's own unit status exactly as redIQ does, so unit counts and occupancy tie to a redIQ export: units the RR lists as model / admin / office / down (not leased) are Non-Rev. A unit the RR lists as occupied stays **Occupied** even when an employee or other credit offsets all of its rent; the credit goes in **Upfront Concessions** (as redIQ does) and the unit is flagged in the QC.
 5. **FLIPPED rows** are always bright yellow across the whole row.
 
 ## A. T12 mapping
@@ -97,11 +108,12 @@ The Pro Forma reads the T12 **by Category text**, so only these labels count:
 | oinc | Other Residential Income | wat | Water & Sewer |
 | rubs | RUBS | mgt | Property Management Fee |
 | smart | Bulk Internet Income | ret | Real Estate Taxes |
-| | | ins | Insurance |
-| | | fran | Franchise Tax |
-| | | smartex | Bulk Internet Expense |
+| rinc | Renters Insurance Income | ins | Insurance |
+| comm | Commercial | fran | Franchise Tax |
+| CAM | CAM | smartex | Bulk Internet Expense |
+| | | rexp | Renters Insurance Expense |
 
-Never leave a line as Parking, Commercial, CAM, Doorman or Other Operating Expenses: those labels drop out of the Pro Forma. Remap it (commercial/CAM -> Other Residential Income, doorman/front desk -> Personnel) and flag it.
+The two commercial categories (comm / CAM) only have Pro Forma rows once section C.19 has added them, so use them only on deals with commercial space (and always run C.19 when you use them). Never leave a line as Parking, Doorman or Other Operating Expenses: those labels drop out of the Pro Forma. Remap it (parking -> Other Residential Income, doorman/front desk -> Personnel) and flag it.
 
 ### Key rules
 The full regex rules are in `classifier.py`. The main ones:
@@ -111,7 +123,12 @@ The full regex rules are in `classifier.py`. The main ones:
 - **Water:** water/sewer/drainage -> `wat`, except water damage, extraction or treatment and sewer *repairs* -> `rm`.
 - **Other utilities:** electric/gas common and vacant, trash, valet trash and utility billing service -> `util`.
 - **Payroll-side insurance:** workers comp, health, life and unemployment -> `pers`.
-- **Insurance programs:** renters-liability / forced-placed coverage and deposit-waiver *expense* -> `admin`. Property/hazard insurance -> `ins`.
+- **Resident insurance programs** (template rows Pro Forma 25 / 39, added Oct 2026): renters insurance, renters liability (RLL/RLI), "Asset Protect", forced-placed / insurance non-compliance coverage, damage waivers and security-deposit waiver / alternative programs (LeaseLock, Rhino, Obligo, SureDeposit, Jetty, TheGuarantors):
+  - the program's premium / cost -> `rexp` (Renters Insurance Expense)
+  - income from it (premiums billed to residents, non-compliance fees, carrier commissions or revenue share), on either side of the T12 -> `rinc` (Renters Insurance Income); on the expense side it becomes a FLIPPED row
+  - **not** these: property/hazard/umbrella insurance (-> `ins`), insurance claim proceeds or recoveries (-> `oinc`), and employee health/life/workers comp (-> `pers`)
+  - flag every `rinc` / `rexp` line in the review list. A deposit-waiver program is a judgment call (it is a deposit substitute, not a policy); it goes with the insurance programs so its income and cost sit together.
+- **Property insurance:** property/hazard insurance -> `ins`.
 - **Taxes:**
   - real estate taxes (including "RET - CY") -> `ret`
   - tax consulting, tax protest or "tax service", personal property tax, "RET - Other" and Ohio CAT -> `admin`
@@ -124,7 +141,8 @@ The full regex rules are in `classifier.py`. The main ones:
 **Income side:**
 - **Collection Loss:** bad debt, write-offs *and* recoveries -> `cl`.
 - **Utility reimbursements:** water, sewer, trash, pest and valet -> `rubs`. Utility admin fees and HUD allowances -> `oinc`.
-- **Other income:** all fees, pet, storage, parking, laundry, MTM, damages and insurance-program income -> `oinc`.
+- **Other income:** all fees, pet, storage, parking, laundry, MTM and damages -> `oinc`. Resident insurance-program income -> `rinc` (see above).
+- **Commercial / retail income** (any line naming commercial, retail or the commercial tenant): base rent, rent concessions / abatement, commercial vacancy, commercial bad debt and other commercial rent adjustments -> `comm` (Commercial); CAM, RET / insurance recoveries and other commercial billbacks -> `CAM`. They never go to the residential Vacancy / Concessions / Collection Loss / Other Residential Income lines. (The pro forma vacancy on commercial is the 10% Commercial Vacancy Factor on the Commercial Analysis tab, section C.19.)
 
 **Both sides:**
 - **Not coded:** depreciation, amortization, interest/mortgage, capex, asset-management and owner fees, and anything below NOI.
@@ -140,32 +158,39 @@ The full regex rules are in `classifier.py`. The main ones:
 - **One Superior:** RR rents doubled.
 
 ## B. Rent roll mapping
-- **Contractual rent** = scheduled base rent plus rent-type recurring charges (amenity or resident-service fees).
+- **Contractual rent** = scheduled base rent plus rent-type recurring charges (amenity or resident-service fees), including a **Month-to-Month Fee / MTM premium** (redIQ adds it to rent).
   - Never use prorated/actual charges or "Total Charges".
   - Never double-count a Lease Rent column plus a RENT code (RealPage).
 - **Other Income:** pet, parking, storage, pest, trash, cable, insurance waiver.
 - **Concessions:**
   - recurring -> Recurring Concessions, which reduce Net Effective Rent
   - one-time / move-in -> Upfront Concessions (not netted)
-  - employee and model credits -> Emp./Other Discounts (not netted)
+  - employee, model and courtesy-officer credits -> **Upfront Concessions** (not netted), as redIQ does
+  - Yardi `Rent - Amenity` adjustments -> **Upfront Concessions** (as redIQ); `Rent - Short Term Lease` and a Month-to-Month Fee count as contractual rent
 - **Mixed misc column:** if the rent roll only gives one net misc-charges column, treat a large negative on a recent move-in as Upfront Concessions and flag it.
 - **Status:** Occupied, Vacant or Non-Revenue only.
   - Notice units stay Occupied, with a Move Out date.
-  - A vacant unit with a signed applicant counts as Occupied.
+  - A vacant unit with a signed applicant stays **Vacant** (as redIQ); the applicant lease goes in the Future columns.
   - A just-moved-in unit with $0 rent posted: Occupied at $0, and flag it.
 - **Lease dates:**
-  - Lease expired before the as-of date -> mtm "MTM", Lease Term "-".
+  - Lease expired before the as-of date -> mtm "MTM", Lease Term "-". A lease with no end date gets no term and no MTM flag.
+  - Lease Term = whole months from lease start to lease end, rounded down (redIQ: 4/11/26-4/9/27 = 11).
   - Placeholder lease ends (e.g. 2099) -> leave Lease Exp blank.
   - No lease start column -> leave Lease Start blank, and date the FPS recency buckets by move-in.
 - **Future and applicant leases** go in the Future columns on the same unit row.
-- **Commercial suites** stay out of the residential floor plans.
+- **Commercial suites** stay out of the residential floor plans; their leases feed the Commercial Analysis tab (section C.19).
 - **Floorplans row per plan:** units, occupied/vacant/non-rev, average market rent (all units), average in-place and NER (occupied units), and psf for each.
   - Total row: sums, with rent totals = sum of rents.
   - Average row: market rent over all units; in-place over occupied units.
 - **Floor Plan Summary row per plan:**
   - units, occupancy count and %, market rent for all units and for occupied units, in-place rent, % of market
-  - in-place rent and lease count for Recent 20 (units on the 20 most recent distinct move-in dates, ties included) and for move-ins in the last 90/60/30 days
-  - Total row: lease counts are sums; rent buckets are recomputed over all occupied units.
+  - in-place (contractual) rent and lease count for Recent 20 and the last 90/60/30 days, bucketed **exactly the way redIQ does it** so the FPS ties to a redIQ Floor Plan Summary export with no discrepancies:
+    - Bucket by **Lease Start Date** (not move-in), so renewals count as recent leases. Only fall back to move-in when the rent roll has no lease start column.
+    - Recent 20 = the 20 occupied leases with the latest lease start date (exactly 20; all of them if the plan has fewer). If the 20th and 21st share a date, keep the one with the later move-in, then the lower unit number.
+    - Last 90/60/30 = occupied leases whose lease start is on or after the as-of date minus 90/60/30 days (inclusive).
+    - Header labels: U5 = "In-Place Rent (by Lease Start Date)", Y5 = "# Leases (by Lease Start Date)" (the template says "by Move-In Date"; overwrite it).
+  - Total row: lease counts are sums; each rent bucket (U:X) is the **unit-weighted average of the plan values** (weight = plan # units, column I) over **only the plans that have leases in that bucket**; plans with none are left out. This is how redIQ computes the total (verified against a redIQ export, Foundry Townhomes 11/2026), so it ties too.
+  - Lease Type (D) and Renovated (E) are blank on the Floor Plan Summary, and Lease Type (D) is blank on Floorplans, as in the redIQ export.
 
 ## C. Pro forma placement
 The template's starter data is always replaced. Clear each value range completely before writing, including cells below the last new row.
@@ -181,7 +206,7 @@ The template's starter data is always replaced. Clear each value range completel
 | AF:AP | RUBS / Utility Analysis, rebuilt per deal. It uses the template's slot layout that the AL ratio formulas reference: AG10 electric RUBS vs AJ11:AJ12 electric expense; AG11 water vs AJ13; AG12 gas vs AJ14:15; AG13 sewer vs AJ16; AG14 pest vs AJ10; AG17 trash vs AJ17; AG18 other fees; AG20 cable vs AJ20; AG22 renters-insurance vs AJ22. AG and AJ = `SUMIF($E:$E,"<exact line item>",$AC:$AC)`; FLIPPED names include " - FLIPPED". If water and sewer collections are one line, combine them in the water slot and note it in AP. |
 
 **How the Pro Forma reads the T12:**
-- `Pro Forma!G13:G49 = SUMIF(T12!$D:$D, <Category>, T12!AC:AC)`, the T12 total.
+- `Pro Forma!G13:G50 = SUMIF(T12!$D:$D, <Category>, T12!AC:AC)`, the T12 total.
 - Column H = "T3 Rev / T12 Exp": income rows read column T; expense rows = G.
 - Column I = Broker.
 
@@ -214,6 +239,7 @@ List the bolded lines (line, month, value vs median) in the QC review list.
 | C12:R36 (values) | One row per plan: C PlanID, D LeaseType, E Renovated (Renovated/Partial/blank), F Bed, G AvgNetSF, H %NetSF, I Occup, J Vac, K NonRev, L Total, M AvgMkt, N MktPSF, O AvgInPlace, P InPlacePSF, Q AvgNER, R NER PSF. Up to 25 plans. Sort by bed, then sqft, then reno, then variant, so each bed x bath type is a contiguous block. |
 | Row 37 "Total" | G = total NRSF, H = 1, I:L = sums, M/O/Q = total monthly rents. |
 | Row 38 "Average" | G = avg sf; M = market rent over all units; O/Q = in-place/NER over occupied; N/P/R = psf. |
+| C12:R(last plan row) borders | Same separator lines as the Floor Plan Summary (section C.4): bottom border **thin** when the next plan has a different bedroom count, **dashed** when same bedrooms but different bathrooms, none when same bed and bath, **medium** under the last plan. Apply with `make_style(wb, s, bottom=...)` so number formats are kept. |
 | U7:X12 unit mix (feeds Dashboard C38:F42) | One row per **bed x bath type the property actually has** (e.g. 1x1, 2x1, 2x2), in U8:U11. V = `=+SUM(L<a>:L<b>)`, W = `=+SUMPRODUCT(Q<a>:Q<b>,$L$<a>:$L$<b>)/SUM($L$<a>:$L$<b>)`, X = the same with R. Unused rows get the label " " and no formulas. U12 = Total, V12 = `=+SUM(V7:V11)`, W12/X12 = SUMPRODUCT over V8:V11. Max 4 types: if there are more, combine the smallest. |
 
 ### 3. Units tab
@@ -227,7 +253,8 @@ Plan names must be identical across Floorplans, Units and FPS, because Rent Anal
 ### 4. Floor Plan Summary tab
 | Area | Contents |
 |---|---|
-| C7:AB(n) | One row per plan, in the same order as Floorplans: C Plan, D LeaseType, E Renovated, F Bed, G Bath, H sf, I units, J %, K/L/M occ/vac/nonrev counts, N/O/P %, Q market (all units), R market (occupied), S in-place, T S/R, U-X in-place by Recent 20/90/60/30, Y-AB counts. |
+| C7:AB(n) | One row per plan, in the same order as Floorplans: C Plan, D LeaseType, E Renovated, F Bed, G Bath, H sf, I units, J %, K/L/M occ/vac/nonrev counts, N/O/P %, Q market (all units), R market (occupied), S in-place, T S/R, U-X in-place by Recent 20/90/60/30 and Y-AB counts, all by Lease Start Date per section B (redIQ method). |
+| U5 / Y5 | "In-Place Rent (by Lease Start Date)" / "# Leases (by Lease Start Date)". |
 | Row n+1 | "Total / Average", directly after the last plan. |
 | AD:AI | On every plan row: AD = `+_xlfn.XLOOKUP($C<r>,'Rent Analysis'!$T$9:$T$36,'Rent Analysis'!$AA$9:$AA$36)`, AE = `IF(U<r>=0,"",$AD<r>-U<r>)` (AF/AG/AH the same with V/W/X), AI = `+C<r>`. Clear them on the Total row and below. |
 
@@ -288,6 +315,8 @@ Fill everything the OM, T12 and rent roll support; leave "TBD" otherwise.
 | J8 / J9 | Laundry and cable contracts (OM + T12). |
 | Tier 3 | Fill only J19 (T12 month-to-month anomalies), J26 (write-offs present) and J33 (RUBS on the T12). |
 
+**Un-highlight filled cells.** The template marks every open item with a reddish-pink fill (`FFFF9393`) and "TBD". After filling the Overview, remove the fill (`make_style(wb, s, fill='none')`) from every pink cell whose value no longer starts with "TBD" (numbers count as filled). Cells still reading "TBD..." stay pink. Use `fill_rgb()` to find the pink cells; don't hard-code addresses.
+
 ### 6. Cached values
 - The save writes `fullCalcOnLoad` and drops calcChain.
 - inject_cache writes LibreOffice's results into the cached values, so the file shows correct numbers even in Protected View.
@@ -305,7 +334,8 @@ Every deal gets a copy of its county's sheet from the Novogradac workbook, inser
    - If no sheet matches, skip the tab and tell Chase the county isn't in the workbook yet.
 4. **Copy it** with `copy_sheet(src_xlsx, sheet, wb, sheet, before='Value-Add')`, keeping the source sheet's name. It brings values, formulas, formatting, column widths, merges and pictures; it shifts sheet-local defined names so print areas still line up.
    - **Source file:** the connector can't download the .xlsx itself. Use the copy Chase attached, or a synced copy on his computer. If neither is available, fall back: `read_resource` with `startPage=endPage=<sheet number>`, pass that `## Sheet:` section to `sheet_from_text()`, then `copy_sheet()` the result. This carries values and formulas but **not formatting or pictures**, so flag it and ask Chase to attach the workbook for a formatted copy.
-5. **QC flags:** the sheet picked; no 2026 sheet for the county (the newest year used instead); no year in the name; a hidden source sheet; or the text fallback.
+5. **Rent Analysis link:** the 80% limits and the tenant-paid utility allowance table built on this tab feed the Rent Analysis Affordability table (section C.17).
+6. **QC flags:** the sheet picked; no 2026 sheet for the county (the newest year used instead); no year in the name; a hidden source sheet; or the text fallback.
 
 ### 8. Payroll tab
 Staff it from the unit count, then solve wages to the T12.
@@ -318,11 +348,13 @@ Staff it from the unit count, then solve wages to the T12.
    - Clear C:F on every unused staff row, so the P18:P20 staff counts are right.
 3. **Hours:** 40 per week for everyone (F).
 4. **Wages (E):**
-   - The Community Manager and the Lead Tech get the top wage.
-   - Each person below them on the same side earns about 6% of the top wage less than the one above.
+   - **Office:** the Community Manager gets the top wage. Each Office person below earns about 6% of the top wage less than the one above.
+   - **Maint = 90% of the Office wage at the same level** (Lead Tech = 90% of CM, 1st Service Tech = 90% of Asst. CM, next Service Tech = 90% of the 1st Leasing Agent, and so on).
    - Round every wage to the nearest $0.25.
-   - Solve the top wage so Payroll L27 lands **close to, but not exactly on,** the T12 Personnel total (Pro Forma G37). L27 includes the 15% burden (K7), the CM's 10% bonus (H8) and the commission rows 24-25.
-   - Use `payroll.plan(units, Pro Forma G37, Payroll I24 + I25)` with values from the first recalc, and `payroll.write()`. If rounding lands within $100 of the T12, the CM drops $0.25.
+   - **Maint below Office:** if rounding makes a Maint wage equal to or higher than its Office counterpart, or equal to **any** Office wage, it drops $0.25 at a time until it isn't.
+   - Solve the top wage so Payroll L27 lands **close to, but not exactly on,** the T12 Personnel total (Pro Forma G38). L27 includes the 15% burden (K7), the CM's 10% bonus (H8) and the commission rows 24-25.
+   - Use `payroll.plan(units, Pro Forma G38, Payroll I24 + I25)` with values from the first recalc, and `payroll.write()`. If rounding lands within $100 of the T12, the CM drops $0.25 (and the Maint wages are re-checked against the new Office wages).
+   - Run `payroll.check(rows)` before writing; it must return no issues.
 5. Keep the template's burden, bonus, commission and turnover inputs as they are.
 
 ### 9. Tax tab (from the OM)
@@ -330,7 +362,7 @@ Fill In Place (col D) and Year 1 PF (col E) from the OM's tax section: "Tax Info
 
 | Cell | In Place (D) | Year 1 PF (E) |
 |---|---|---|
-| D9 | Parcel ID (as text). | |
+| D9 | Parcel ID, as a hyperlink to the parcel's tax bill page: `=HYPERLINK("<url>","<parcel id>")`, styled with `link_style()` (see below). | |
 | 15 | `=D16/D14` (keep) | `=E16/E14`. This replaces `=_AssmntRatio`, so Pro Forma W18 "Tax Scenario" no longer drives taxes. |
 | 16 Tax Market Value | The latest certified assessment the OM gives (e.g. "2025 Tax Assessment"). | The OM's **pro forma** assessment (e.g. "Pro Forma Tax Assessment", typically the prior assessment +3%). If the OM gives only Year 1 taxes, use OM Year 1 taxes / rate. |
 | 17 Assessment Ratio | The state's ratio: TX = 100%. For other states, keep the template's value and confirm it with Chase. | `=D17` (keep) |
@@ -339,7 +371,8 @@ Fill In Place (col D) and Year 1 PF (col E) from the OM's tax section: "Tax Info
 | D27 Reassessment | A short note: pending litigation / protest status and which assessment year is in place. | |
 | Row 31 (Historical) | C = assessed year, D = assessed value, H = tax year paid, I = tax amount, for each year the OM gives. Leave the improved/land split blank unless the OM gives it. | |
 
-- **Tie-out:** D22 should equal the OM's in-place taxes (to within $1), and E22 the OM's Year 1 pro forma taxes. `_Yr1Tax` (E22) feeds Pro Forma O47/W36 and Multi Yr.
+- **D9 tax bill link:** find the parcel's tax bill / statement page online (county treasurer or tax collector; in TX the county tax assessor-collector, e.g. Tarrant `tax.tarrantcountytx.gov`, Dallas `dallasact.com`) and use its per-parcel URL. If the collector's site has no stable per-parcel URL (search form only), link the appraisal district / assessor parcel record instead (e.g. TAD `https://www.tad.org/property?account=<acct>`) and say so in the QC. Write it as `T.set('D9', '=HYPERLINK("<url>","<parcel id>")')`, then `el = T.cell('D9'); el.set('s', str(link_style(wb, el.get('s'))))` for the blue underlined link font. Several parcels: D9 links the first; put each further parcel's HYPERLINK in E9, F9, ... the same way.
+- **Tie-out:** D22 should equal the OM's in-place taxes (to within $1), and E22 the OM's Year 1 pro forma taxes. `_Yr1Tax` (E22) feeds Pro Forma O49/W36 and Multi Yr.
 - **Missing data:** if the OM has no tax section, leave the template's tax inputs as they are and flag it.
 - **QC report:** in-place and Year 1 taxes, the per-door amounts, the increase, and the note that Year 1 uses the OM's assessment rather than the 85%-of-price Tax Scenario.
 
@@ -381,18 +414,21 @@ This merges Chase's **build-floorplan-rent-tables** and **acquire-market-rents**
    - Vacant / zero-rent units and **Non-Revenue units** go on top. Non-Rev units can still carry a NetEffRent, and they are excluded from the average.
    - Then the rest, ascending by effective rent, with ties broken by unit number.
    - Sort by writing the unit numbers in order. Never range-sort the formula cells.
-4. **Acquire market rents (Rent Analysis AA10:AA<9+plans>, "Acq. Mkt Rent"):**
-   - Formula: `=AVERAGE(<rentcol><first live row>:<rentcol><last>)`, where live = revenue units with rent > 0. These form one contiguous block at the bottom, e.g. `=AVERAGE(N50:N64)`.
-   - Never use AVERAGEIF. Black font; keep the cell's format.
+4. **Acquire market rents (Rent Analysis AA10:AA<9+plans>, "Acq. Mkt Rent") - a sample, not every rent (Chase, Oct 2026):**
+   - Live units = revenue units with rent > 0. They form one contiguous block at the bottom, sorted ascending.
+   - **Don't average 100% of the live rents.** Average a contiguous **sample** of that block chosen so the Floor Plan Summary delta **AE (= AA - U, the Recent-20 in-place average) stays under $55** (|AE| < 55) for that plan.
+   - Pick the sample with `rent_tables.pick_window()`: the **largest** contiguous run of the sorted live rents whose mean is within $55 of the plan's FPS U; ties go to the mean closest to U. Trimming happens from the ends, so stale low rents and odd high rents drop out first. The sample keeps at least 40% of the live units (minimum 3). If the full block is already within $55, use all of it.
+   - It has to make sense: never cut a plan down to a handful of units just to hit the target. If no run of at least 40% / 3 units gets under $55 (usually small plans, or NER vs in-place gaps from concessions), use the closest qualifying run and flag the plan with its AE.
+   - Formula: `=AVERAGE(<rentcol><first sample row>:<rentcol><last sample row>)`, e.g. `=AVERAGE(N52:N61)`. Never use AVERAGEIF. Black font; keep the cell's format.
+   - U comes from the Floor Plan Summary (column U) on the recalculated copy, so build the blocks, recalc, then set AA with the sample (or compute Recent-20 in-place averages in Python from the Units data, the same way FPS U is built).
    - The template AA cells are empty. If a model already has values there, tell Chase before overwriting.
 5. **Plans with no rented units:** hardcode an estimate from same-bed neighbors by sqft (the midpoint of the nearest smaller and larger plans, else the nearest same-bed plan). Use a **blue font (#0000FF)** and give the reasoning in the report, e.g. "no units with rent; between A2 ($1,333) and A2Y ($1,478)".
 6. **Outliers:** flag any live rent below 80% or above 120% of its plan median, and every Non-Revenue unit that carries a rent. Keep the outliers in the average, list them in the report, and offer to exclude them by moving the range start or end.
-7. **Check (Floor Plan Summary AE = Rent Analysis AA - the Recent-20 average U):**
-   - Plans with 20 or fewer rented units should be ~$0.
-   - Larger plans can differ because Recent 20 covers only the 20 newest leases. Explain those, and report any other large gaps as possible data mismatches.
-8. **Report:** the range filled plus one example formula, that the blocks were built and sorted, any estimates (value + reasoning), outliers, Non-Rev units excluded, and the check values that aren't ~$0. Also include a reminder that the unit lists and ranges are fixed, so a lease-up or rent change means re-sorting that block and updating its AVERAGE range.
+7. **Check (Floor Plan Summary AE = Rent Analysis AA - the Recent-20 average U):** every plan's |AE| should be under $55 after the sample in step 4. List any plan that isn't (with its AE and why: too few units, NER vs in-place gap), and report each plan's sample size (n of live units) and the rents left out at each end.
+8. **Renovated plans -> light gold.** For every plan whose name ends in " - R" (fully renovated), fill that plan's row light gold (`FFFFF2CC`, Gold Accent 4 Lighter 80%) in **every plan-row table** on Rent Analysis, and only inside the tables. The tables are the contiguous runs of row-9 headers: C:R (In-Place), T:AJ (Post-Rehab), AM:AN (Trending), AP:AY (Affordability). Columns between tables (S, AK:AL, AO) stay unfilled. Find the runs from the row-9 headers rather than hard-coding them, and keep each cell's border and number format (`make_style(wb, s, fill='FFFFF2CC')`).
+9. **Report:** the range filled plus one example formula, that the blocks were built and sorted, the sample per plan (n of live, AE before vs after), any estimates (value + reasoning), outliers, Non-Rev units excluded, and any plan with |AE| >= $55. Also include a reminder that the unit lists and ranges are fixed, so a lease-up or rent change means re-sorting that block and updating its AVERAGE range.
 
-Implement with `rent_tables.build(wb, units, plans, beds_sf)`, where units = `[(unit_id, plan, NetEffRent, OccStatus)]` in Units order, plans = Floorplans C12.. order, and beds_sf = `{plan: (beds, avg sf)}`.
+Implement with `rent_tables.build(wb, units, plans, beds_sf, recent20)`, where units = `[(unit_id, plan, NetEffRent, OccStatus)]` in Units order, plans = Floorplans C12.. order, beds_sf = `{plan: (beds, avg sf)}` and recent20 = `{plan: FPS U}` (the Recent-20 in-place average; pass None to average all live rents).
 
 ### 12. AP Comps rent-comp tables + charts (by bedroom)
 Below the amenity table, AP Comps has one rent-comp table per bedroom type, each with a scatter chart (Sq. Ft. vs Avg. Asking Rent) to its right:
@@ -400,8 +436,8 @@ Below the amenity table, AP Comps has one rent-comp table per bedroom type, each
 | Table | Template rows | Chart |
 |---|---|---|
 | Studio | title 25, header 26, data 27-50 | grouped/hidden by default |
-| 1 BEDROOM | title 54, header 55, data 56-95 | per-point labels point at the C cells; the autofilter sits on this table |
-| 2 BEDROOM | title 97, header 98, data 99-140 | labels come from a data-labels range on G |
+| 1 BEDROOM | title 54, header 55, data 56-95 | the autofilter sits on this table |
+| 2 BEDROOM | title 97, header 98, data 99-140 | cloned for 3BR+ tables |
 
 Columns: C name, D sq ft, E avg asking rent, F `=IFERROR(E/D,"")`, G `=C&" "&TEXT(F,"- $0.00")`. `ap_comps.find_tables()` locates the tables from the C-column titles and each chart's x-range, so nothing is hard-coded after rows shift.
 
@@ -416,18 +452,26 @@ Columns: C name, D sq ft, E avg asking rent, F `=IFERROR(E/D,"")`, G `=C&" "&TEX
    - Formatting: the template's light-blue highlighted style (cells 869/870/871/872) with **black** text.
 3. **Comp rows:**
    - For every comp in the AP Comps amenity table (section C.10), research the current floor plans online: sq ft and asking rent per plan, from the property's own site first, then UMoveFree, apartments.com, ApartmentFinder, Zillow, Redfin, ApartmentSearch or AptAmigo. Use parallel subagents, about 3 comps each.
-   - Use the starting / low asking rent; for a sq-ft range use the midpoint. Skip plans with no price.
-   - Name: `<Property Name> <bed>x<bath>`, e.g. "MAA Bear Creek 1x1".
+   - **Take every individual listing, never a summary number.** Each available unit (or each priced plan/size a site lists) gets its **own row** with its own exact sq ft and asking rent. Never collapse a plan into one row by taking a median, average, midpoint or the low end of a range (e.g. a plan showing 680-685 sf at $1,495-$1,575 across three available units = three rows, one per unit, each at that unit's sf and price).
+   - If a site only shows a range with no unit-level detail, check the other sources (property site unit list, apartments.com / Zillow unit listings) for the individual units; only if no source breaks it out, enter each end of the range as listed and flag it in the report.
+   - Skip plans/units with no price. Deduplicate the same unit appearing on several sites (same unit # or same sf + price), keeping the property's own site.
+   - Name: `<Property Name> <bed>x<bath>`, plus the unit # or plan name when the source gives one so rows stay distinct, e.g. "MAA Bear Creek 1x1 #214" or "MAA Bear Creek 1x1 (Aspen)".
    - Formatting: **blue text (#0000FF)**, no fill.
 4. **Order:** sort each table by rent, high to low (as in prior models).
-5. **Room:** if a table runs out of rows, `ap_comps.insert_rows()` adds rows above its last bordered row. That shifts everything below it: cells, formulas, merges, the autofilter, chart anchors and refs, and defined names. Charts are re-ranged to the table, per-point labels are rebuilt for every row, and the axis min/max are refit to the data (x by 50 sf, y by $100).
-6. **Autofilter:** reset the autofilter and `_FilterDatabase` to the 1 BEDROOM table (header..last).
-7. **Report:** rows per table (subject vs comps), plans skipped (no price), comps' bed types left out, and the sources with any conflicting prices (e.g. ILS sites that disagree).
+5. **Charts (fixed Oct 2026).** The template charts were inconsistent: the 1BR chart pinned each label to a fixed C cell, and the 2BR chart had 42 blank per-point label overrides, so labels were wrong or missing after the rows were re-sorted. Their data caches were also empty. `ap_comps.fill()` now calls `rebuild_chart()` on every table's chart:
+   - x/y = D/E over the table rows, with the caches filled from the written values;
+   - **labels:** each point's label comes from that row's G cell (name + $/SF): one series-level "Value From Cells" label range on G, with every per-point label override removed;
+   - **subject points** (Going-In / Post-Rehab) drawn as larger **dark-red diamonds** (`C00000`);
+   - **3BR+ clones:** `add_table()` gives each cloned chart its **own** chart style and color parts (`styleN.xml` / `colorsN.xml`, with their own content types and rels), so it doesn't share them with the 2BR chart.
+   **Check labels in Excel.** LibreOffice doesn't render "Value From Cells" labels: it shows the rent value instead of the label text, so a LibreOffice/PDF render can't confirm the labels. Verify the XML with `ap_comps.check_charts()` (section D) and tell Chase to eyeball the labels in Excel.
+6. **Room:** if a table runs out of rows, `ap_comps.insert_rows()` adds rows above its last bordered row. That shifts everything below it: cells, formulas, merges, the autofilter, chart anchors and refs, and defined names. Charts are re-ranged to the table and rebuilt (step 5), and the axis min/max are refit to the data (x by 50 sf, y by $100).
+7. **Autofilter:** reset the autofilter and `_FilterDatabase` to the 1 BEDROOM table (header..last).
+8. **Report:** rows per table (subject vs comps, and listings per comp), plans skipped (no price), any ranges entered without unit-level detail, comps' bed types left out, and the sources with any conflicting prices (e.g. ILS sites that disagree).
 
-`ap_comps.fill(wb, {key: [(name, sf, rent, is_subject, sf_formula, rent_formula)]}, studio_present)` does steps 2-6. Subject rows pass the Rent Analysis formulas, and the sort uses their recalculated values.
+`ap_comps.fill(wb, {key: [(name, sf, rent, is_subject, sf_formula, rent_formula)]}, studio_present)` does steps 2-7. Subject rows pass the Rent Analysis formulas, and the sort uses their recalculated values.
 
 ### 13. Pro Forma Broker column (I) = OM Year 1 pro forma
-Map each line of the OM's Year 1 / pro forma column ("Historical Comparison to Pro Forma" or similar) onto the Pro Forma category rows, the same way T12 lines are coded (section A). Use the T12 sign convention (losses/deductions negative), and keep the template's subtotal formulas in I20/I28/I42/I49/I51/I54/I59 and I57 `=+O57`.
+Map each line of the OM's Year 1 / pro forma column ("Historical Comparison to Pro Forma" or similar) onto the Pro Forma category rows, the same way T12 lines are coded (section A). Use the T12 sign convention (losses/deductions negative), and keep the template's subtotal formulas in I20/I29/I44/I51/I53/I56/I61 and I59 `=+O59`. (Template v1, Oct 2026: Renters Insurance Income row 25 and Renters Insurance Expense row 39 were added, so every row from 25 down moved.)
 
 | Row | Category | OM line(s) (typical) |
 |---|---|---|
@@ -440,21 +484,24 @@ Map each line of the OM's Year 1 / pro forma column ("Historical Comparison to P
 | I19 | Concessions | Concessions |
 | I23 | RUBS | Utility Reimbursements |
 | I24 | Other Residential Income | Other Income + Parking/Storage + laundry (house rule 3). Write it as a formula of the OM pieces, e.g. `=276043+35558`. |
-| I25 | Bulk Internet Income | Cable/Internet income (house rule 2) |
-| I26 | Tech Package Income | Tech package income, if separate |
-| I33 | Administrative | G&A |
-| I34 | Marketing / Advertising | Marketing & Promotion |
-| I35 / I36 | R&M / Turnover | R&M; Turnover only if the OM breaks it out (else 0) |
-| I37 | Personnel | Payroll |
-| I38 / I39 | Bulk Internet / Tech Expense | Cable/Internet expense |
-| I40 / I41 | Water & Sewer / Utilities | If the OM gives one Utilities line, split it by the T12 mix: I40 `=ROUND(<OM util>*G40/(G40+G41),0)`, I41 `=<OM util>-I40`. If it breaks them out, map directly. |
-| I45 | Property Management Fee | Management Fee |
-| I46 | Insurance | Insurance |
-| I47 | Real Estate Taxes | Real Estate Taxes |
-| I48 | Franchise Tax | Franchise / margin tax |
+| I25 | Renters Insurance Income | Renters insurance / liability program / deposit-waiver income, if the OM breaks it out (else 0, and note it's inside Other Income) |
+| I26 | Bulk Internet Income | Cable/Internet income (house rule 2) |
+| I27 | Tech Package Income | Tech package income, if separate |
+| I34 | Administrative | G&A |
+| I35 | Marketing / Advertising | Marketing & Promotion |
+| I36 / I37 | R&M / Turnover | R&M; Turnover only if the OM breaks it out (else 0) |
+| I38 | Personnel | Payroll |
+| I39 | Renters Insurance Expense | Renters insurance / liability program cost, if broken out (else 0) |
+| I40 / I41 | Bulk Internet / Tech Expense | Cable/Internet expense |
+| I42 / I43 | Water & Sewer / Utilities | If the OM gives one Utilities line, split it by the T12 mix: I42 `=ROUND(<OM util>*G42/(G42+G43),0)`, I43 `=<OM util>-I42`. If it breaks them out, map directly. |
+| I47 | Property Management Fee | Management Fee |
+| I48 | Insurance | Insurance |
+| I49 | Real Estate Taxes | Real Estate Taxes |
+| I50 | Franchise Tax | Franchise / margin tax |
 
-- **Reserves:** OM replacement reserves are **not** an expense line. They sit in row 57, so the OM's NOI (after reserves) ties to **I59 Net NOI**, and I54 = OM NOI + reserves. If the OM's reserves differ from O57, flag it.
-- **Reconcile:** before delivering, check I20 vs the OM's Total Rental Income, I28 vs EGI, I51 vs Total Expenses less reserves, and I59 vs the OM's NOI. Differences of a few dollars from OM rounding are fine; report them. Anything larger means a line is mis-mapped.
+- **Commercial deals:** after section C.19 adds the rows, put the OM's commercial base rent (net of any commercial vacancy / credit loss the OM applies) in I28 (Commercial) and commercial billbacks / CAM in I29, and take them **out** of I24. The EGI row (I31 after the insert) sums I23:I29 + I20; every row reference above from 28 down is 2 higher on a commercial deal (e.g. Net NOI I63).
+- **Reserves:** OM replacement reserves are **not** an expense line. They sit in row 59, so the OM's NOI (after reserves) ties to **I61 Net NOI**, and I56 = OM NOI + reserves. If the OM's reserves differ from O59, flag it.
+- **Reconcile:** before delivering, check I20 vs the OM's Total Rental Income, I29 vs EGI, I53 vs Total Expenses less reserves, and I61 vs the OM's NOI. Differences of a few dollars from OM rounding are fine; report them. Anything larger means a line is mis-mapped.
 - **Report:** the mapping of any lumped or ambiguous lines (e.g. utilities split, parking folded into Other Income) and the NOI tie-out.
 
 ### 14. Fixed 1 - Rate Buy Down: 7-year Treasury
@@ -466,8 +513,135 @@ Look up the latest 7-year Treasury yield online on each run, without asking firs
 - **Fixed 2:** leave it unchanged unless Chase asks.
 - **Report:** the Treasury (with source and date), the resulting all-in rate, and Year 1 debt service (F11) before and after.
 
+### 15. S&U transfer tax (Illinois deals)
+If the property is in Illinois (Overview D11 = IL), work out the transfer tax and put it in **S&U D8** as a rate; the template already computes E8 = D8 x purchase price. The template's D8 lookup returns text ("see 'transfer tax illinois' doc") for Cook/DuPage/Kane, which breaks E8, so always overwrite it for IL deals.
+
+- **S&U is the buyer's Uses, so D8 = the buyer-paid share by local custom.**
+  - State $0.50 per $500 and county $0.25 per $500: customarily **seller**-paid, so excluded.
+  - Chicago: city portion $3.75 per $500 (0.75%) is **buyer**-paid, so D8 = `=3.75/500`. The CTA portion ($1.50 per $500) is seller-paid, so excluded.
+  - Suburbs: use the municipal rate when it is buyer-paid (e.g. Naperville `=3/1000`); use half of it when split; use `=0` when it is seller-paid or there is no municipal tax.
+- Use `il_transfer_tax.buyer_rate(city)` (Appendix L). Its table is as of Aug-Sep 2026. **If the municipality isn't in the table, look it up on the web** (ATG ordinance list, the municipality's code, title-company net sheets) before writing D8. Also re-check Chicago's rate each run: a tiered "mansion tax" referendum failed in March 2024 and may come back.
+- Write D8 as a self-documenting formula (`=3.75/500`, not 0.0075).
+- **Report:** the rate, the dollar amount at the current price, and the seller-paid pieces left out (state, county, CTA / municipal).
+- Non-IL deals: leave the template's D8 lookup alone.
+
+### 16. Value-Add tab: OM-pitched value-add (Hard Levers rows 9-15)
+Read the OM for every value-add it pitches (investment highlights, "value-add opportunity", "upside", unit/amenity upgrade sections, pro forma footnotes): e.g. smart-home tech package, washer/dryers, covered parking/carports, reserved parking, storage, private yards, pet rent, amenity fee, valet trash, package lockers.
+
+1. **What goes here:** only new or increased fee income. Skip:
+   - interior unit renovation premiums (row 8 is driven by Rent Analysis; mention them in the report);
+   - RUBS increases and loss-to-lease burn-off (soft levers, rows 19-20, already formula-driven);
+   - anything the T12 already collects at the pitched rate. If the T12 collects some of it, model only the increment and say so in the note.
+2. **Inputs per item** (blue hardcodes, the template's styles):
+   - **G Count:** the units/spaces it applies to (e.g. units with W/D connections but no set; new carport spaces; total units for a unit-wide fee).
+   - **H Revenue:** $ per count per month. **I Costs:** one-time $ per count (M = I x G).
+   - **J Frequency:** "Monthly". **K Penetration:** the expected take-up.
+   - Use the OM's figures when it gives them. Otherwise use the benchmark midpoints below, adjusted to what the AP Comps research (section C.10) shows comps charging. Never leave a pitched item at $0.
+   - **R Notes:** the source in one line, e.g. "OM p.12: $35/mo smart home on all units; cost = benchmark".
+3. **Line Item (Q) = "Other Income"** for every OM-pitched item, including washer/dryer, valet and pest. Multi Yr M54 adds `SUMIF('Value-Add'!Q8:Q15,"Other Income",L8:L15)` to Other Residential Income, so that is how the income reaches the pro forma.
+4. **Rows:** `value_add.write(wb, items)` keeps an item on its template row when the lever matches (9 W/D, 10 Reserved Parking, 11 Covered Parking, 12 Tech Package, 13 Amenity Fee, 14 Valet Trash, 15 Pest). Other items take the unused rows from the bottom up, and column F is relabelled with the OM's name. It rewrites M15 to `=I15*G15` when row 15 is used (the template's `I15*Units*12` is pest-specific).
+   - **Never insert rows:** the Multi Yr SUMIF and the Dashboard (C49:F56) only read rows 8-15. With more than 7 items, the 7 largest by annual income are kept and the rest are listed in the report.
+   - Unused rows keep the template's zeros and line items.
+5. **Report:** each item with its row, inputs, source, annual income and return on cost, the total hard-lever income, and Multi Yr M54 before vs after.
+
+| Lever (benchmark when the OM gives no number) | Revenue / mo | Cost per count | Penetration |
+|---|---|---|---|
+| Washer/dryer sets (units with connections) | $40-50 | $1,200-1,500 | 85% |
+| Reserved parking | $25-35 | $100-250 (signage, striping) | 75% |
+| Covered parking / carports | $30-45 | $3,000-4,500 per space | 85% |
+| Detached garages | $100-150 | $15,000-25,000 | 90% |
+| Smart-home / tech package | $25-40 | $900-1,500 per unit | 100% |
+| Bulk Wi-Fi (net of provider cost) | $15-30 net | $300-600 per unit | 100% |
+| Amenity fee | $15-25 | $0 | 100% |
+| Valet trash | $25-35 | $0 | 100% |
+| Pest fee | $3-5 | $0 | 100% |
+| Storage units / lockers | $40-75 | $1,500-3,000 | 85% |
+| Private yards / fenced patios | $40-75 | $2,000-3,500 | 90% |
+| Pet rent (if not already charged) | $25-35 | $0 | 35% of units |
+| Package lockers fee | $3-5 | system cost / units | 100% |
+
+### 17. Rent Analysis: Bathrooms + Affordability table (80% AMI and utility allowance)
+Run this after the county tab is copied in (section C.7) and the Floor Plan Summary is written. Use `affordability.py` (Appendix N).
+
+1. **Bathrooms (Post-Rehab table, column V):** for each plan row r (10 onward), V<r> = `=+'Floor Plan Summary'!G<r-3>`. FPS rows follow the Rent Analysis C10 order, so row 10 reads FPS G7.
+2. **80% AMI gross rent (AS):** `find_rent_limits()` finds the county tab's "Bedrooms (People)" table and its 60% / 80% columns (layouts differ by sheet: A:E, S:V, X:AC, ...). AS<r> = a link to the 80% cell for the plan's bedroom count (Efficiency = studio = 0), e.g. `=+'Travis County 2026'!U32`. The template already computes AR (60%) = AS/8x6 and AT (100%) = AS/8x10. If the sheet has no 80% column, use `=<60% cell>/6*8` and flag it.
+3. **Utility allowance table on the county tab:** most county sheets carry the PHA's HUD-52667 utility allowance schedule (sometimes several, one per unit type).
+   - `find_ua_schedules()` reads every schedule ("0 BR | 1 BR | ..." header), with each line's utility and fuel.
+   - `pick_schedule(scheds, building, energy_efficient)`: building = 'garden' (walk-up apartments; matches "Apartment", "Multi-Family", "Larger Apartment Bldgs (5+)"), 'elevator' (mid/high-rise with elevators) or 'townhome'. Use an ENERGY STAR / green schedule only when the OM says the property is certified.
+   - **Work out how the property is served (`util`)**, from the OM's unit features / utilities section first, then the property site or apartments.com "Utilities" section, then the T12:
+     - heat, cooking and water heating: 'electric', 'heat_pump', 'gas' or 'propane' (None if the owner pays it). Use the heat-pump line only when the OM or listing says heat pump; otherwise use plain electric.
+     - electric, water, sewer and trash: True when the resident pays, either directly or through RUBS. Use the T12's RUBS collections by utility (T12 AF:AP analysis) or the OM's bill-back language; owner-paid utilities are left out.
+     - If the fuel isn't stated anywhere, assume all-electric and flag it.
+   - `select_lines()` returns the tenant-paid lines: heating, cooking and water heating for the property's fuels, other electric, air conditioning, the electric base charge, the gas base charge when any end use is gas, and water / sewer / trash when tenant-paid. Range/microwave and refrigerator (owner-supplied) and "Other" rows are never included.
+   - `build_ua_table(wb, tab, sched, lines, beds, basis)` writes a **"Tenant-Paid Utility Allowance"** table two columns to the right of everything on the county tab, starting one row above the chosen schedule's header. It has one column per bedroom count the subject has (Studio, 1 BR, ...), one row per line as a link to the schedule cell (e.g. `=+G39`), a **Total Utility Allowance** row (`=SUM(...)`), and a "Basis:" note line (e.g. "all-electric per OM; water/sewer/trash billed back via RUBS per T12"). Schedule amounts stored as text ("$19") are written as blue hardcodes.
+   - Some sheets already have a half-built side table from earlier manual work (e.g. Dallas Q:T, Wake L:N). Leave those alone; the new table goes to the right of them.
+4. **Utility allowance (AU):** AU<r> = a link to the table's Total for the plan's bedroom count, e.g. `=+'Travis County 2026'!Z45`. Then AV/AW (net 60% / 80%) and AX/AY (spreads vs post-rehab rent) compute on their own.
+5. **No UA schedule on the county tab:** leave AU blank (net = gross) and flag it, so Chase can paste the PHA's schedule into the Novogradac workbook.
+6. `wire_rent_analysis(wb, tab, plan_beds, limits, ua_totals)` writes V, AS and AU for every plan row and returns any issues. plan_beds = Floorplans bedroom counts in Rent Analysis C10 order.
+7. **Report:** the schedule used (unit type, PHA, effective date), the fuel / tenant-paid assumptions and their source, the UA by bedroom, the 80% gross and net limits by bedroom, and any plans whose post-rehab rent is above the 80% net limit (negative AY).
+
+### 18. Q&As tab: items of interest (keep it short)
+Log only the few things a reviewer actually needs flagged, one row each from row 6 down (clear the template rows C6:H28 first). Usually 3-8 rows, not a full question list. Don't log routine diligence questions or restate what the model already shows.
+- **Expense category outliers (the main one):** when one T12 line is driving a Pro Forma category well above what that category normally runs per unit on other Ansonia pro formas, flag the category.
+- **Other important items only:** e.g. a bulk internet contract (or none when the OM pitches one), a big data conflict between the OM / RR / T12, assumable debt, a pending tax appeal, commercial lease issues. Skip anything minor.
+- **One row per topic.** Never log the same item twice.
+
+**Write column D the way Chase does (Nov 2026): short and plain, so the question is obvious at a glance.**
+- One topic per row, in a short phrase or question: about 3-12 words, never more than ~15. No sentences of analysis, no lists of numbers, no "vs" comparisons, no model row references, no "Topic:" prefixes.
+- At most one key number in D, and only when it *is* the question (e.g. "Is the $45.2M 2026 tax value final?").
+- **Broker** rows are the question you'd ask the broker. **Internal** rows are a short note for the team (a decision or thing to watch).
+- Everything else goes in the other columns: the supporting $ amounts, per-unit figures and source in **H**; the answer (unit numbers, parcel IDs, dates) in **E**.
+
+Chase's own rows (the target style):
+| C | D | E |
+|---|---|---|
+| Broker | 4 renovated units | 13107, 13207, 2103, 19202 |
+| Internal | Broker recommended starting renovation plan in month 13 and addressing the 'low hanging fruit' (W/Ds) first | |
+
+Rewrites of rows that were too long (D before -> D after; detail moves to H):
+| Too long | Write instead | H |
+|---|---|---|
+| "Upgraded units: broker cites 4 upgraded units (pipe-burst rebuilds) at $250 premiums; RR shows ... Send the scope and cost of those units, plus the OM kitchen (128) / vinyl (73) unit lists." | Scope and cost of the 4 upgraded units? | $250 premium per broker; OM kitchen (128) / vinyl (73) unit lists |
+| "Taxes: 2026 TAD value $45.2M (protested from $54.79M notice) and OM says 2026 taxes are under appeal. Status of the appeal ..." | Is the $45.2M 2026 tax value final? | Protested from $54.79M; OM Yr 1 $1,017,388 |
+| "Personnel $564.1K = $2,203/unit (OM pro forma $1,700/unit). Includes $38.5K leasing commissions ..." | Personnel running high - trim? | $564.1K T12 ($2,203/unit) vs OM $1,700/unit |
+| "Collection loss -$128.4K (2.4% of GPR): rent write-offs ... One-time cleanup? Current 30/60/90 AR?" | Are the write-offs a one-time cleanup? Current AR? | -$128.4K T12 (2.4% of GPR) |
+| "Water & sewer $275.0K = $1,074/unit with 76% recapture ..." | Water & sewer high - leak or conservation upside? | $275.0K T12 ($1,074/unit), 76% recapture |
+| "Replacement reserves: OM pro forma $300/unit (76.8K) vs model $250/unit ..." | Reserves: use OM's $300/unit? | Model $250/unit ($64.0K) |
+| "Bulk cable: broker says no bulk cable package, but T12 collects $142.0K bulk internet ..." | Internet-only bulk contract? When does it expire? | $142.0K T12 income ($50/mo); ISP cost $70.3K |
+| "Foundation work and exterior paint needed in select areas (broker). Which buildings ..." | Which buildings need foundation work and exterior paint? | Modeled $250K foundation + $150K paint |
+| "Pricing: guided $45MM pre-rate move, likely mid-high $30MMs. Modeled $37.5MM ..." | Pricing guidance after the rate move | Guided $45MM; modeled $37.5MM ($146K/door) |
+
+Columns: C Question For ("Broker" / "Internal"), D the short question / note (above), E answer only if the OM / T12 / RR answers it (short: unit numbers, IDs, dates), F "High" / "Med" / "Low", G run date, H the supporting $ amount(s) and source. Leave the J:K "Key Deal Questions" block as is.
+
+### 19. Commercial space: Commercial Analysis tab + commercial Pro Forma / Multi Yr rows
+Whenever the property has commercial space (ground-floor retail, office, any non-residential lease in the RR, OM or T12), model it the way **731 S Plymouth** does. Use `commercial.add_commercial()` (Appendix O). Run it **last**, after payroll, the Broker column and value-add are written, then recalc.
+
+1. **Commercial Analysis tab** (inserted directly before `Value-Add`, green tab, gridlines off):
+   - C2 `=+_Property`, C3 title, C6 `Assuming Yr1 Begins 1/1/<yy>`.
+   - Navy header rows 7-8: E7 = Year 1 calendar year, F7:O7 = +1 each; E8:O8 = Year 1..11 (`"Year "\ 0`); Q7 "Lease Cycle", R7 "Lease Expiry".
+   - One 4-row block per tenant from row 10: name row (annual rent E:O), PSF row (D = leased SF in blue), Growth row, blank row. Q = lease cycle (month of the bump, e.g. "Oct 1 (10/1)"), R = lease expiry (date, or text with extension options).
+     - **Lease rent schedule known** (lease / abstract / OM rent roll): hardcode each year's annual rent in blue (e.g. `=21026.6*12`), PSF = rent / SF, Growth = year-over-year % (Plymouth style); years past the schedule grow at a blue growth % (2-3%).
+     - **Only current rent known:** E = current PSF in blue, F:O PSF = `=+prior*(1+growth)` with blue growth (3% unless the OM says otherwise; flag it), rent = SF x PSF.
+   - **Total** row right after the last block: D = total SF, E:O = sum of the tenants' rent rows (bold, thin top border).
+   - **Commercial Vacancy Factor** two rows below the Total: D = **10%** (blue), E:O = `=+Total*-$D$<row>`.
+   - **Total less Commercial Vacancy Factor** two rows below that: E:O = Total + vacancy (bold, thin top border). This net line is what feeds the Pro Forma and Multi Yr.
+   - Use the tenant name; if the OM doesn't name the tenant, "Retail Suite <#> (tenant TBD)". Year 1 = the year after the T12 ends (e.g. a T12 through Aug-26 -> 2027).
+2. **Pro Forma** - 2 rows are inserted at row 28, **columns A:U only** (Excel "shift cells down"), so the side tables and data tables in V:AS stay where they are. Rows after the insert:
+
+   | Row | C | G / H | N | O |
+   |---|---|---|---|---|
+   | 28 | Commercial | T12 / T3 SUMIF on "Commercial" | 3% | `=+'Commercial Analysis'!E<net row>` (Year 1 total less the 10% vacancy factor) |
+   | 29 | CAM | SUMIF "CAM" | 3% | `=G29*(1+N29)` |
+   | 31 | Effective Gross Income | `=+SUM(x23:x29,x20)` in E:K and O | | |
+
+   D/E/F/Q:T follow the row-24 pattern. The side table's "T12 Other Inc." (W22) becomes `=SUM(G23:G29)`. Every Pro Forma row from 28 down moves 2 rows (Personnel 40, Total Expenses 55, NOI 58, Reserves 61, Net NOI 63) and every reference to them in the workbook is updated.
+3. **Multi Yr** - 2 whole rows inserted at row 58 (it mirrors Pro Forma rows 30 apart): 58 Commercial (L:V = `'Commercial Analysis'!E:O<net row>`, Year 1..11), 59 CAM (L = VLOOKUP from the Pro Forma like the other lines, M:V grow with revenue growth), EGI 61 = `=+SUM(x53:x59,x50)`.
+4. **T12:** code the commercial lines `comm` / `CAM` (section A) so Pro Forma G28:G29 show the trailing commercial actuals (abatement and vacancy included).
+5. **How it works:** `expand_shared()` first turns every shared formula into a plain one, then `insert_rows()` shifts every formula in every sheet, defined names, chart series, drawing / comment / VML anchors, merges, conditional formats and data validations, the same as Excel's Insert. Any later step must use the shifted rows.
+6. **Report and Q&As:** tenant(s), SF, Year 1 rent PSF, bumps (lease schedule or assumed), expiry, the 10% vacancy factor, the T12 vs in-place commercial income (abatement), the OM's commercial pro forma tie-out, and any RR vs OM lease-date conflicts. On the Q&As tab, log only a material commercial issue (e.g. a lease-date conflict), in the short section C.18 style.
+
 ## D. QC (report this every run)
-- **T12 NOI:** Pro Forma G54 (T12 NOI) = raw T12 NOI to the penny.
+- **T12 NOI:** Pro Forma G56 (T12 NOI) = raw T12 NOI to the penny.
 - **Uncategorized lines:** the only T12 lines without a category are totals, headers and FLIPPED originals.
 - **Units:** unit count and occupied/vacant/non-rev match the raw rent roll's footer, and match Floorplans L37 and FPS.
 - **Market rent:** Floorplans M37 (total monthly market rent) = rent roll market total, and roughly the last month's T12 GPR.
@@ -475,13 +649,22 @@ Look up the latest 7-year Treasury yield online on each run, without asking firs
 - **Dashboard:** the Unit Mix shows no #DIV/0!.
 - **Affordability tab:** the county sheet sits directly before Value-Add, and any flags from section C.7.
 - **Payroll:** headcount (in/out), the wage ladder, and Payroll L27 vs T12 Personnel (difference in $ and %).
+- **Payroll wages:** every Office wage is above its Maint counterpart (same level), and no Maint wage equals any Office wage. Run `payroll.check_sheet(qc['Payroll'])` on qc.xlsx; any issue is a fail.
 - **Taxes:** Tax D22 / E22 vs the OM's in-place and Year 1 taxes, and vs the T12 Real Estate Taxes.
 - **AP Comps:** every OM rent comp has a row, plus the count of Unverified cells by comp.
-- **Acq. market rents:** every plan has an AA value with no #DIV/0!; FPS AE is ~$0 for plans with 20 or fewer rented units; plus the outliers and Non-Rev exclusions.
+- **Acq. market rents:** every plan has an AA value with no #DIV/0!; FPS |AE| < $55 for every plan (sample sizes listed); plus the outliers and Non-Rev exclusions.
 - **AP Comps rent tables:** every non-R plan has its Going-In and Post-Rehab rows; each chart's range covers its table; the tables shown match the subject's bed types.
-- **Broker column:** I20/I28/I51/I59 tie to the OM's TRI / EGI / expenses (ex-reserves) / NOI.
+- **Broker column:** I20/I29/I53/I61 tie to the OM's TRI / EGI / expenses (ex-reserves) / NOI.
 - **Fixed 1 rate:** I10 = the latest 7-yr Treasury (source and date in J10), plus the all-in rate in I13.
+- **S&U transfer tax (IL):** D8 formula, $ amount, and what was excluded as seller-paid.
+- **Formatting:** pink Overview cells left (should all read TBD), Floorplans separator lines drawn, gold rows on Rent Analysis = the " - R" plans.
+- **AP Comps charts:** run `ap_comps.check_charts(wb, qc['AP Comps'])` (wb = final.xlsx via xlsx_xml, qc = qc.xlsx data_only). For every table's chart: the x (D), y (E) and label (G) ranges cover exactly its table rows; every filled row has a G formula and a cell-linked label (series-level G label range on, no per-point overrides, label cache non-blank for that point); every subject row (Going-In / Post-Rehab) is a dark-red diamond and no comp row is; each chart has its own style/colors parts. Report each issue; note labels still need an Excel eyeball (LibreOffice shows rent values instead).
+- **Renters insurance:** Pro Forma G25 (income) and G39 (expense) vs the T12 lines coded `rinc` / `rexp`, with each line listed for review; a program with income but no cost (or the reverse) is a flag.
 - **T12 outliers:** the count of bolded cells, with the biggest ones called out (e.g. concession spikes, missing tax accruals).
+- **Value-Add:** each OM-pitched item, its row, count / revenue / cost / penetration and source (OM or benchmark), annual income, and Multi Yr M54 before vs after. Every filled row has Q = "Other Income"; anything left over (more than 7 items) or skipped as already in the T12.
+- **Affordability:** Rent Analysis V = FPS bath for every plan; AS (80%) and AU (UA) filled for every plan row with no #REF!; the UA table's schedule (unit type), lines included and basis; AV:AY have no errors. Flag a county tab with no UA schedule (AU left blank, so net = gross) or no 80% column (60% / 6 x 8 used).
+- **Commercial (if any):** Commercial Analysis Year 1 "Total less Commercial Vacancy Factor" = Pro Forma O28 = Multi Yr L58 (vacancy factor 10%); Pro Forma EGI (O31) = Multi Yr L61; the commercial T12 lines sit in G28:G29 (none left in Other Residential Income); no new #REF! anywhere after the insert.
+- **Q&As:** the few items logged (any category driven well above normal by one line, plus other important items). Check every D cell is short (about 15 words max, one topic, no number dumps), each topic appears once, and the supporting numbers sit in H.
 - **Review list:** every judgment call, fallback-rule code, assumption (e.g. reno status) and TBD.
 
 ## Appendix A: coding exceptions (`side|code|normalized text`; these beat the rules)
@@ -524,7 +707,6 @@ exp|admin|professional fees real estate taxes
 exp|admin|property benefits refund
 exp|admin|property hardware
 exp|admin|recruiting
-exp|admin|renter s liability insurance premium
 exp|admin|resident portal/website/crm hosting
 exp|admin|security deposit interest expense
 exp|admin|security deposit refund
@@ -551,6 +733,8 @@ exp|adv|signage
 exp|adv|signs
 exp|pers|contract security
 exp|pers|front desk/concierge salary
+exp|pers|group insurance
+exp|rexp|renter s liability insurance premium
 exp|pers|security contract labor
 exp|admin|professional fees corp
 exp|pers|benefits
@@ -650,7 +834,7 @@ inc|mkt|rent mtm
 inc|nr|loss to lease model units
 inc|oinc|ancillary telecom upfront
 inc|oinc|bad debt reserve other income
-inc|oinc|cam fees
+inc|CAM|cam fees
 inc|oinc|clubhouse and amenity rental income
 inc|oinc|garage/parking income concession
 inc|oinc|housing utility reimbursements

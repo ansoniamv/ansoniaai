@@ -6,7 +6,7 @@ Template layout (AP Comps): each table = title row, header row, data rows, scatt
   2 BR  : title 97, header 98, data 99-140, chart3 (labels via datalabels range G)
 Columns: C name, D sq ft, E avg asking rent, F =IFERROR(E/D,""), G =C&" "&TEXT(F,"- $0.00").
 """
-import re, copy, math
+import re, copy, math, posixpath
 from lxml import etree
 from xlsx_xml import Q, col2n, n2col
 
@@ -197,8 +197,8 @@ def fill(wb, by_bed, studio_present):
             s = re.sub(r'(<(?:c:numCache|c15:dlblRangeCache)>(?:<c:formatCode>[^<]*</c:formatCode>)?)<c:ptCount val="\d+"/>',
                        lambda m: m.group(1) + f'<c:ptCount val="{last - first + 1}"/>', s)
             wb.files[cp] = s.encode()
-            _relabel(wb, cp, first, last)
             _axis(wb, cp, [x[1] for x in rows if x[1]], [x[2] for x in rows if x[2]])
+            rebuild_chart(wb, cp, first, last, [(x[0], x[1], x[2], x[3]) for x in rows])
         report[key] = (first, first + len(rows) - 1, len(rows), cp)
     # studio group: show it only if the property has studios
     tabs = find_tables(wb)
@@ -245,10 +245,28 @@ def add_table(wb, beds):
     x = re.sub(r'(<(?:c|c15):f>)([^<]+)(</(?:c|c15):f>)', lambda m: m.group(1) + _shift_formula(m.group(2), 1, off) + m.group(3), x)
     x = x.replace('2 Bedroom', f'{beds} Bedroom')
     wb.files[ncp] = x.encode()
-    crels = cp.replace('charts/', 'charts/_rels/') + '.rels'
-    if crels in wb.files: wb.files[ncp.replace('charts/', 'charts/_rels/') + '.rels'] = wb.files[crels]
     ct = wb.files['[Content_Types].xml'].decode()
     ct = ct.replace('</Types>', f'<Override PartName="/{ncp}" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/></Types>')
+    # the clone gets its OWN chart style / color parts (never shares the 2BR chart's styleN.xml / colorsN.xml)
+    crels = cp.replace('charts/', 'charts/_rels/') + '.rels'
+    if crels in wb.files:
+        rr = wb.files[crels].decode()
+        def _own(m):
+            nonlocal ct
+            tgt = m.group(2); src_part = posixpath.normpath(posixpath.join('xl/charts', tgt))
+            base = re.match(r'([a-zA-Z]+)\d*\.xml$', posixpath.basename(tgt)).group(1)   # 'style' / 'colors'
+            q = 1
+            while f'xl/charts/{base}{q}.xml' in wb.files: q += 1
+            new_part = f'xl/charts/{base}{q}.xml'
+            wb.files[new_part] = wb.files[src_part]
+            mm = re.search(r'<Override PartName="/%s" ContentType="([^"]+)"/>' % re.escape(src_part), ct)
+            ctype = mm.group(1) if mm else ('application/vnd.ms-office.chartstyle+xml' if base == 'style'
+                                           else 'application/vnd.ms-office.chartcolorstyle+xml')
+            ct = ct.replace('</Types>', f'<Override PartName="/{new_part}" ContentType="{ctype}"/></Types>')
+            return m.group(1) + f'{base}{q}.xml' + m.group(3)
+        rr = re.sub(r'(<Relationship[^>]*Type="[^"]*/chart(?:Style|ColorStyle)"[^>]*Target=")([^"]+)(")', _own, rr)
+        rr = re.sub(r'(<Relationship[^>]*Target=")([^"]+)("[^>]*Type="[^"]*/chart(?:Style|ColorStyle)")', _own, rr)
+        wb.files[ncp.replace('charts/', 'charts/_rels/') + '.rels'] = rr.encode()
     wb.files['[Content_Types].xml'] = ct.encode()
     drels = dp.replace('drawings/', 'drawings/_rels/') + '.rels'
     rx = wb.files[drels].decode(); j = 1
@@ -262,8 +280,135 @@ def add_table(wb, beds):
     na = re.sub(r'(<xdr:row>)(\d+)(</xdr:row>)', lambda m: f"{m.group(1)}{int(m.group(2)) + off}{m.group(3)}", a)
     na = na.replace(f'r:id="{rid}"', f'r:id="rId{j}"')
     na = re.sub(r'<xdr:cNvPr id="(\d+)"', lambda m: f'<xdr:cNvPr id="{1000 + k}"', na)
+    na = re.sub(r'(<xdr:cNvPr id="\d+" name=")[^"]*"', lambda m: f'{m.group(1)}Chart {100 + k}"', na)
     d = d.replace('</xdr:wsDr>', na + '</xdr:wsDr>'); wb.files[dp] = d.encode()
     wx = wb.files['xl/workbook.xml'].decode()
     wx = re.sub(r"('AP Comps'!\$B\$2:\$AQ\$)(\d+)", lambda m: m.group(1) + str(max(int(m.group(2)), src[3] + off)), wx)
     wb.files['xl/workbook.xml'] = wx.encode()
     return find_tables(wb)[beds]
+
+# ---------------------------------------------------------------- chart data + labels (v2)
+C_NS = 'http://schemas.openxmlformats.org/drawingml/2006/chart'
+A_NS = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+C15 = 'http://schemas.microsoft.com/office/drawing/2012/chart'
+DLR_URI = '{02D57815-91ED-43cb-92C2-25804820EDAC}'
+DLB_URI = '{CE6537A1-D6FC-4f65-9D91-7224C49458BB}'
+SUBJ_MARKER = 'C00000'     # subject (Going-In / Post-Rehab) points: dark red, larger marker
+
+def _c(t): return '{%s}%s' % (C_NS, t)
+
+def _label(name, sf, rent):
+    try: return f'{name} - ${rent / sf:,.2f}'
+    except Exception: return f'{name} '
+
+def rebuild_chart(wb, cp, first, last, rows):
+    """Make a rent-comp scatter self-consistent and Excel-native:
+    - x/y ranges = D/E first..last with caches filled from `rows` (so it renders before any recalc),
+    - one series-level 'Value From Cells' label range on G first..last (cache filled), every per-point
+      <c:dLbl> override removed (the template's 1BR chart pointed each label at a fixed C cell and the
+      2BR chart had 42 blank rich-text overrides, so labels were wrong or missing),
+    - subject rows (Going-In / Post-Rehab) drawn with a larger dark-red marker via <c:dPt>.
+    rows = [(name, sf, rent, is_subject)] in table order starting at `first`."""
+    root = etree.fromstring(wb.files[cp])
+    n = last - first + 1
+    for ser in root.iter(_c('ser')):
+        # x / y refs + caches
+        for tag, col, fmt, k in (('xVal', 'D', '#,##0', 1), ('yVal', 'E', '"$"#,##0', 2)):
+            v = ser.find(_c(tag))
+            for ch in list(v): v.remove(ch)
+            nr = etree.SubElement(v, _c('numRef')); f = etree.SubElement(nr, _c('f')); f.text = f"'AP Comps'!${col}${first}:${col}${last}"
+            nc = etree.SubElement(nr, _c('numCache')); fc = etree.SubElement(nc, _c('formatCode')); fc.text = fmt
+            pc = etree.SubElement(nc, _c('ptCount')); pc.set('val', str(n))
+            for i, r in enumerate(rows):
+                if r[k] is None: continue
+                pt = etree.SubElement(nc, _c('pt')); pt.set('idx', str(i)); vv = etree.SubElement(pt, _c('v')); vv.text = repr(float(r[k]))
+        # subject points
+        for d in ser.findall(_c('dPt')): ser.remove(d)
+        anchor = ser.find(_c('marker'))
+        for i, r in reversed(list(enumerate(rows))):
+            if not r[3]: continue
+            d = etree.fromstring(
+                f'<c:dPt xmlns:c="{C_NS}" xmlns:a="{A_NS}"><c:idx val="{i}"/><c:marker><c:symbol val="diamond"/><c:size val="8"/>'
+                f'<c:spPr><a:solidFill><a:srgbClr val="{SUBJ_MARKER}"/></a:solidFill><a:ln w="9525"><a:solidFill><a:srgbClr val="{SUBJ_MARKER}"/></a:solidFill></a:ln></c:spPr>'
+                f'</c:marker><c:bubble3D val="0"/></c:dPt>')
+            anchor.addnext(d)
+        # labels: drop per-point overrides, show the G range
+        dl = ser.find(_c('dLbls'))
+        if dl is not None:
+            for x in dl.findall(_c('dLbl')): dl.remove(x)
+            for tag in ('showVal', 'showCatName', 'showSerName'):
+                e = dl.find(_c(tag))
+                if e is not None: e.set('val', '0')
+            pos = dl.find(_c('dLblPos'))
+            ext = None
+            el = dl.find(_c('extLst'))
+            if el is None: el = etree.SubElement(dl, _c('extLst'))
+            for e in el.findall(_c('ext')):
+                if e.get('uri') == DLB_URI: ext = e
+            if ext is None:
+                ext = etree.SubElement(el, _c('ext')); ext.set('uri', DLB_URI)
+            for e in ext.findall('{%s}showDataLabelsRange' % C15): ext.remove(e)
+            sdr = etree.Element('{%s}showDataLabelsRange' % C15, nsmap={'c15': C15}); sdr.set('val', '1')
+            before = ext.find('{%s}showLeaderLines' % C15)
+            (before.addprevious(sdr) if before is not None else ext.insert(0, sdr))
+        el = ser.find(_c('extLst'))
+        if el is None:
+            el = etree.Element(_c('extLst')); ser.append(el)
+        for e in el.findall(_c('ext')):
+            if e.get('uri') == DLR_URI: el.remove(e)
+        e = etree.Element(_c('ext'), nsmap={'c15': C15}); e.set('uri', DLR_URI)
+        dr = etree.SubElement(e, '{%s}datalabelsRange' % C15); f = etree.SubElement(dr, '{%s}f' % C15)
+        f.text = f"'AP Comps'!$G${first}:$G${last}"
+        cache = etree.SubElement(dr, '{%s}dlblRangeCache' % C15); pc = etree.SubElement(cache, _c('ptCount')); pc.set('val', str(n))
+        for i in range(n):
+            pt = etree.SubElement(cache, _c('pt')); pt.set('idx', str(i)); vv = etree.SubElement(pt, _c('v'))
+            vv.text = _label(rows[i][0], rows[i][1], rows[i][2]) if i < len(rows) else ' '
+        el.insert(0, e)
+        # schema order inside c:ser: ... marker, dPt*, dLbls, trendline, errBars, xVal, yVal, smooth, extLst
+        for tag in ('dLbls', 'xVal', 'yVal', 'smooth', 'extLst'):
+            x = ser.find(_c(tag))
+            if x is not None: ser.remove(x); ser.append(x)
+    wb.files[cp] = etree.tostring(root, xml_declaration=True, encoding='UTF-8', standalone=True)
+
+# ---------------------------------------------------------------- QC
+def _style_parts(wb, cp):
+    crels = cp.replace('charts/', 'charts/_rels/') + '.rels'
+    if crels not in wb.files: return set()
+    return {posixpath.normpath(posixpath.join('xl/charts', t))
+            for t in re.findall(r'Target="([^"]+)"', wb.files[crels].decode()) if re.search(r'(style|colors)\d*\.xml$', t)}
+
+def check_charts(wb, ws):
+    """QC every AP Comps rent-comp chart. wb = xlsx_xml workbook (final file), ws = openpyxl data_only 'AP Comps' sheet
+    from qc.xlsx. Returns {key: [issues]} (empty lists = pass). Labels still need an Excel eyeball: LibreOffice shows
+    the rent value instead of the G text."""
+    sh = wb.sheet(SHEET); out = {}; seen = {}
+    for key, (t, h, first, last) in find_tables(wb).items():
+        iss = []; cp = chart_for_table(wb, h)
+        if cp is None: out[key] = ['no chart']; continue
+        root = etree.fromstring(wb.files[cp]); x = wb.files[cp].decode()
+        for col in 'DE':
+            if f"'AP Comps'!${col}${first}:${col}${last}" not in x: iss.append(f'{col} range != rows {first}-{last}')
+        dr = root.find('.//{%s}datalabelsRange/{%s}f' % (C15, C15))
+        if dr is None or dr.text != f"'AP Comps'!$G${first}:$G${last}": iss.append(f'label range != G{first}:G{last}')
+        sdr = root.find('.//{%s}showDataLabelsRange' % C15)
+        if sdr is None or sdr.get('val') != '1': iss.append('Value From Cells labels off')
+        if root.find('.//' + _c('dLbls') + '/' + _c('dLbl')) is not None: iss.append('per-point label overrides present')
+        cache = {int(p.get('idx')): (p.findtext(_c('v')) or '').strip()
+                 for p in root.iter(_c('pt')) if p.getparent().tag == '{%s}dlblRangeCache' % C15}
+        subj_idx = {int(d.find(_c('idx')).get('val')) for d in root.iter(_c('dPt'))
+                    if d.find('.//' + _c('symbol')) is not None and d.find('.//' + _c('symbol')).get('val') == 'diamond'
+                    and SUBJ_MARKER in etree.tostring(d).decode()}
+        for i, r in enumerate(range(first, last + 1)):
+            name = ws[f'C{r}'].value
+            if name in (None, ''): continue
+            g = sh.cell(f'G{r}', create=False)
+            if g is None or g.find(Q('f')) is None: iss.append(f'G{r} has no label formula')
+            if not cache.get(i): iss.append(f'row {r} ({name}) label cache blank')
+            is_subj = str(name).rstrip().endswith(('Going-In', 'Post-Rehab'))
+            if is_subj and i not in subj_idx: iss.append(f'row {r} ({name}) subject not a dark-red diamond')
+            if not is_subj and i in subj_idx: iss.append(f'row {r} ({name}) comp marked as subject')
+        for part in _style_parts(wb, cp):
+            if part in seen: iss.append(f'shares {part} with {seen[part]}')
+            else: seen[part] = key
+        out[key] = iss
+    return out

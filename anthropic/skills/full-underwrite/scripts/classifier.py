@@ -10,9 +10,20 @@ CATEGORY = {
     'adv': 'Marketing / Advertising', 'admin': 'Administrative', 'util': 'Utilities',
     'wat': 'Water & Sewer', 'mgt': 'Property Management Fee', 'ret': 'Real Estate Taxes',
     'ins': 'Insurance', 'door': 'Doorman', 'fran': 'Franchise Tax',
+    'rinc': 'Renters Insurance Income', 'rexp': 'Renters Insurance Expense',
     'oexp': 'Other Operating Expenses', 'smartex': 'Bulk Internet Expense',
 }
-INCOME_CODES = {'mkt', 'ltl', 'conc', 'vac', 'nr', 'cl', 'oinc', 'rubs', 'park', 'comm', 'CAM', 'smart'}
+INCOME_CODES = {'mkt', 'ltl', 'conc', 'vac', 'nr', 'cl', 'oinc', 'rubs', 'park', 'comm', 'CAM', 'smart', 'rinc'}
+COMMERCIAL = r'commercial|retail|\bcomm\b|\bcam\b|tenant reimb'
+
+# Resident insurance programs (Pro Forma rows 25 / 39): renters insurance, RLL/RLI, Asset Protect, forced-placed,
+# damage waivers, deposit-waiver / deposit-alternative programs. Not property insurance, claims or employee insurance.
+RENTERS_INS = r'renter( s|s)? (legal )?(liab|insur|protect)|\brl[il]\b|liability (program|waiver)|' \
+              r'resident (liability|insurance|protection)|tenant (liability|insurance)|forced ?placed|placed insurance|' \
+              r'fp liability|insurance non ?compliance|non ?compliance (fee|insurance|charge)|asset protect|damage waiver|' \
+              r'deposit (waiver|alternative|replacement|insurance)|waiver deposit|lease ?lock|\brhino\b|obligo|sure ?deposit|' \
+              r'\bjetty\b|the guarantors|insurance (program|commission|revenue share)|ins program'
+RENTERS_INS_INCOME = r'income|revenue|commission|reimburs|recover|bill ?back|rebill'
 
 def norm(t):
     t = str(t).lower()
@@ -35,6 +46,7 @@ INC_RULES = [
     (r'employee|teammate|associate disc|model|courtesy officer|staff unit|admin unit|office unit|down unit|non ?rev|rehab|repositioned', 'nr'),
     (r'vacan', 'vac'),
     (r'concess|free rent|gift card|move in special|disc - ', 'conc'),
+    (RENTERS_INS, 'rinc'),
     (r'\bcam\b|tax (recovery|passthrough)|insurance recovery|common area maint', 'CAM'),
     (r'commercial|retail|\bcomm\b', 'comm'),
     (r'cable|internet|satellite|telecom|wifi|wi fi|broadband|bulk service|smart ?home|technology (fee|income|package)', 'smart'),
@@ -59,7 +71,8 @@ EXP_STRONG = [
     (r'^ret other|other ret', 'admin'),
     (r'real estate tax|property tax|real property|re tax|state activity tax|^taxes - real|^ret\b', 'ret'),
     (r'workers? comp|workman|unemployment|life ins|medical ins|health|dental|insurance benefit|employee life', 'pers'),
-    (r'renters? (legal )?liab|rll|resident insurance|placed insurance|fp liability|renter s protection|waiver deposit|deposit waiver', 'admin'),
+    (r'(' + RENTERS_INS + r').*(' + RENTERS_INS_INCOME + r')', 'rinc'),   # expense-side program income -> FLIP
+    (RENTERS_INS, 'rexp'),
     (r'insurance|umbrella', 'ins'),
     (r'employee unit|employee apartment|model unit|admin/model', 'nr'),   # expense-side -> FLIP to Non-Revenue
     (r'(bulk|resident|unit|contract)\b.*(cable|internet)|^(cable|internet)( expense| tv)?$|(internet|cable) and (cable|internet)|cable ?/ ?internet|internet ?/ ?cable|cable tv|telecom - (unit|common area cable)|streaming|satellite', 'smartex'),
@@ -86,6 +99,9 @@ def classify(text, side, section=''):
     if re.search(EXCLUDE, t):
         return ''
     if side == 'inc':
+        if re.search(COMMERCIAL, t):                         # commercial lines keep their own Pro Forma rows (C.19)
+            if re.search(r'\bcam\b|common area|reimb|recover|billback|bill back|tax|insurance|utilit', t): return 'CAM'
+            return 'comm'
         for pat, code in INC_RULES:
             if re.search(pat, t): return code
         return ''
@@ -103,8 +119,8 @@ def apply_house_rules(text, side, code):
     t = norm(text)
     if code == '':
         return code
-    if code in ('park', 'comm', 'CAM'):
-        return 'oinc'                                   # parking/garage/commercial -> Other Residential Income
+    if code == 'park':
+        return 'oinc'                                   # parking/garage -> Other Residential Income (commercial keeps comm / CAM)
     if code == 'door':
         return 'pers'
     if code == 'oexp':

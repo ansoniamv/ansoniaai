@@ -130,7 +130,7 @@ export function DealModelPanel({ dealId }: { dealId: string }) {
         {!open && models.length === 0 && (
           <p className="text-sm text-muted-foreground">
             {ready
-              ? "Build the deal's pro forma from its rent roll, T12 and OM, using the template in Brain. The model comes with a QC report listing every judgment call to review."
+              ? "Build the deal's pro forma from its rent roll, T12 and OM, using the pro forma template on SharePoint. The model comes with a QC report listing every judgment call to review."
               : "Upload the deal's rent roll and T12 above first; a model needs both."}
           </p>
         )}
@@ -344,7 +344,7 @@ function GenerateDialog({
         <DialogHeader>
           <DialogTitle>Generate pro forma model</DialogTitle>
           <DialogDescription>
-            Builds a new copy of the pro forma template in Brain from these files. It takes about 20 minutes and has a
+            Builds a new copy of the SharePoint pro forma template from these files. It takes about 20 minutes and has a
             fixed cost cap per run.
           </DialogDescription>
         </DialogHeader>

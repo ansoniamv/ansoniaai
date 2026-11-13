@@ -1,7 +1,8 @@
 """Rent Analysis: build the floorplan rent tables (full rent roll + one sorted block per floorplan) and
-acquire market rents (AA = AVERAGE over each plan's non-zero effective rents). Merged from Chase's
-build-floorplan-rent-tables / acquire-market-rents(-sorted) skills."""
-import copy, re, statistics
+acquire market rents (AA = AVERAGE over a contiguous sample of each plan's sorted live effective rents, chosen so
+FPS AE = AA - Recent-20 average stays under $55). Merged from Chase's build-floorplan-rent-tables /
+acquire-market-rents(-sorted) skills."""
+import copy, re, statistics, math
 from lxml import etree
 from xlsx_xml import Q, col2n, n2col
 
@@ -48,9 +49,29 @@ def blocks(wb, ra):
             out.append((col, n2col(col2n(col) + 1), n2col(col2n(col) + 2)))
     return out
 
-def build(wb, units, plans, beds_sf):
+def pick_window(vals, target, tol=55, min_frac=0.4, min_n=3):
+    """vals: live rents ascending. Largest contiguous slice whose mean is within tol of target (FPS U, the
+    Recent-20 in-place average); ties -> mean closest to target. At least min_frac of the units (min min_n).
+    Returns (i, j, mean, ok); ok False = no qualifying slice gets under tol (closest min-size slice returned)."""
+    n = len(vals)
+    if n == 0: return None
+    if target is None: return 0, n - 1, sum(vals) / n, True
+    lo = min(n, max(min_n, math.ceil(n * min_frac)))
+    pre = [0]
+    for v in vals: pre.append(pre[-1] + v)
+    best = None
+    for size in range(n, lo - 1, -1):
+        for i in range(0, n - size + 1):
+            m = (pre[i + size] - pre[i]) / size; d = abs(m - target)
+            if d < tol and (best is None or d < best[0]): best = (d, i, i + size - 1, m)
+        if best: return best[1], best[2], best[3], True
+    d, i = min((abs((pre[i + lo] - pre[i]) / lo - target), i) for i in range(0, n - lo + 1))
+    return i, i + lo - 1, (pre[i + lo] - pre[i]) / lo, False
+
+def build(wb, units, plans, beds_sf, recent20=None, tol=55):
     """units: [(unit_id:str, plan:str, ner:float, status:str)] in Units-tab order.
     plans: plan names in Rent Analysis C10.. order.  beds_sf: {plan: (beds, sf)} for estimates.
+    recent20: {plan: FPS U (Recent-20 in-place average)} -> AA averages the pick_window() sample; None = all live rents.
     Returns a report dict."""
     from xlsx_xml import make_style
     ra = wb.sheet('Rent Analysis')
@@ -64,7 +85,7 @@ def build(wb, units, plans, beds_sf):
         ra.set(f'E{r}', f'=+_xlfn.XLOOKUP(C{r},Units!$D:$D,Units!$P:$P)', style_from=f'E{FIRST}')
     bl = blocks(wb, ra)
     if len(plans) > len(bl): raise ValueError(f'{len(plans)} plans but only {len(bl)} rent blocks')
-    rep = {'filled': [], 'estimates': [], 'outliers': [], 'nonrev_with_rent': []}
+    rep = {'filled': [], 'estimates': [], 'outliers': [], 'nonrev_with_rent': [], 'sample': [], 'ae_over': []}
     avg = {}
     by_plan = {p: [x for x in units if x[1] == p] for p in plans}
     for i, p in enumerate(plans):
@@ -82,11 +103,18 @@ def build(wb, units, plans, beds_sf):
         nz = [(FIRST + j, x[2]) for j, x in enumerate(rows) if live(x)]
         tgt = f'AA{10 + i}'
         if nz:
-            ra.set(tgt, f'=AVERAGE({rc}{nz[0][0]}:{rc}{nz[-1][0]})')
-            vals = [v for _, v in nz]; avg[p] = statistics.mean(vals); med = statistics.median(vals)
+            vals = [v for _, v in nz]; med = statistics.median(vals)
+            t = (recent20 or {}).get(p)
+            i0, i1, m, ok = pick_window(vals, t, tol)
+            f = f'=AVERAGE({rc}{nz[i0][0]}:{rc}{nz[i1][0]})'
+            ra.set(tgt, f); avg[p] = m
             for (r, v), x in zip(nz, [x for x in rows if live(x)]):
                 if v < 0.8 * med or v > 1.2 * med: rep['outliers'].append((p, x[0], round(v, 2), round(med)))
-            rep['filled'].append((p, tgt, f'=AVERAGE({rc}{nz[0][0]}:{rc}{nz[-1][0]})', len(nz), len(rows)))
+            rep['filled'].append((p, tgt, f, i1 - i0 + 1, len(nz)))
+            if t is not None:
+                rep['sample'].append((p, i1 - i0 + 1, len(nz), round(statistics.mean(vals) - t), round(m - t),
+                                      vals[:i0], vals[i1 + 1:]))
+                if not ok: rep['ae_over'].append((p, round(m - t)))
         else:
             rep['estimates'].append([p, tgt])
     # ---- plans with no rented units: estimate from same-bed neighbors by sf, hardcoded blue

@@ -137,15 +137,24 @@ def fill_style(wb, base_s, rgb):
     wb.files['xl/styles.xml'] = etree.tostring(st, xml_declaration=True, encoding='UTF-8', standalone=True)
     return wb._stcache[key]
 
-def make_style(wb, base_s, numfmt=None, top=None, bottom=None, bold=None, halign=None):
+def make_style(wb, base_s, numfmt=None, top=None, bottom=None, bold=None, halign=None, fill=None):
     """cellXfs index derived from base_s with optional number format, top/bottom border style
-    ('thin','medium','dashed','hair', or 'none'), bold font and horizontal alignment. Cached."""
+    ('thin','medium','dashed','hair', or 'none'), bold font, horizontal alignment and fill
+    ('none' = no fill, or an ARGB like 'FFFFF2CC' = solid fill). Cached."""
     if not hasattr(wb, '_st'):
         wb._st = etree.fromstring(wb.files['xl/styles.xml']); wb._stcache = {}
-    st = wb._st; key = ('ms', str(base_s), numfmt, top, bottom, bold, halign)
+    st = wb._st; key = ('ms', str(base_s), numfmt, top, bottom, bold, halign, fill)
     if key in wb._stcache: return wb._stcache[key]
     import copy
     xfs = st.find(Q('cellXfs')); nx = copy.deepcopy(xfs[int(base_s or 0)])
+    if fill == 'none':
+        nx.set('fillId', '0'); nx.set('applyFill', '1')
+    elif fill is not None:
+        fills = st.find(Q('fills'))
+        f = etree.SubElement(fills, Q('fill')); pf = etree.SubElement(f, Q('patternFill')); pf.set('patternType', 'solid')
+        fg = etree.SubElement(pf, Q('fgColor')); fg.set('rgb', fill); bg = etree.SubElement(pf, Q('bgColor')); bg.set('indexed', '64')
+        fills.set('count', str(len(fills)))
+        nx.set('fillId', str(len(fills) - 1)); nx.set('applyFill', '1')
     if numfmt is not None:
         nfs = st.find(Q('numFmts'))
         if nfs is None:
@@ -188,6 +197,39 @@ def make_style(wb, base_s, numfmt=None, top=None, bottom=None, bold=None, halign
         al = nx.find(Q('alignment'))
         if al is None: al = etree.SubElement(nx, Q('alignment'))
         al.set('horizontal', halign); nx.set('applyAlignment', '1')
+    xfs.append(nx); xfs.set('count', str(len(xfs)))
+    wb._stcache[key] = len(xfs) - 1
+    wb.files['xl/styles.xml'] = etree.tostring(st, xml_declaration=True, encoding='UTF-8', standalone=True)
+    return wb._stcache[key]
+
+def fill_rgb(wb, s):
+    """Solid fill ARGB of cellXfs index s ('' if none / theme / pattern-less)."""
+    if not hasattr(wb, '_st'):
+        wb._st = etree.fromstring(wb.files['xl/styles.xml']); wb._stcache = {}
+    xf = wb._st.find(Q('cellXfs'))[int(s or 0)]
+    f = wb._st.find(Q('fills'))[int(xf.get('fillId', '0'))]
+    fg = f.find('.//' + Q('fgColor'))
+    return (fg.get('rgb') or '').upper() if fg is not None else ''
+
+def link_style(wb, base_s):
+    """cellXfs index derived from base_s with a hyperlink font (blue FF0563C1, single underline). Cached."""
+    if not hasattr(wb, '_st'):
+        wb._st = etree.fromstring(wb.files['xl/styles.xml']); wb._stcache = {}
+    st = wb._st; key = ('link', str(base_s))
+    if key in wb._stcache: return wb._stcache[key]
+    import copy
+    xfs = st.find(Q('cellXfs')); nx = copy.deepcopy(xfs[int(base_s or 0)])
+    fonts = st.find(Q('fonts')); nf = copy.deepcopy(fonts[int(nx.get('fontId', '0'))])
+    for t in ('u', 'color'):
+        for e in nf.findall(Q(t)): nf.remove(e)
+    def put(el, before):
+        for i, ch in enumerate(nf):
+            if ch.tag.split('}')[1] in before: nf.insert(i, el); return
+        nf.append(el)
+    u = etree.Element(Q('u')); put(u, ('vertAlign', 'sz', 'color', 'name', 'family', 'charset', 'scheme'))
+    c = etree.Element(Q('color')); c.set('rgb', 'FF0563C1'); put(c, ('name', 'family', 'charset', 'scheme'))
+    fonts.append(nf); fonts.set('count', str(len(fonts)))
+    nx.set('fontId', str(len(fonts) - 1)); nx.set('applyFont', '1')
     xfs.append(nx); xfs.set('count', str(len(xfs)))
     wb._stcache[key] = len(xfs) - 1
     wb.files['xl/styles.xml'] = etree.tostring(st, xml_declaration=True, encoding='UTF-8', standalone=True)

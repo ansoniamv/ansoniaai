@@ -9,7 +9,9 @@ import {
   modelFileName,
   parseRunResult,
   pickModelInputs,
+  pickNovogradacHit,
   pickOutputs,
+  pickTemplateHit,
   runIsOver,
   type ModelInputDoc,
 } from "../../supabase/functions/_shared/dealModel";
@@ -169,5 +171,31 @@ describe("outputs", () => {
   it("failureMessage names the cost cap when that is why", () => {
     const capped = digestEvents([{ id: "1", type: "session.status_idle", stop_reason: { type: "budget_reached" } }]);
     expect(failureMessage(capped, 15)).toContain("$15 cost cap");
+  });
+});
+
+const hit = (name: string, folder = "", modified = "2026-01-01T00:00:00Z", kind: "file" | "folder" = "file") =>
+  ({ item_id: name + folder, name, folder, modified, kind });
+
+describe("pickTemplateHit", () => {
+  it("prefers the template in the Models folder over newer copies in deal folders", () => {
+    const home = hit("00. Pro Forma - Template.xlsx", "00. Models, Research, Tools, Other", "2026-09-01T00:00:00Z");
+    const copy = hit("00. Pro Forma - Template.xlsx", "Dallas/Foundry/02. Models", "2026-11-01T00:00:00Z");
+    expect(pickTemplateHit([copy, home])).toBe(home);
+  });
+  it("falls back to the newest match anywhere, and ignores deal models and folders", () => {
+    const a = hit("00. Pro Forma - Template v2.xlsx", "Templates", "2026-10-01T00:00:00Z");
+    const b = hit("00. Pro Forma - Template.xlsx", "Old", "2026-02-01T00:00:00Z");
+    expect(pickTemplateHit([b, a, hit("00. Pro Forma - Foundry vCURRENT.xlsx"), hit("00. Pro Forma - Template", "", "2027-01-01T00:00:00Z", "folder")])).toBe(a);
+    expect(pickTemplateHit([hit("00. Pro Forma - Foundry vCURRENT.xlsx")])).toBeNull();
+  });
+});
+
+describe("pickNovogradacHit", () => {
+  it("takes the newest year, then the newest file", () => {
+    const y25 = hit("2025 Affordability Novogradac.xlsx", "", "2026-11-01T00:00:00Z");
+    const y26 = hit("2026 Affordability Novogradac.xlsx", "", "2026-03-01T00:00:00Z");
+    expect(pickNovogradacHit([y25, y26, hit("2026 Affordability Novogradac.pdf")])).toBe(y26);
+    expect(pickNovogradacHit([hit("Novogradac notes.docx")])).toBeNull();
   });
 });

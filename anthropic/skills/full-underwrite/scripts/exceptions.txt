@@ -36,7 +36,6 @@ exp|admin|professional fees real estate taxes
 exp|admin|property benefits refund
 exp|admin|property hardware
 exp|admin|recruiting
-exp|admin|renter s liability insurance premium
 exp|admin|resident portal/website/crm hosting
 exp|admin|security deposit interest expense
 exp|admin|security deposit refund
@@ -63,6 +62,8 @@ exp|adv|signage
 exp|adv|signs
 exp|pers|contract security
 exp|pers|front desk/concierge salary
+exp|pers|group insurance
+exp|rexp|renter s liability insurance premium
 exp|pers|security contract labor
 exp|admin|professional fees corp
 exp|pers|benefits
@@ -162,7 +163,7 @@ inc|mkt|rent mtm
 inc|nr|loss to lease model units
 inc|oinc|ancillary telecom upfront
 inc|oinc|bad debt reserve other income
-inc|oinc|cam fees
+inc|CAM|cam fees
 inc|oinc|clubhouse and amenity rental income
 inc|oinc|garage/parking income concession
 inc|oinc|housing utility reimbursements

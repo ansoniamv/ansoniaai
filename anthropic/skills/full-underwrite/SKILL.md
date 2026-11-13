@@ -1,6 +1,6 @@
 ---
 name: full-underwrite
-description: "Ansonia full-deal underwriting, platform run: builds a new copy of the 00. Pro Forma template from a deal's rent roll, T12 and OM (plus an optional HelloData comps export), filling the T12, unit, rent, tax, payroll, comps, broker and debt tabs, and writes the model and a QC report to the session outputs."
+description: "Ansonia full-deal underwriting, platform run: builds a new copy of the 00. Pro Forma template from a deal's rent roll, T12 and OM (plus an optional HelloData comps export), filling the T12, unit, rent, affordability, value-add, tax, payroll, comps, broker, debt, Q&A and (when there is commercial space) Commercial Analysis tabs, and writes the model and a QC report to the session outputs."
 ---
 
 # Full Underwrite (platform run)
@@ -22,10 +22,10 @@ Everything is mounted read-only under `/mnt/session/uploads/`:
 | `run.json` | The run's brief: deal name, address, unit count and other deal-record facts, the file list below with each file's original name, and the options the user chose (`renovation_level`, `notes`). Read it first. |
 | `rent_roll.<ext>` | Raw rent roll |
 | `t12.<ext>` | Raw T12 |
-| `om.pdf` | The OM, when there is one |
+| `om.pdf` | The OM, when there is one. With no OM, follow UNDERWRITE.md's "No OM" rule (workflow step 1): listing pages, the county tax office, comps you pick, a blank Broker column. |
 | `comps.<ext>` | HelloData comps export, when the user attached one |
 | `template.xlsx` | `00. Pro Forma - Template`. Never write to it; build a new copy. |
-| `novogradac.xlsx` | The Novogradac affordability workbook, when Brain has one |
+| `novogradac.xlsx` | The Novogradac affordability workbook (the newest year on SharePoint), when the platform found one |
 
 The platform already chose the newest T12 and the rent roll closest to it, so use the files you are given. If
 `run.json` lists a file that isn't mounted, treat it as missing.
@@ -77,7 +77,8 @@ coding exceptions are also in `scripts/exceptions.txt`, for `classifier.load_exc
 ## What changes from the desktop skill
 
 - **Files:** there is no SharePoint, OneDrive or M365 connector. Use only the files under `/mnt/session/uploads/`.
-  The Novogradac workbook is `novogradac.xlsx`; when it is missing, skip the affordability tab (C.7) and say so.
+  The Novogradac workbook is `novogradac.xlsx`; when it is missing, skip the affordability tab (C.7) and the
+  Affordability table (C.17), and say so. Never use the `sheet_from_text()` text fallback: there is no connector.
 - **Web research** (C.10 amenities, C.12 rent comps, C.14 Treasury) works as written, with the web tools in this
   session. There are no subagents: research the comps one after another, and keep it to what the tables need.
 - **HelloData comps:** when `comps.<ext>` is present, take the rent-comp floor plans for C.12 (sq ft and asking rent
@@ -90,6 +91,9 @@ coding exceptions are also in `scripts/exceptions.txt`, for `classifier.load_exc
 ## Cost
 
 The session has a hard spend cap, and the run stops when it reaches it. Work in this order so a capped run still
-leaves something useful: T12, rent roll (units, floor plans, FPS), Overview, Tax, Broker column, Treasury, Payroll,
-Rent Analysis, affordability tab, then AP Comps (C.10 and C.12). Save the model after each tab, so the latest save is
-always a usable file, and update `qc.md` as you go.
+leaves something useful: T12, rent roll (units, floor plans, FPS), Overview, Tax, Broker column, Treasury, S&U
+transfer tax (Illinois only), Payroll, Rent Analysis, affordability tab and the Affordability table (C.7, C.17),
+Value-Add (C.16), Q&As (C.18), AP Comps (C.10 and C.12), then commercial (C.19) last, because it inserts rows on
+Pro Forma and Multi Yr. Save the model after each tab, so the latest save is always a usable file, and update
+`qc.md` as you go. If the run stops before C.19 on a deal with commercial space, `qc.md` must say the commercial rows
+are missing.
