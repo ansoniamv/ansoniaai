@@ -47,7 +47,12 @@ describe("scoreDeal: document and CoStar inputs", () => {
   it("scores opex from the deal's own expense ratio", () => expect(f.opex_benchmark).toBeCloseTo(81.9, 1));
   it("scores occupancy against the submarket", () => expect(f.occupancy_concessions).toBe(55));
   it("scores capital markets from the submarket cap rate", () => expect(f.capital_markets_exit).toBeCloseTo(69.6, 1));
-  it("scores rent lag against the submarket asking rent", () => expect(f.rent_lag).toBeCloseTo(54.1, 0));
+  it("never scores rent lag from broker rent or the submarket", () => expect(f.rent_lag).toBeNull());
+  it("scores rent lag from the HelloData comps figure alone", () => {
+    // 7% below its HelloData comps; the $2,028 rent roll rent is ignored.
+    expect(scoreDeal({ ...deal, hd_rent_vs_market_pct: -7 }).factor_scores.rent_lag).toBeCloseTo(54.2, 0);
+    expect(scoreDeal({ ...deal, in_place_avg_rent: 500, hd_rent_vs_market_pct: -7 }).factor_scores.rent_lag).toBeCloseTo(54.2, 0);
+  });
   it("lets a typed-in cap rate beat the submarket's", () => {
     expect(scoreDeal({ ...deal, market_cap_rate: 5 }).factor_scores.capital_markets_exit).toBeCloseTo(52, 1);
   });

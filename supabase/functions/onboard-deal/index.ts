@@ -200,15 +200,29 @@ async function runAll(admin: Admin, dealId: string) {
         return r.ok ? { status: "ok" } : { status: "failed", detail: r.error };
       });
     })(),
-    step("hellodata", async () => {
-      const r = await call("fetch-hellodata", { deal_id: dealId });
-      if (!r.ok) return { status: "failed", detail: r.error };
-      const s = r.data?.status;
-      if (r.data?.skipped) return { status: "skipped", detail: "HelloData connector is turned off." };
-      if (s === "fetched") return { status: "ok" };
-      if (s === "unmatched") return { status: "skipped", detail: `No confident HelloData match: ${r.data?.reason ?? "unknown"}` };
-      return { status: "failed", detail: r.data?.error ?? `status ${s ?? "unknown"}` };
-    }),
+    (async () => {
+      const hd = await step("hellodata", async () => {
+        const r = await call("fetch-hellodata", { deal_id: dealId });
+        if (!r.ok) return { status: "failed", detail: r.error };
+        const s = r.data?.status;
+        if (r.data?.skipped) return { status: "skipped", detail: "HelloData connector is turned off." };
+        if (s === "fetched") return { status: "ok" };
+        if (s === "unmatched") return { status: "skipped", detail: `No confident HelloData match: ${r.data?.reason ?? "unknown"}` };
+        return { status: "failed", detail: r.data?.error ?? `status ${s ?? "unknown"}` };
+      });
+      // Rent vs market: this property's HelloData rents vs its HelloData comps.
+      await step("rent_comps", async () => {
+        if (hd.status !== "ok") return { status: "skipped", detail: "Needs the HelloData record first." };
+        const r = await call("hellodata-rent-comps", { deal_id: dealId });
+        if (!r.ok) return { status: "failed", detail: r.error };
+        if (r.data?.status === "ok") {
+          const pct = Number(r.data.pct);
+          return { status: "ok", detail: `${Math.abs(pct).toFixed(1)}% ${pct <= 0 ? "below" : "above"} ${r.data.comps} comps` };
+        }
+        if (r.data?.status === "cached") return { status: "ok", detail: "Already done in the last 30 days." };
+        return { status: "skipped", detail: r.data?.reason ?? null };
+      });
+    })(),
     step("submarket", async () => {
       const r = await call("assign-submarket", { deal_id: dealId });
       if (!r.ok) return { status: "failed", detail: r.error };

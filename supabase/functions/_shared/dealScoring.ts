@@ -39,6 +39,9 @@ export interface ScoreableDeal {
   // Match-gate outcome. 0 = evaluated and rejected, null = never evaluated.
   hellodata_status?: string | null;
   hellodata_match_confidence?: number | null;
+  // Rent vs market from HelloData only: this property's listed rents vs its
+  // HelloData comps' (hellodata-rent-comps). Negative = below market.
+  hd_rent_vs_market_pct?: number | null;
 
   // The deal's CoStar submarket, latest quarter, for its star slice.
   submarket?: SubmarketMarket | null;
@@ -177,13 +180,6 @@ function vintageOf(deal: ScoreableDeal): number | null {
   return isNum(deal.year_built) ? deal.year_built : isNum(deal.vintage_year) ? deal.vintage_year : null;
 }
 
-function marketRentFrom(payload: HelloDataPayload | null | undefined): number | null {
-  if (!payload) return null;
-  const candidates = [payload.market_rent_per_unit, payload.avg_market_rent, payload.market_rent];
-  for (const c of candidates) if (isNum(c) && c > 0) return c;
-  return null;
-}
-
 function marketOccupancyFrom(payload: HelloDataPayload | null | undefined): number | null {
   if (!payload) return null;
   return isNum(payload.market_occupancy_pct) ? payload.market_occupancy_pct : null;
@@ -208,20 +204,15 @@ export function incomeSubScore(ami: number | null | undefined, floor = 55000): n
 // ---------- factor scorers ----------
 
 /**
- * Market rent is HelloData's when it has one (it never has, 0 of 28 payloads),
- * else the CoStar submarket asking rent for the deal's star slice.
- *
- * CAUTION — in_place_avg_rent is tenant-paid rent when a rent roll or OM filled
- * it, but the HelloData mapper derives it from asking prices on AVAILABLE units,
- * which run above in-place rent, so on those deals the lag is understated. Do
- * NOT point market rent at building_availability: in_place_avg_rent can come
- * from that same array, and the lag would be a confident ~0% on every deal.
+ * Rent lag comes from HelloData only: the property's listed rents against its
+ * HelloData comps' listed rents, bedroom for bedroom (hd_rent_vs_market_pct).
+ * Never in_place_avg_rent (a rent roll or OM can fill it: tenant-paid rent set
+ * against asking rents measures the two kinds of number, not the deal), and
+ * never the CoStar submarket rent. No comps, no score for this factor.
  */
 function scoreRentLag(deal: ScoreableDeal): number | null {
-  const market = marketRentFrom(deal.hellodata_payload) ?? deal.submarket?.asking_rent ?? null;
-  const inPlace = deal.in_place_avg_rent;
-  if (!isNum(market) || !isNum(inPlace) || market <= 0) return null;
-  const lagPct = ((market - inPlace) / market) * 100;
+  if (!isNum(deal.hd_rent_vs_market_pct)) return null;
+  const lagPct = -deal.hd_rent_vs_market_pct;
   if (lagPct < 5) return clamp(lerp(Math.max(lagPct, -5), -5, 5, 20, 45));
   if (lagPct < 10) return clamp(lerp(lagPct, 5, 10, 45, 68));
   if (lagPct <= 20) return clamp(lerp(lagPct, 10, 20, 68, 90));

@@ -30,6 +30,25 @@ export function firstHelloDataId(search: any): string | null {
 }
 
 /**
+ * POST /property/comparables with the subject's own /property/{id} payload.
+ * Returns the comps HelloData ranks closest (ids, names, distance, similarity);
+ * it carries no rents, so each comp's rents need a /property/{id} lookup.
+ */
+export async function hdComparables(subject: any, topN: number): Promise<any[]> {
+  const params = new URLSearchParams({ topN: String(topN) });
+  const res = await fetch(`${HD_BASE}/property/comparables?${params}`, {
+    method: "POST",
+    headers: { "x-api-key": key(), "Content-Type": "application/json" },
+    body: JSON.stringify({ subject, excluded_ids: subject?.id ? [String(subject.id)] : [] }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`HelloData /property/comparables → ${res.status}: ${text.slice(0, 300)}`);
+  const body = JSON.parse(text);
+  return Array.isArray(body?.comparables) ? body.comparables : [];
+}
+
+/**
  * /property/{id} with a 20s timeout and exponential backoff on 429/5xx and on
  * network/timeout errors. Does NOT retry 4xx such as 401/404 — those are not
  * going to get better and each attempt is billed.

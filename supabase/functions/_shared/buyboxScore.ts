@@ -116,6 +116,7 @@ function toScoreable(deal: Record<string, unknown>, submarket: SubmarketMarket |
     school_rating: n("school_rating"),
     nearest_employment_node_min: n("nearest_employment_node_min"),
     market_cap_rate: n("market_cap_rate"),
+    hd_rent_vs_market_pct: n("hd_rent_vs_market_pct"),
     regulatory_risk: (deal.regulatory_risk as RegulatoryRisk | null) ?? null,
     hellodata_payload: (deal.hellodata_payload ?? null) as HelloDataPayload | null,
     submarket,
