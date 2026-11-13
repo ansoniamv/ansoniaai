@@ -3,28 +3,133 @@
  * two-pane reader matching the Acquisitions Inbox — full email on the right,
  * with partner and deal tagging above it.
  *
- * Tagging a partner goes through useAssignMessagePartner, which also clears
+ * Tags are staged, not saved on click: pick the partner and any deals, then
+ * "Save tags" writes them together. (Saving on each pick dropped the email out
+ * of the list, or moved on, before the rest could be tagged.)
+ *
+ * The partner is saved through useAssignMessagePartner, which also clears
  * analyzed_at so the Atlas analyzer re-reads the email against that partner.
  * The email then leaves this list and the reader moves on to the next one.
  */
-import { useMemo, useRef, useState } from "react";
-import { Inbox, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, Inbox, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmailMessageDetail, EmailMessageRow } from "@/components/EmailReader";
+import { DealMultiLink } from "@/components/DealMultiLink";
+import { LinkCombobox } from "@/components/LinkCombobox";
 import { useUnattributedAtlasMessages, useAssignMessagePartner } from "@/hooks/usePartnerSuggestions";
 import { usePartners } from "@/hooks/usePartners";
 import { useDeals } from "@/hooks/useDeals";
-import type { OutlookMessage } from "@/hooks/useOutlook";
+import { useMessageDeals, useSetMessageDeals, type OutlookMessage } from "@/hooks/useOutlook";
+
+const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
+
+function StagedTagging({
+  msg,
+  partners,
+  deals,
+  onSaved,
+}: {
+  msg: OutlookMessage;
+  partners: Array<{ id: string; name: string }>;
+  deals: Array<{ id: string; property_name: string }>;
+  /** Called after a save; `partnerTagged` means the email has left the list. */
+  onSaved: (partnerTagged: boolean) => void;
+}) {
+  const { data: linked, isSuccess: linkedLoaded } = useMessageDeals(msg.id);
+  const assign = useAssignMessagePartner();
+  const setDeals = useSetMessageDeals();
+  const saved = useMemo(
+    () => (linked && linked.length > 0 ? linked : msg.deal_id ? [msg.deal_id] : []),
+    [linked, msg.deal_id],
+  );
+  const [partnerId, setPartnerId] = useState<string | null>(null);
+  const [dealIds, setDealIds] = useState<string[]>([]);
+  // Seed the staged deals from what is already saved, once it has loaded.
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (linkedLoaded && !seeded.current) {
+      seeded.current = true;
+      setDealIds(saved);
+    }
+  }, [linkedLoaded, saved]);
+
+  const dealsChanged = !sameSet(dealIds, saved);
+  const dirty = !!partnerId || dealsChanged;
+  const saving = assign.isPending || setDeals.isPending;
+
+  const save = async () => {
+    try {
+      if (dealsChanged) await setDeals.mutateAsync({ id: msg.id, dealIds });
+      if (partnerId) await assign.mutateAsync({ id: msg.id, partnerId });
+      const parts = [
+        partnerId && (partners.find((p) => p.id === partnerId)?.name ?? "partner"),
+        dealsChanged && `${dealIds.length} deal${dealIds.length === 1 ? "" : "s"}`,
+      ].filter(Boolean);
+      toast.success(
+        partnerId
+          ? `Tagged to ${parts.join(" + ")}. Atlas will analyze it on the next run.`
+          : `Saved ${parts.join("")}. Still unattributed until a partner is tagged.`,
+      );
+      onSaved(!!partnerId);
+    } catch (e) {
+      toast.error((e as Error).message || "Couldn’t save tags");
+    }
+  };
+
+  return (
+    <div className="space-y-2 pt-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <LinkCombobox
+          kind="partner"
+          items={partners.map((p) => ({ id: p.id, label: p.name }))}
+          value={partnerId}
+          onChange={setPartnerId}
+          disabled={saving}
+          placeholder="Tag partner"
+        />
+        <DealMultiLink
+          messageId={msg.id}
+          fallbackDealId={msg.deal_id}
+          deals={deals}
+          value={dealIds}
+          onChange={setDealIds}
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" onClick={save} disabled={!dirty || saving}>
+          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+          Save tags
+        </Button>
+        {dirty && !saving && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setPartnerId(null);
+              setDealIds(saved);
+            }}
+          >
+            Reset
+          </Button>
+        )}
+        <span className="text-xs text-muted-foreground">
+          {dirty ? "Unsaved tags." : "Pick a partner and any deals, then save."} Saving a partner moves the email out of Unattributed.
+        </span>
+      </div>
+    </div>
+  );
+}
 
 export function AtlasUnattributedInbox() {
   const { data, isLoading, isError, error } = useUnattributedAtlasMessages();
   const { data: partners } = usePartners();
   const { data: deals } = useDeals();
-  const assign = useAssignMessagePartner();
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Where the last selection sat, so tagging an email away advances to its neighbour.
@@ -48,16 +153,11 @@ export function AtlasUnattributedInbox() {
   const selected = index >= 0 ? filtered[index] : undefined;
   if (index >= 0) lastIndex.current = index;
 
-  const tagPartner = async (partnerId: string | null) => {
-    if (!selected || !partnerId) return;
-    const name = partners?.find((p) => p.id === partnerId)?.name ?? "partner";
-    try {
-      await assign.mutateAsync({ id: selected.id, partnerId });
-      setSelectedId(null);
-      toast.success(`Tagged to ${name}. Atlas will analyze it on the next run.`);
-    } catch (e) {
-      toast.error((e as Error).message || "Couldn't tag the email");
-    }
+  const onSaved = (partnerTagged: boolean) => {
+    // A tagged email drops out of the list, so the same index is already the
+    // next email; a deals-only save stays listed, so step past it.
+    if (partnerTagged) setSelectedId(null);
+    else setSelectedId(filtered[index + 1]?.id ?? selected?.id ?? null);
   };
 
   return (
@@ -117,10 +217,16 @@ export function AtlasUnattributedInbox() {
               msg={selected}
               partners={partners || []}
               deals={deals || []}
-              onPartnerChange={tagPartner}
-              linking={assign.isPending}
-              partnerPlaceholder="Tag partner"
-              notice="Tagging a partner moves this email out of Unattributed and queues it for Atlas to analyze."
+              linking={false}
+              tagging={
+                <StagedTagging
+                  key={selected.id}
+                  msg={selected}
+                  partners={partners || []}
+                  deals={deals || []}
+                  onSaved={onSaved}
+                />
+              }
             />
           ) : (
             <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
