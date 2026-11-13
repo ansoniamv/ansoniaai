@@ -30,6 +30,7 @@ import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supa
 import { corsFor, requireApprovedUser, requireCronSecret } from "../_shared/auth.ts";
 import { errorResponse } from "../_shared/errors.ts";
 import { rescoreBuybox } from "../_shared/buyboxScore.ts";
+import { dealHasStreet } from "../_shared/documentAddress.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
 
@@ -69,8 +70,10 @@ Deno.serve(async (req) => {
     if (body.action === "run") {
       const dealId = body.deal_id;
       if (typeof dealId !== "string" || !UUID_RE.test(dealId)) return json({ error: "deal_id must be a UUID" }, 400);
-      // A person asking again reruns a finished deal; the trigger never does.
-      const claimed = await claim(admin, dealId, !isService);
+      // A person asking again reruns a finished deal, and so does
+      // parse-deal-document when a document supplies the street address
+      // (rerun: true). The insert trigger never does.
+      const claimed = await claim(admin, dealId, !isService || body.rerun === true);
       if (!claimed) return json({ status: "already_running_or_done" });
       background(runAll(admin, dealId));
       return json({ status: "running" }, 202);
@@ -215,6 +218,22 @@ async function runAll(admin: Admin, dealId: string) {
       return { status: "skipped", detail: res.reason ?? res.status };
     }),
     step("agents", async () => {
+      // A deal whose CA agent has run before is not started again: a rerun
+      // would re-open a signed CA or repeat a login that already failed, and
+      // bill a run for it. The deal page's Sign CA / Retry is for that. Its
+      // email attachments are still copied (a no-op for ones already there).
+      const { data: prior } = await admin
+        .from("deal_ca_runs")
+        .select("status")
+        .eq("deal_id", dealId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (prior) {
+        const imp = await call("deal-agents", { action: "import_attachments", deal_id: dealId });
+        if (!imp.ok) return { status: "failed", detail: imp.error };
+        return { status: "skipped", detail: `CA agent already ran (${prior.status}); not started again. Email attachments re-checked.` };
+      }
       const r = await call("deal-agents", { action: "start", deal_id: dealId });
       if (!r.ok) return { status: "failed", detail: r.error };
       // Attachments are imported whatever happens to the CA; the run row (or
@@ -244,6 +263,15 @@ async function runAll(admin: Admin, dealId: string) {
     error: failed.length ? `Failed: ${failed.join(", ")}` : null,
     finished_at: new Date().toISOString(),
   }).eq("deal_id", dealId);
+
+  // A document the agents brought in may have supplied the street while this
+  // run was going; its own rerun request could not claim the row then. Run
+  // once more so the address-keyed steps see it. The second run starts with a
+  // street, so this cannot repeat.
+  if (!dealHasStreet(deal)) {
+    const { data: now } = await admin.from("deals").select("address, property_address").eq("id", dealId).maybeSingle();
+    if (now && dealHasStreet(now) && await claim(admin, dealId, true)) await runAll(admin, dealId);
+  }
 }
 
 /** Call another function as the service. Never throws. */

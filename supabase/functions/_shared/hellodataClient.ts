@@ -95,11 +95,16 @@ export async function hdPropertyResilient(hdId: string): Promise<any> {
 export type AddressRefusal = { ok: false; reason: string };
 export type AddressQuery = { ok: true; query: string; street: string };
 
-/** A usable street address needs a number and a name — "Columbus, OH" does not. */
+/**
+ * A usable street address needs a number and a name — "Columbus, OH" does not.
+ * Words may sit between them, so a directional ("1649 E. 50th Street",
+ * "1251 S Michigan Ave") counts; the old rule needed the name straight after
+ * the number and refused both.
+ */
 export function hasStreetAddress(s: unknown): boolean {
   const v = String(s ?? "").trim();
   if (!v) return false;
-  return /\d+\s+\S*[A-Za-z]{2,}/.test(v);
+  return /\b\d+[A-Za-z]?\s+(?:[^\s,]+\s+)*[A-Za-z]{2,}/.test(v.split(",")[0]);
 }
 
 /**
