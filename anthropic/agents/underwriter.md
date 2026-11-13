@@ -1,7 +1,7 @@
 ---
 name: Ansonia Underwriter
 description: Builds a deal's pro forma model from its rent roll, T12 and OM. Started by the platform's generate-model function.
-model: claude-opus-5-5
+model: claude-sonnet-5-5
 skills:
   - ../skills/full-underwrite
 tools:
