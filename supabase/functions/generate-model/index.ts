@@ -78,7 +78,7 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
  */
 const RUN_BUDGET_USD = Number(Deno.env.get("MODEL_RUN_BUDGET_USD") ?? 15);
 /** The model the agent runs on (anthropic/agents/underwriter.md), for the usage log. */
-const AGENT_MODEL = "claude-opus-5-5";
+const AGENT_MODEL = "claude-sonnet-5-5";
 const FN = "generate-model";
 
 const DOCS_BUCKET = "deal-documents";
