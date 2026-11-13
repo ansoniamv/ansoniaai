@@ -26,6 +26,7 @@ export const ONBOARDING_STEPS: { key: string; label: string }[] = [
   { key: "esri", label: "Esri demographics" },
   { key: "schools", label: "Schools" },
   { key: "hellodata", label: "HelloData" },
+  { key: "rent_comps", label: "Rent vs market (HelloData comps)" },
   { key: "submarket", label: "CoStar submarket" },
   { key: "agents", label: "Documents + CA agent" },
   { key: "deal_score", label: "Market metrics + AI score" },

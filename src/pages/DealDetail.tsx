@@ -64,6 +64,7 @@ import { useLatestCaRun } from "@/hooks/useDealAgents";
 import { useDealModels } from "@/hooks/useDealModels";
 import { STAGE_LABEL, useEngagementsByDeal } from "@/hooks/useCapitalRaiseEngagements";
 import { cn } from "@/lib/utils";
+import { hellodataRentVsMarketPct } from "@/lib/rentVsMarket";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -641,11 +642,10 @@ export default function DealDetail() {
   // Same query as the Submarket Supply Cycle panel: cites a CoStar supply figure.
   const { data: costarRows = [] } = useSubmarketSignals(d?.costar_submarket_code);
 
-  const rentDeltaPct = useMemo(() => {
-    if (!isNum(d?.in_place_avg_rent) || !isNum(d?.median_rent_tract) || d.median_rent_tract === 0)
-      return null;
-    return ((d.in_place_avg_rent - d.median_rent_tract) / d.median_rent_tract) * 100;
-  }, [d?.in_place_avg_rent, d?.median_rent_tract]);
+  // HelloData only: this property's listed rents vs its HelloData comps',
+  // bedroom for bedroom (hellodata-rent-comps). Never the rent roll / OM rent
+  // or the Census tract median.
+  const rentDeltaPct = hellodataRentVsMarketPct(d);
 
   if (isLoading) {
     return (
@@ -1481,10 +1481,10 @@ export default function DealDetail() {
             source={sourcePanel(
               "Rent vs Market",
               [
-                { name: "In-place rent", value: fmtMoney(d.in_place_avg_rent), source: fieldSource("in_place_avg_rent") },
-                { name: "Market rent", value: fmtMoney(d.median_rent_tract), source: fieldSource("median_rent_tract") },
+                { name: "This property's listed rent (HelloData)", value: fmtMoney(d.hd_subject_rent), source: fieldSource("hd_subject_rent") },
+                { name: `Comps' listed rent (${d.hd_rent_comps?.comps?.length ?? 0} HelloData comps)`, value: fmtMoney(d.hd_comp_market_rent), source: fieldSource("hd_comp_market_rent") },
               ],
-              "(in-place rent − market rent) ÷ market rent",
+              "(property rent − comps' rent) ÷ comps' rent, matched by bedroom count",
             )}
             value={
               isNum(rentDeltaPct) ? (
