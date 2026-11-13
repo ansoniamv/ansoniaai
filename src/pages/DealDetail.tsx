@@ -1377,12 +1377,6 @@ export default function DealDetail() {
       </section>
         </TabsContent>
         <TabsContent value="market" className="mt-6 space-y-8">
-      {/* ============ Submarket Supply Cycle ============ */}
-      <section>
-        <SectionHeader title="Submarket Supply Cycle · CoStar" />
-        <SubmarketSignalsPanel deal={d} />
-      </section>
-
       {/* ============ Buy-Box Gates ============ */}
       <section>
         <SectionHeader title="Buy-Box Gates" />
@@ -1457,6 +1451,12 @@ export default function DealDetail() {
             ])}
           />
         </div>
+      </section>
+
+      {/* ============ Submarket Supply Cycle ============ */}
+      <section>
+        <SectionHeader title="Submarket Supply Cycle · CoStar" />
+        <SubmarketSignalsPanel deal={d} />
       </section>
 
       {/* ============ Comps ============ */}
